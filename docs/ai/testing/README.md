@@ -1,10 +1,10 @@
 ---
 phase: testing
-title: Perps DEX Testing Strategy
-description: Test coverage goals, test cases, and validation plan for the on-chain perps DEX
+title: MGK Exchange Testing Strategy
+description: Test coverage goals, test cases, and validation plan for the MGK on-chain perps exchange
 ---
 
-# Perps DEX Testing Strategy
+# MGK Exchange Testing Strategy
 
 ## Test Coverage Goals
 
@@ -160,14 +160,14 @@ description: Test coverage goals, test cases, and validation plan for the on-cha
 cargo test --lib
 
 # Integration tests (all 5 milestones, 93 tests total)
-cargo test -p percolator-integration-tests
+cargo test -p mgk-integration-tests
 
 # Specific milestone
-cargo test -p percolator-integration-tests --test milestone1_oracle
-cargo test -p percolator-integration-tests --test milestone2_matching
-cargo test -p percolator-integration-tests --test milestone3_portfolio
-cargo test -p percolator-integration-tests --test milestone4_batch_lifecycle
-cargo test -p percolator-integration-tests --test milestone5_liquidation
+cargo test -p mgk-integration-tests --test milestone1_oracle
+cargo test -p mgk-integration-tests --test milestone2_matching
+cargo test -p mgk-integration-tests --test milestone3_portfolio
+cargo test -p mgk-integration-tests --test milestone4_batch_lifecycle
+cargo test -p mgk-integration-tests --test milestone5_liquidation
 
 # E2E tests (requires test-validator + compiled BPF .so files)
 cargo build-sbf
@@ -181,13 +181,13 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 | File | Milestone | Tests | Description |
 |------|-----------|-------|-------------|
-| `tests/integration/tests/milestone1_oracle.rs` | M1 | 13 | Oracle lifecycle: init, price updates, auth, activate/deactivate |
-| `tests/integration/tests/milestone2_matching.rs` | M2 | 15 | Orderbook operations, fill receipts, VWAP, fees, capacity |
-| `tests/integration/tests/milestone3_portfolio.rs` | M3 | 23 | Portfolio init, deposit/withdraw, registry, margin, LP buckets |
-| `tests/integration/tests/milestone4_batch_lifecycle.rs` | M4 | 22 | Commit-reveal lifecycle, clearing, settlement, slashing |
-| `tests/integration/tests/milestone5_liquidation.rs` | M5 | 20 | Liquidation modes, insurance, cooldown, reduce-only, fee distribution |
-| `tests/integration/tests/e2e_tests.rs` | E2E | 5 | Simulated capital efficiency proof, multi-slab routing, TOCTOU |
-| `tests/e2e/src/` | E2E | — | solana-test-validator harness with real program deployment |
+| `tests/integration/tests/milestone1_oracle.rs` | M1 | 13 | Oracle lifecycle |
+| `tests/integration/tests/milestone2_matching.rs` | M2 | 15 | Orderbook ops, fill receipts, VWAP, fees |
+| `tests/integration/tests/milestone3_portfolio.rs` | M3 | 23 | Portfolio, deposit/withdraw, registry, margin |
+| `tests/integration/tests/milestone4_batch_lifecycle.rs` | M4 | 22 | Commit-reveal, clearing, settlement (simulated) |
+| `tests/integration/tests/milestone5_liquidation.rs` | M5 | 20 | Liquidation modes, insurance, cooldown, reduce-only |
+| `tests/integration/tests/e2e_tests.rs` | E2E | 5 | Capital efficiency proof, multi-slab routing |
+| `tests/e2e/src/` | E2E | — | solana-test-validator harness |
 
 ## Deferred Tasks
 

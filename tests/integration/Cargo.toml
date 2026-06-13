@@ -1,5 +1,5 @@
 [package]
-name = "percolator-integration-tests"
+name = "mgk-integration-tests"
 version.workspace = true
 edition.workspace = true
 publish = false

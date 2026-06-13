@@ -1,4 +1,4 @@
-//! E2E Integration Tests for Percolator v0
+//! MGK Exchange E2E Tests
 //!
 //! Implements all E2E test scenarios from TEST_PLAN.md
 //!
@@ -164,7 +164,7 @@ async fn test_e2e_4_price_limit_protection() {
 async fn test_summary_all_assertions() {
     println!("\n");
     println!("╔════════════════════════════════════════════════════════╗");
-    println!("║       Percolator v0 E2E Test Summary                  ║");
+    println!("║       MGK Exchange E2E Test Summary                      ║");
     println!("╚════════════════════════════════════════════════════════╝");
     println!();
 
@@ -202,7 +202,7 @@ async fn test_summary_all_assertions() {
     println!();
 
     println!("╔════════════════════════════════════════════════════════╗");
-    println!("║  ✅ Percolator v0 Core Thesis: PROVEN                  ║");
+    println!("║  ✅ MGK Exchange Core Thesis: PROVEN                      ║");
     println!("╚════════════════════════════════════════════════════════╝");
     println!();
 }

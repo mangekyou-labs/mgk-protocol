@@ -30,7 +30,7 @@ test:
 
 test-e2e:
 	@echo "Running E2E integration tests..."
-	@cargo test -p percolator-integration-tests
+	@cargo test -p mgk-integration-tests
 
 clean:
 	@echo "Cleaning..."

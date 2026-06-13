@@ -1,4 +1,4 @@
-//! Percolator E2E Tests
+//! MGK E2E Tests
 //!
 //! Real end-to-end tests using solana-test-validator and actual deployed .so files.
 
