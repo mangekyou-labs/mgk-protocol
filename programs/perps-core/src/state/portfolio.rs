@@ -63,6 +63,76 @@ impl Position {
         let price_delta = (mark as i128) - (self.entry_vwap as i128);
         (self.qty as i128) * price_delta
     }
+
+    /// M7 7.7 (D4): absolute notional value of this position at the
+    /// given oracle price, as `u128` (max product of two i64s is
+    /// ~7.3e18, which fits comfortably). Used as the sort key for
+    /// iterative reduction: largest notional first.
+    pub fn abs_notional(&self, oracle_price: i64) -> u128 {
+        let abs_qty = (self.qty as i128).unsigned_abs();
+        let abs_price = (oracle_price as i128).unsigned_abs();
+        abs_qty.saturating_mul(abs_price)
+    }
+}
+
+/// M7 7.7 (D4): returns position indices sorted by abs notional
+/// (|qty * oracle_price|) descending. Used by `process_liquidate_user`
+/// to determine which position to reduce first in iterative reduction.
+///
+/// The first `positions_len` slots contain the indices of the user's
+/// positions, sorted by notional desc. The remaining slots
+/// (`positions_len..MAX_POSITIONS`) are filled with `MAX_POSITIONS` as
+/// a sentinel (valid indices are always < `MAX_POSITIONS`).
+///
+/// Zero-qty positions are skipped (they have no notional and shouldn't
+/// be reduced). If `positions_len == 0` or all positions have qty == 0,
+/// the returned array is all sentinels.
+///
+/// We use insertion sort: n <= `MAX_POSITIONS = 32`, so the O(n^2)
+/// inner loop runs at most 1024 iterations — well within the BPF
+/// compute budget and `no_std`-friendly (no heap).
+pub fn sort_position_indices_by_abs_notional(
+    positions: &[Position; MAX_POSITIONS],
+    positions_len: usize,
+    oracle_price: i64,
+) -> [usize; MAX_POSITIONS] {
+    const SENTINEL: usize = MAX_POSITIONS;
+    let mut indices = [SENTINEL; MAX_POSITIONS];
+    if positions_len == 0 {
+        return indices;
+    }
+
+    // Seed the index array with the indices of non-zero positions.
+    let mut n: usize = 0;
+    for (i, pos) in positions[..positions_len].iter().enumerate() {
+        if pos.qty != 0 {
+            indices[n] = i;
+            n += 1;
+        }
+    }
+    if n == 0 {
+        return [SENTINEL; MAX_POSITIONS];
+    }
+
+    // Insertion sort: indices sorted by abs notional desc.
+    for i in 1..n {
+        let mut j = i;
+        while j > 0 {
+            let a_notional = positions[indices[j - 1]].abs_notional(oracle_price);
+            let b_notional = positions[indices[j]].abs_notional(oracle_price);
+            // Descending: swap if previous notional is smaller.
+            if a_notional < b_notional {
+                indices.swap(j - 1, j);
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Remaining slots (n..MAX_POSITIONS) are already SENTINEL from
+    // the initial `[SENTINEL; MAX_POSITIONS]` declaration.
+    indices
 }
 
 impl Portfolio {
@@ -337,5 +407,144 @@ mod tests {
         let delta = (mark as i128) - (p.entry_vwap as i128);
         let inline = (p.qty as i128) * delta;
         assert_eq!(p.liquidation_pnl(oracle, conf), inline);
+    }
+
+    // ----- M7 7.7 (D4) abs_notional + sort helper -----
+
+    fn positions<const N: usize>(ps: [Position; N]) -> [Position; MAX_POSITIONS] {
+        let mut out = [Position::default(); MAX_POSITIONS];
+        for (i, p) in ps.into_iter().enumerate() {
+            out[i] = p;
+        }
+        out
+    }
+
+    #[test]
+    fn test_abs_notional_long() {
+        let p = long(10, 50_000_000);
+        // 10 * 100_000_000 = 1_000_000_000
+        assert_eq!(p.abs_notional(100_000_000), 1_000_000_000);
+    }
+
+    #[test]
+    fn test_abs_notional_short() {
+        let p = short(10, 50_000_000);
+        // |-10| * 100_000_000 = 1_000_000_000
+        assert_eq!(p.abs_notional(100_000_000), 1_000_000_000);
+    }
+
+    #[test]
+    fn test_abs_notional_zero_qty() {
+        let p = Position {
+            instrument_id: 1,
+            qty: 0,
+            entry_vwap: 0,
+        };
+        assert_eq!(p.abs_notional(100_000_000), 0);
+    }
+
+    #[test]
+    fn test_sort_position_indices_empty() {
+        let positions = positions([]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 0, 100_000_000);
+        // All sentinels when positions_len == 0
+        assert!(sorted.iter().all(|&i| i == MAX_POSITIONS));
+    }
+
+    #[test]
+    fn test_sort_position_indices_single() {
+        let positions = positions([long(10, 50_000_000)]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 1, 100_000_000);
+        assert_eq!(sorted[0], 0);
+        assert!(sorted[1..].iter().all(|&i| i == MAX_POSITIONS));
+    }
+
+    #[test]
+    fn test_sort_position_indices_two_descending() {
+        // Position 0: 10 @ 50M @ oracle 100M → notional 1B
+        // Position 1: 5  @ 50M @ oracle 100M → notional 500M
+        // Expect: [1, 0] (position 1 has smaller notional, position 0 larger? wait
+        // descending means LARGEST first → position 0)
+        let positions = positions([long(10, 50_000_000), long(5, 50_000_000)]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 2, 100_000_000);
+        assert_eq!(sorted[0], 0, "largest notional first");
+        assert_eq!(sorted[1], 1, "smaller notional second");
+    }
+
+    #[test]
+    fn test_sort_position_indices_three_unsorted_input() {
+        // Order: [small, large, medium]
+        // Notionals at oracle 100M:
+        //   idx 0: 5  * 100M = 500M  (small)
+        //   idx 1: 20 * 100M = 2B    (large)
+        //   idx 2: 10 * 100M = 1B    (medium)
+        let positions = positions([
+            long(5, 50_000_000),
+            long(20, 50_000_000),
+            long(10, 50_000_000),
+        ]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 3, 100_000_000);
+        assert_eq!(sorted[0], 1, "idx 1 has notional 2B (largest)");
+        assert_eq!(sorted[1], 2, "idx 2 has notional 1B (medium)");
+        assert_eq!(sorted[2], 0, "idx 0 has notional 500M (smallest)");
+        assert!(sorted[3..].iter().all(|&i| i == MAX_POSITIONS));
+    }
+
+    #[test]
+    fn test_sort_position_indices_mixes_long_and_short() {
+        // qty sign doesn't matter for notional (we take abs)
+        //   idx 0: long 10  → notional 1B
+        //   idx 1: short 20 → notional 2B
+        //   idx 2: long 5   → notional 500M
+        let positions = positions([
+            long(10, 50_000_000),
+            short(20, 50_000_000),
+            long(5, 50_000_000),
+        ]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 3, 100_000_000);
+        assert_eq!(sorted[0], 1, "idx 1 (short 20) has largest notional");
+        assert_eq!(sorted[1], 0);
+        assert_eq!(sorted[2], 2);
+    }
+
+    #[test]
+    fn test_sort_position_indices_skips_zero_qty() {
+        // Even if positions_len > 0, zero-qty positions are skipped.
+        let positions = positions([
+            long(10, 50_000_000),  // idx 0
+            Position { instrument_id: 2, qty: 0, entry_vwap: 0 }, // idx 1: zero, skipped
+            long(5, 50_000_000),   // idx 2
+        ]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 3, 100_000_000);
+        assert_eq!(sorted[0], 0, "idx 0 has notional 1B");
+        assert_eq!(sorted[1], 2, "idx 2 has notional 500M");
+        assert_eq!(sorted[2], MAX_POSITIONS, "skipped (sentinel)");
+        assert!(sorted[3..].iter().all(|&i| i == MAX_POSITIONS));
+    }
+
+    #[test]
+    fn test_sort_position_indices_all_zero_qty() {
+        let positions = positions([
+            Position { instrument_id: 1, qty: 0, entry_vwap: 0 },
+            Position { instrument_id: 2, qty: 0, entry_vwap: 0 },
+        ]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 2, 100_000_000);
+        // All zero-qty → all sentinels
+        assert!(sorted.iter().all(|&i| i == MAX_POSITIONS));
+    }
+
+    #[test]
+    fn test_sort_position_indices_uses_oracle_price() {
+        // Same qtys, different oracle price → notional changes
+        //   idx 0: long 10
+        //   idx 1: long 5
+        // At oracle 200M:
+        //   idx 0: 10 * 200M = 2B
+        //   idx 1: 5  * 200M = 1B
+        // Order: [0, 1] (idx 0 larger)
+        let positions = positions([long(10, 50_000_000), long(5, 50_000_000)]);
+        let sorted = sort_position_indices_by_abs_notional(&positions, 2, 200_000_000);
+        assert_eq!(sorted[0], 0);
+        assert_eq!(sorted[1], 1);
     }
 }

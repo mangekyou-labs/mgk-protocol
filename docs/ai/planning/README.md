@@ -483,6 +483,12 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 - [x] 13 new unit tests in `state/portfolio.rs`: long/short with loss, long/short with no loss, zero qty, boundary at entry, saturation underflow, saturation overflow, regression test pinning against the existing inline math in `liquidate_user.rs:78-97` (so 7.7.4 can safely replace the inline version).
 - **Why pure:** no state changes, no syscall, no allocations — the function is fully testable on the host and the new test suite verifies the math that 7.7.4 will rely on.
 
+### 7.7.3. Position-Notional Sort Helper [DONE] (2026-06-17)
+- [x] Add `Position::abs_notional(&self, oracle_price) -> u128` — `|qty * oracle_price|` as `u128` (saturating mul).
+- [x] Add free function `sort_position_indices_by_abs_notional(positions, positions_len, oracle_price) -> [usize; MAX_POSITIONS]` — indices sorted by abs-notional desc, sentinel-filled past `positions_len`. Insertion sort (n ≤ 32, O(n²) ≤ 1024 iterations, BPF-budget friendly, no_std clean). Skips zero-qty positions.
+- [x] 11 new unit tests: empty/single/two/three positions, long+short mix, zero-qty skip, all-zero-qty, oracle price variation, sentinel padding.
+- **Why insertion sort:** matches the pattern in `state/mark_price.rs:62-81` (same n ≤ 64, no heap, no_std clean). The sort runs once at the start of `process_liquidate_user` in 7.7.4, then the index array is walked in order.
+
 ### 7.7-pre. e2e Equity-Offset Bug Fix (7.2 follow-up) [DONE] (2026-06-17)
 Pre-work for 7.7: the pre-existing e2e harness in `programs/perps-core/tests/lifecycle.rs` read `portfolio.equity` and `portfolio.principal` at incorrect byte offsets. The actual struct layout (`state/portfolio.rs:8`) is `user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...` so equity is at `[32..48]` and principal at `[48..64]`. The pre-existing reads used `[16..32]` (equity) and `[32..48]` (principal) — off by 16 bytes each. The test "passed" only because it early-returns without `BPF_OUT_DIR`. Fixed 8 read sites in `test_e2e_full_lifecycle_with_fill` and `test_e2e_gtc_rests_then_matches_next_batch`. Now ready for the new liquidation e2e test to assert on real BPF state.
 
