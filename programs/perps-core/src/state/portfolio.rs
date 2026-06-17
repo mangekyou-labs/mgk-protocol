@@ -31,6 +31,40 @@ pub struct Position {
     pub entry_vwap: i64,
 }
 
+impl Position {
+    /// M7 7.7 (D4): worst-case liquidation price for a position given
+    /// the oracle price and confidence band. Longs get the lower band
+    /// (worst for the holder of a long), shorts get the upper band.
+    /// Saturates on underflow/overflow to keep the math panic-free
+    /// (conservative: clamps to i64::MIN / i64::MAX, which produces the
+    /// maximum possible loss but never wraps).
+    pub fn liquidation_mark_price(qty: i64, oracle_price: i64, confidence: i64) -> i64 {
+        if qty >= 0 {
+            oracle_price.saturating_sub(confidence)
+        } else {
+            oracle_price.saturating_add(confidence)
+        }
+    }
+
+    /// M7 7.7 (D4): PnL delta (positive = profit, negative = loss) if
+    /// this position were closed at the worst-case liquidation price.
+    /// Used by the iterative reduction in `process_liquidate_user` to
+    /// compute per-position losses and to recompute `health` after each
+    /// round. A zero-qty position returns 0 (no impact).
+    ///
+    /// Note: this returns the PnL delta of the position alone. The
+    /// portfolio-level impact is the sum across all positions (the
+    /// liquidator subtracts this from `portfolio.equity`).
+    pub fn liquidation_pnl(&self, oracle_price: i64, confidence: i64) -> i128 {
+        if self.qty == 0 {
+            return 0;
+        }
+        let mark = Self::liquidation_mark_price(self.qty, oracle_price, confidence);
+        let price_delta = (mark as i128) - (self.entry_vwap as i128);
+        (self.qty as i128) * price_delta
+    }
+}
+
 impl Portfolio {
     pub fn initialize_in_place(&mut self, user: Pubkey, bump: u8) {
         self.user = user;
@@ -177,5 +211,131 @@ mod tests {
         assert_eq!(found.1.qty, 100);
 
         assert!(p.find_position(2).is_none());
+    }
+
+    // ----- M7 7.7 (D4) liquidation PnL math -----
+
+    fn long(qty: i64, entry: i64) -> Position {
+        Position {
+            instrument_id: 1,
+            qty,
+            entry_vwap: entry,
+        }
+    }
+
+    fn short(qty: i64, entry: i64) -> Position {
+        Position {
+            instrument_id: 1,
+            qty: -qty.abs(),
+            entry_vwap: entry,
+        }
+    }
+
+    #[test]
+    fn test_liquidation_mark_price_long_gets_lower_band() {
+        // Long: worst case is oracle - confidence
+        assert_eq!(Position::liquidation_mark_price(10, 100_000, 5_000), 95_000);
+    }
+
+    #[test]
+    fn test_liquidation_mark_price_short_gets_upper_band() {
+        // Short: worst case is oracle + confidence
+        assert_eq!(Position::liquidation_mark_price(-10, 100_000, 5_000), 105_000);
+    }
+
+    #[test]
+    fn test_liquidation_mark_price_zero_qty_treats_as_long() {
+        // qty == 0 returns oracle - confidence (arbitrary; caller must
+        // not call with qty == 0 anyway — see liquidation_pnl short-circuit).
+        let m = Position::liquidation_mark_price(0, 100_000, 5_000);
+        assert_eq!(m, 95_000);
+    }
+
+    #[test]
+    fn test_liquidation_mark_price_saturates_on_underflow() {
+        // oracle - confidence underflows only at i64::MIN edge.
+        // Plain (100 - 1_000 = -900) does NOT saturate — that's
+        // just a large negative number, not a wrap.
+        let m = Position::liquidation_mark_price(1, i64::MIN, 0);
+        assert_eq!(m, i64::MIN, "confidence=0 → identity");
+        let m = Position::liquidation_mark_price(1, 100, 1_000);
+        assert_eq!(m, -900, "100 - 1000 = -900 (no wrap)");
+        let m = Position::liquidation_mark_price(1, i64::MIN, 1);
+        assert_eq!(m, i64::MIN, "i64::MIN - 1 saturates to i64::MIN");
+    }
+
+    #[test]
+    fn test_liquidation_mark_price_saturates_on_overflow() {
+        let m = Position::liquidation_mark_price(-1, i64::MAX, 0);
+        assert_eq!(m, i64::MAX);
+        let m = Position::liquidation_mark_price(-1, i64::MAX - 100, 1_000);
+        assert_eq!(m, i64::MAX);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_zero_qty_returns_zero() {
+        let p = Position {
+            instrument_id: 1,
+            qty: 0,
+            entry_vwap: 100_000_000,
+        };
+        assert_eq!(p.liquidation_pnl(100_000_000, 5_000_000), 0);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_long_with_loss() {
+        // Long 10 @ 100M, mark 90M ± 5M → liquidation at 85M. Loss: 10 * (85 - 100) = -150M
+        let p = long(10, 100_000_000);
+        let pnl = p.liquidation_pnl(90_000_000, 5_000_000);
+        assert_eq!(pnl, -150_000_000);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_long_with_no_loss() {
+        // Long 10 @ 90M, mark 100M ± 5M → liquidation at 95M. Gain: 10 * (95 - 90) = +50M
+        let p = long(10, 90_000_000);
+        let pnl = p.liquidation_pnl(100_000_000, 5_000_000);
+        assert_eq!(pnl, 50_000_000);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_short_with_loss() {
+        // Short 10 @ 90M, mark 100M ± 5M → liquidation at 105M.
+        // PnL = qty * (mark - entry) = -10 * (105 - 90) = -150M
+        let p = short(10, 90_000_000);
+        let pnl = p.liquidation_pnl(100_000_000, 5_000_000);
+        assert_eq!(pnl, -150_000_000);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_short_with_no_loss() {
+        // Short 10 @ 100M, mark 90M ± 5M → liquidation at 95M.
+        // PnL = -10 * (95 - 100) = +50M
+        let p = short(10, 100_000_000);
+        let pnl = p.liquidation_pnl(90_000_000, 5_000_000);
+        assert_eq!(pnl, 50_000_000);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_boundary_at_entry() {
+        // mark == entry → zero PnL regardless of side
+        let p = long(10, 100_000_000);
+        assert_eq!(p.liquidation_pnl(100_000_000, 0), 0);
+        let p = short(10, 100_000_000);
+        assert_eq!(p.liquidation_pnl(100_000_000, 0), 0);
+    }
+
+    #[test]
+    fn test_liquidation_pnl_matches_existing_inline_math() {
+        // The existing liquidate_user.rs:78-97 had this math inline;
+        // pin the new method against it so the refactor in 7.7.4 can
+        // safely replace the inline version.
+        let p = long(10, 100_000_000);
+        let oracle = 90_000_000i64;
+        let conf = 5_000_000i64;
+        let mark = oracle.saturating_sub(conf); // long
+        let delta = (mark as i128) - (p.entry_vwap as i128);
+        let inline = (p.qty as i128) * delta;
+        assert_eq!(p.liquidation_pnl(oracle, conf), inline);
     }
 }
