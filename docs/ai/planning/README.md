@@ -459,7 +459,7 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 - [ ] Update CPI wire format tests for new cap data
 - [ ] Test: user with notional > cap has remaining fills cancelled; user under cap fills normally
 
-### 7.7. Liquidation Safety Stack [NOT STARTED]
+### 7.7. Liquidation Safety Stack [IN PROGRESS]
 - [ ] Cancel all open orders (resting + un-revealed commitments) for liquidated user first
 - [ ] Iterative position reduction: sort by abs notional, reduce top position 25%/round, up to 5 rounds (decision D4)
 - [ ] If still underwater after 5 rounds: full-flat remaining positions
@@ -468,6 +468,14 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 - [ ] No hedge-preserving detection or impact-ratio ranking — deferred to post-MVP
 - [ ] No ADL implementation — ADL stub flags bad debt for keeper observation
 - [ ] Test: simple liquidation; iterative reduction avoids full-flat; ADL stub flags uncovered debt
+
+### 7.7.1. Vault: ADL Stub Fields [DONE] (2026-06-17)
+- [x] Add `adl_pending: bool` (offset 40) and `adl_debt: u128` (16-aligned) to `Vault` struct in `state/vault.rs`
+- [x] Update `initialize_in_place` to zero new fields; bump moves from offset 40 to 64 (still at end of struct)
+- [x] Update `new()` test helper and `test_vault_initialize` to use new field names
+- [x] Add `test_vault_layout` (struct size + new fields accessible + zeroed by `initialize_in_place`)
+- [x] No e2e byte-offset changes needed — e2e harness only reads `balance` (0..8) and `insurance_fund` (8..24)
+- **Note on layout:** With `#[repr(C)]` the compiler inserts padding to align `u128` to 16 bytes, so the on-disk layout is NOT `8+16+16+1+7+16+1+7=72` bytes; it's 96 bytes (16-aligned). The new struct size affects any future account-size assertions, not existing callers. Field offsets are intentionally NOT pinned in `test_vault_layout` — pin them in the e2e harness if you need them there.
 
 ### 7.7-pre. e2e Equity-Offset Bug Fix (7.2 follow-up) [DONE] (2026-06-17)
 Pre-work for 7.7: the pre-existing e2e harness in `programs/perps-core/tests/lifecycle.rs` read `portfolio.equity` and `portfolio.principal` at incorrect byte offsets. The actual struct layout (`state/portfolio.rs:8`) is `user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...` so equity is at `[32..48]` and principal at `[48..64]`. The pre-existing reads used `[16..32]` (equity) and `[32..48]` (principal) — off by 16 bytes each. The test "passed" only because it early-returns without `BPF_OUT_DIR`. Fixed 8 read sites in `test_e2e_full_lifecycle_with_fill` and `test_e2e_gtc_rests_then_matches_next_batch`. Now ready for the new liquidation e2e test to assert on real BPF state.
