@@ -2,8 +2,8 @@
 phase: planning
 title: On-Chain Perps DEX — Task Breakdown
 description: Milestones and task breakdown for the commit-reveal CLOB perpetuals DEX
-status: in-progress
-audit: 2026-06-16 — Design-vs-impl audit completed. M1-M6(6k) done. 8 P0 gaps and 9 P1 deviations identified. M7 (Pre-Testnet Criticals) added.
+status: mvp-code-complete (deploy blocked by R4b)
+audit: 2026-06-17 — All 8 P0 gaps closed (M7.1-7.8). 297 tests pass, clippy clean. Devnet deploy of 7.7+7.8 build blocked by R4b (BPF stack overflow / sBPF version mismatch). 2026-06-16 deploy of 7.1+7.4+7.5+7.6 remains live.
 ---
 
 # On-Chain Perps DEX — Task Breakdown
@@ -13,6 +13,18 @@ audit: 2026-06-16 — Design-vs-impl audit completed. M1-M6(6k) done. 8 P0 gaps 
 The design doc (`docs/ai/design/feature-onchain-perps-dex.md`) specifies a fully on-chain perpetual futures exchange with commit-reveal batch auctions, Fisher-Yates shuffle, structural priority queues, and price-time CLOB matching with persistent order book.
 
 **MVP scope (post 2025-06-15 strip):** All cross-slab / router / AMM / Kani-prover scaffolding has been removed. The MVP is the perps-dex end-to-end: oracle (M1), core portfolio/instruments (M3), batch lifecycle (M4), liquidation (M5), and the CLOB rewrite (M6). Three on-chain programs:
+
+## Status summary (2026-06-17)
+
+**8/8 M7 P0s closed.** 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7 (with 5 sub-tasks), 7.8 all DONE in code.
+
+**Done:** 7.1 Batch creation in SettleBatch · 7.2 Commitment deposit return + margin accounting · 7.3 Reveal deadline enforcement · 7.4 Funding rate accrual (depth-weighted premium, SMA, bps caps) · 7.5 Mark price on Instrument (decision D3) · 7.6 Risk callback (per-user notional cap + post-hoc margin check, decision D2) · 7.7 Liquidation safety stack (iterative reduction 5×25%, full-flat fallback, insurance claim, ADL stub per D4) · 7.8 PauseFlags (4-bit bitmask, 5 gate sites, UpdatePauseFlags disc 14).
+
+**Test inventory:** 297 passing, 1 ignored (perps-common 42 + perps-oracle 5 + perps-matcher 82 + perps-core lib 164 + perps-core e2e 4). Clippy clean. BPF .so files build deterministically (SHAs: core `de889bdf…`, matcher `b597e1a3…`, oracle `cf0d07fa…`).
+
+**Remaining (post-MVP, not blockers):** hedge-preserving detection, impact-ratio ranking, market sweep via CPI, real ADL (counterparty ranking + pro-rata), Squads multisig, Pyth primary oracle, keeper bot, CU profiling, on-chain pause events.
+
+**Open blocker (R4b):** devnet deploy of the 7.7+7.8 build is blocked at the BPF loader simulation step. 7.7 functions pass `BookState` and `MatchResult` (16-66KB combined) by value, creating 7-67KB stack frames. The sBPF linker produces an .so the devnet BPF loader flags as requiring an sBPF version that is not enabled on the cluster. Build exits 0 (stack warnings are non-fatal at compile time) but on-chain simulation rejects the .so with "Detected sbpf_version required by the executable which are not enabled". Fix is the R4b refactor: change all `process_*` functions to take `BookState`/`MatchResult` by `RefMut<[u8]>` (account data slice) or borrowed slices, not by value. Multi-day effort, ~15 functions across perps-matcher and perps-core. The 2026-06-16 pre-7.7.5 deploy (7.1+7.4+7.5+7.6 only) is unaffected — that .so deploys cleanly. See `docs/ai/deployment/2026-06-17-m7-78-deploy-blocked.md` for full root cause analysis and workaround options.
 
 - `programs/oracle/` — fallback price feed
 - `programs/perps-core/` — custody, batch lifecycle, CLOB state
@@ -454,22 +466,27 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 - Per-instrument `mark_reference_qty` tuning (currently hardcoded default 1_000).
 - New e2e test for mark price end-to-end (blocked by pre-existing equity-offset bug from 7.2's follow-up).
 
-### 7.6. Risk Callback Wiring [NOT STARTED]
-- [ ] Add per-user notional cap to CPI data format: `user_caps: [(Pubkey, u128)]` (decision D2)
-- [ ] Matcher risk callback checks `cumulative_notional > user_cap` and cancels remainder
-- [ ] Core validates margin after all fills applied (post-hoc check) — if `health < 0`, flag for liquidation but do not revert fills
-- [ ] Update CPI wire format tests for new cap data
-- [ ] Test: user with notional > cap has remaining fills cancelled; user under cap fills normally
+### 7.6. Risk Callback Wiring [DONE] (2026-06-16, ship-pending R4b)
+- [x] Add per-user notional cap to CPI data format: `user_caps: [(Pubkey, u128)]` (decision D2) — `clear_batch.rs` builds per-user cap table from `free_collateral * max_leverage` (max 64 unique users per batch), passes caps in CPI data (header 12B + N*48B). See `programs/perps-core/src/instructions/clear_batch.rs`.
+- [x] Matcher risk callback checks `cumulative_notional > user_cap` and cancels remainder — `capped_risk_check` + `clob_match_with_caps` in `programs/perps-matcher/src/state/clob.rs`.
+- [x] Core validates margin after all fills applied (post-hoc check) — `SettleBatch` walks portfolio_accounts after fills, `msg!`s underwater portfolios (per `programs/perps-core/src/instructions/settle_batch.rs`). `Portfolio::needs_liquidation()` helper in `state/portfolio.rs`.
+- [x] Update CPI wire format tests for new cap data — disc + layout pins in `clob.rs::test_cpi_data_layout_is_stable` and `ClearBatch` data builders.
+- [x] Test: user with notional > cap has remaining fills cancelled; user under cap fills normally — 6 cap tests in `clob.rs` (`test_capped_risk_check_under_cap_continues`, `_at_cap_continues`, `_over_cap_cancels`, `_user_not_in_table_continues`, `_empty_caps_continues`, `_multiple_users_lookup`) + 3 `clob_match_with_caps_*` integration tests.
 
-### 7.7. Liquidation Safety Stack [IN PROGRESS]
-- [ ] Cancel all open orders (resting + un-revealed commitments) for liquidated user first
-- [ ] Iterative position reduction: sort by abs notional, reduce top position 25%/round, up to 5 rounds (decision D4)
-- [ ] If still underwater after 5 rounds: full-flat remaining positions
-- [ ] Insurance fund absorbs shortfall (already implemented); add `adl_pending: bool` + `adl_debt: u128` to Vault for ADL stub
-- [ ] No market sweep via CPI (mark at oracle price) — deferred to post-MVP
-- [ ] No hedge-preserving detection or impact-ratio ranking — deferred to post-MVP
-- [ ] No ADL implementation — ADL stub flags bad debt for keeper observation
-- [ ] Test: simple liquidation; iterative reduction avoids full-flat; ADL stub flags uncovered debt
+**Note:** This section was marked [NOT STARTED] in the doc but the code was shipped in 2026-06-16 (commit 79f3a3b "M7 7.6 risk callback + devnet build fix"). Reconciled 2026-06-17 — the stale tag was a planning-doc drift, not a missing implementation.
+
+### 7.7. Liquidation Safety Stack [DONE] (2026-06-17, ship-pending R4b)
+- [x] Cancel all open orders (resting + un-revealed commitments) for liquidated user first — `CancelAllRestingOrders` (core disc 13) wired to matcher `CancelAllResting` (disc 4); keeper calls before `LiquidateUser`. (D4 §MVP.1: book/commitment cleanup is a separate instruction, not part of `LiquidateUser` itself.)
+- [x] Iterative position reduction: sort by abs notional, reduce top position 25%/round, up to 5 rounds (decision D4) — `process_liquidate_user` rewritten in commit 0630849; 5 tests in `liquidate_user.rs` (`test_iterative_reduction_single_position_full_closes`, `test_iterative_reduction_two_positions_25_percent`, `test_iterative_reduction_stops_when_healthy`, plus 2 ADL stub tests).
+- [x] If still underwater after 5 rounds: full-flat remaining positions — fallback branch in `process_liquidate_user`; tested by the 2-position scenario.
+- [x] Insurance fund absorbs shortfall (already implemented in M5); add `adl_pending: bool` + `adl_debt: u128` to Vault for ADL stub — 7.7.1 (commit 9b37198), 80-byte struct, 6 vault tests.
+- [x] Test: simple liquidation; iterative reduction avoids full-flat; ADL stub flags uncovered debt — `liquidate_user.rs` tests + `vault.rs` tests.
+- [ ] **No market sweep via CPI** (mark at oracle price) — deferred to post-MVP (decision D4 §post-MVP).
+- [ ] **No hedge-preserving detection** — deferred to post-MVP.
+- [ ] **No impact-ratio ranking** — deferred to post-MVP.
+- [ ] **No real ADL** — only the stub (`adl_pending` flag for keeper observation); counterparty ranking and pro-rata distribution deferred to post-MVP.
+
+**Note:** This section was marked [IN PROGRESS] in the doc with 5 [ ] sub-bullets but all implementation work was tracked in sub-sections 7.7.1-7.7.5 (and 7.7-pre). Reconciled 2026-06-17 — the [ ] sub-bullets above mirror the [x] sub-section checklist, with the 4 explicit "deferred" items kept as future work.
 
 ### 7.7.1. Vault: ADL Stub Fields [DONE] (2026-06-17)
 - [x] Add `adl_pending: bool` (offset 40) and `adl_debt: u128` (16-aligned) to `Vault` struct in `state/vault.rs`
@@ -601,9 +618,9 @@ M1 (Oracle) ───► M3 (Core) ───► M4 (Batch) ───► M5 (Liqu
                                            ├─ 7.3: Reveal deadline
                                            ├─ 7.4: Funding accrual (depends on 7.5)
                                            ├─ 7.5: Mark price (depends on 7.1)
-                                           ├─ 7.6: Risk callback wiring
-                                           ├─ 7.7: Liquidation safety stack
-                                           └─ 7.8: PauseFlags
+                                            ├─ 7.6: Risk callback wiring ✅
+                                            ├─ 7.7: Liquidation safety stack ✅
+                                            └─ 7.8: PauseFlags ✅
 ```
 
 ## Non-Goals (Out of Scope for MVP)
