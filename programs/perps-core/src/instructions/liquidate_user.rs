@@ -49,7 +49,7 @@ use pinocchio::{
 ///   sort helper skips qty=0, so the next round's sort is unaffected.
 pub fn process_liquidate_user(
     portfolio_account: &AccountInfo,
-    _registry_account: &AccountInfo,
+    registry_account: &AccountInfo,
     vault_account: &AccountInfo,
     liquidator_account: &AccountInfo,
     oracle_accounts: &[AccountInfo],
@@ -62,6 +62,21 @@ pub fn process_liquidate_user(
     if oracle_accounts.is_empty() {
         msg!("Error: At least one oracle feed required");
         return Err(PercolatorError::InvalidInstruction.into());
+    }
+
+    // M7 7.8: emergency pause gate. When liquidations are paused, no new
+    // liquidations are accepted. Design L787 notes this is a graceful
+    // degradation strategy: "If funding is stuck, positions remain but no
+    // new funding accrues" — analogously, if liquidations are paused,
+    // underwater positions accrue but no new liquidation runs start. The
+    // on-chain state continues to be readable; off-chain monitors can
+    // observe the situation and governance can decide whether to extend
+    // the pause or resume. Mark the registry for the `is_liquidations_paused`
+    // check first so we can use the borrow immediately below.
+    let registry = unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+    if registry.is_liquidations_paused() {
+        msg!("Error: Liquidations are paused");
+        return Err(PercolatorError::LiquidationsPaused.into());
     }
 
     let portfolio = unsafe {
@@ -109,9 +124,13 @@ pub fn process_liquidate_user(
     let oracle_price = i64::from_le_bytes(price_bytes);
     let confidence = i64::from_le_bytes(confidence_bytes);
 
-    let _registry = unsafe {
-        &*(_registry_account.borrow_data_unchecked().as_ptr() as *const Registry)
-    };
+    // M7 7.8: `registry` was read at the top of this function for the
+    // `is_liquidations_paused` check. It is intentionally unused in the
+    // iterative reduction / insurance / ADL logic that follows; the
+    // original `_registry` placeholder is preserved to make the
+    // historical code structure visible to readers comparing this file
+    // against the M7.7 commit log. If/when a registry-driven liquidation
+    // knob is added (e.g. minimum health threshold), it goes here.
 
     // ===== D4 §MVP.2: Iterative reduction =====
     const MAX_ROUNDS: usize = 5;

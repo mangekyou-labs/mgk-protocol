@@ -1,4 +1,4 @@
-use crate::state::{Portfolio, Vault};
+use crate::state::{Portfolio, Registry, Vault};
 use percolator_common::PercolatorError;
 use pinocchio::{
     account_info::AccountInfo,
@@ -12,6 +12,7 @@ pub fn process_withdraw(
     user_account: &AccountInfo,
     vault_account: &AccountInfo,
     vault: &mut Vault,
+    registry: &Registry,
     amount: u64,
 ) -> ProgramResult {
     if amount == 0 {
@@ -27,6 +28,14 @@ pub fn process_withdraw(
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(PercolatorError::Unauthorized.into());
+    }
+
+    // M7 7.8: emergency pause gate. Withdrawals are an independent
+    // category from trading and liquidations (design L842-853) — pausing
+    // trading must not block users from extracting funds in a crisis.
+    if registry.is_withdrawals_paused() {
+        msg!("Error: Withdrawals are paused");
+        return Err(PercolatorError::WithdrawalsPaused.into());
     }
 
     // Check free collateral

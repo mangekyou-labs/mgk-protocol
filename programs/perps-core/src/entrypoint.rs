@@ -12,7 +12,7 @@ use crate::instructions::{
     process_cancel_resting_order, process_clear_batch, process_close_committing,
     process_commit_order, process_deposit, process_init_portfolio, process_initialize,
     process_liquidate_user, process_modify_resting_order, process_reveal_order,
-    process_settle_batch, process_withdraw,
+    process_settle_batch, process_update_pause_flags, process_withdraw,
 };
 use crate::state::{Portfolio, Registry, Vault};
 use percolator_common::{
@@ -47,6 +47,7 @@ pub fn process_instruction(
         11 => CoreInstruction::CancelRestingOrder,
         12 => CoreInstruction::ModifyRestingOrder,
         13 => CoreInstruction::CancelAllRestingOrders,
+        14 => CoreInstruction::UpdatePauseFlags,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(PercolatorError::InvalidInstruction.into());
@@ -109,6 +110,10 @@ pub fn process_instruction(
         CoreInstruction::CancelAllRestingOrders => {
             msg!("Instruction: CancelAllRestingOrders");
             process_cancel_all_resting_orders_inner(program_id, accounts, &instruction_data[1..])
+        }
+        CoreInstruction::UpdatePauseFlags => {
+            msg!("Instruction: UpdatePauseFlags");
+            process_update_pause_flags_inner(program_id, accounts, &instruction_data[1..])
         }
     }
 }
@@ -250,10 +255,11 @@ fn process_deposit_inner(program_id: &Pubkey, accounts: &[AccountInfo], data: &[
 /// 0. [writable] Portfolio PDA
 /// 1. [signer, writable] User wallet
 /// 2. [writable] Vault PDA
+/// 3. [] Registry PDA (M7 7.8: read for `is_withdrawals_paused`)
 ///
 /// Data: amount(8)
 fn process_withdraw_inner(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    if accounts.len() < 3 {
+    if accounts.len() < 4 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 8 {
@@ -263,19 +269,24 @@ fn process_withdraw_inner(program_id: &Pubkey, accounts: &[AccountInfo], data: &
     let portfolio_account = &accounts[0];
     let user_account = &accounts[1];
     let vault_account = &accounts[2];
+    let registry_account = &accounts[3];
 
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
     validate_writable(user_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    validate_owner(registry_account, program_id)?;
 
     let portfolio = unsafe { borrow_account_data_mut::<Portfolio>(portfolio_account)? };
     let vault = unsafe { borrow_account_data_mut::<Vault>(vault_account)? };
+    let registry = unsafe {
+        &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry)
+    };
 
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
 
-    process_withdraw(portfolio_account, portfolio, user_account, vault_account, vault, amount)
+    process_withdraw(portfolio_account, portfolio, user_account, vault_account, vault, registry, amount)
 }
 
 /// Add an instrument (governance only)
@@ -397,10 +408,11 @@ fn process_commit_order_inner(program_id: &Pubkey, accounts: &[AccountInfo], dat
 /// 1. [signer] User
 /// 2. [writable] Portfolio PDA
 /// 3. [] Batch PDA
+/// 4. [] Registry PDA (M7 7.8: read for `is_trading_paused`)
 ///
 /// Data (M6 6g): order_type(1) + instrument_id(2) + reduce_only(1) + side(1) + price(8) + qty(8) + salt(8) + batch_id(8) = 37
 fn process_reveal_order_inner(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    if accounts.len() < 4 {
+    if accounts.len() < 5 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 37 {
@@ -411,12 +423,14 @@ fn process_reveal_order_inner(program_id: &Pubkey, accounts: &[AccountInfo], dat
     let user_account = &accounts[1];
     let portfolio_account = &accounts[2];
     let batch_account = &accounts[3];
+    let registry_account = &accounts[4];
 
     validate_owner(commitment_account, program_id)?;
     validate_writable(commitment_account)?;
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
     validate_owner(batch_account, program_id)?;
+    validate_owner(registry_account, program_id)?;
 
     let order_type = data[0];
     let instrument_id = u16::from_le_bytes(data[1..3].try_into().unwrap());
@@ -432,6 +446,7 @@ fn process_reveal_order_inner(program_id: &Pubkey, accounts: &[AccountInfo], dat
         user_account,
         portfolio_account,
         batch_account,
+        registry_account,
         order_type,
         instrument_id,
         reduce_only,
@@ -753,4 +768,34 @@ fn process_cancel_all_resting_orders_inner(
         book_account,
         matcher_program,
     )
+}
+
+/// Toggle pause flags on the registry (M7 7.8, design L842-853).
+///
+/// Accounts:
+/// 0. [writable] Registry PDA
+/// 1. [signer] Governance (must equal `registry.governance`)
+///
+/// Data: flags_mask(1)
+fn process_update_pause_flags_inner(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    if accounts.len() < 2 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if data.is_empty() {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    let registry_account = &accounts[0];
+    let governance_account = &accounts[1];
+
+    validate_owner(registry_account, program_id)?;
+    validate_writable(registry_account)?;
+
+    let flags_mask = data[0];
+
+    process_update_pause_flags(registry_account, governance_account, flags_mask)
 }

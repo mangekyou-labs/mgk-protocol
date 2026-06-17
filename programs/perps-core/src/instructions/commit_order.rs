@@ -108,6 +108,14 @@ pub fn process_commit_order(
         return Err(PercolatorError::Unauthorized.into());
     }
 
+    // M7 7.8: emergency pause gate. Reading the registry here is a no-op
+    // for the byte cost — we already need it for `deposit_amount()` below.
+    let registry = unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+    if registry.is_trading_paused() {
+        msg!("Error: Trading is paused");
+        return Err(PercolatorError::TradingPaused.into());
+    }
+
     let batch = unsafe { &*(batch_account.borrow_data_unchecked().as_ptr() as *const Batch) };
     if batch.batch_id != batch_id {
         msg!("Error: Wrong batch ID");
@@ -126,8 +134,9 @@ pub fn process_commit_order(
         return Err(PercolatorError::Unauthorized.into());
     }
 
-    // Read registry for dynamic deposit (base * volatility_multiplier)
-    let registry = unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+    // Read registry for dynamic deposit (base * volatility_multiplier).
+    // Note: `registry` was already read above for the `is_trading_paused`
+    // check; we reuse the same borrow for `deposit_amount()`.
     let deposit = registry.deposit_amount();
 
     // Lock deposit against portfolio margin

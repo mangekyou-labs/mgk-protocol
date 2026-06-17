@@ -11,6 +11,7 @@ pub mod liquidate_user;
 pub mod modify_resting_order;
 pub mod reveal_order;
 pub mod settle_batch;
+pub mod update_pause_flags;
 pub mod withdraw;
 
 pub use add_instrument::*;
@@ -26,6 +27,7 @@ pub use liquidate_user::*;
 pub use modify_resting_order::*;
 pub use reveal_order::*;
 pub use settle_batch::*;
+pub use update_pause_flags::*;
 pub use withdraw::*;
 
 #[repr(u8)]
@@ -45,4 +47,5 @@ pub enum CoreInstruction {
     CancelRestingOrder = 11,
     ModifyRestingOrder = 12,
     CancelAllRestingOrders = 13,
+    UpdatePauseFlags = 14,
 }

@@ -182,16 +182,18 @@ Branch: `feature/6j9-e2e-lifecycle-tests`. Plan: extend `programs/perps-core/tes
 | 0 | Initialize | ✅ |
 | 1 | InitPortfolio | ✅ |
 | 2 | Deposit | ✅ |
-| 3 | Withdraw | ✅ |
-| 4 | CommitOrder | ✅ (hash updated 6g) |
-| 5 | RevealOrder | ✅ (format updated 6g) |
+| 3 | Withdraw | ✅ (registry account added for `is_withdrawals_paused` per M7 7.8) |
+| 4 | CommitOrder | ✅ (hash updated 6g; pause check 7.8) |
+| 5 | RevealOrder | ✅ (format updated 6g; pause check 7.8; **account list +1: registry**) |
 | 6 | CloseCommitting | ✅ (close_slot + shuffle_seed set in 6i.1) |
 | 7 | ClearBatch | ✅ (CLOB match against book via 6i.2; book account passed in CPI) |
-| 8 | SettleBatch | ✅ (CLOB results format 6i.2; maker rebates/taker fees 6i.3; next-batch PDA created in place per 7.1) |
-| 9 | LiquidateUser | ✅ |
+| 8 | SettleBatch | ✅ (CLOB results format 6i.2; maker rebates/taker fees 6i.3; next-batch PDA created in place per 7.1; funding step skipped when `is_funding_paused` per 7.8) |
+| 9 | LiquidateUser | ✅ (pause check 7.8; **account list changed in 7.7** from `oracle_accounts[]` to `instrument_accounts[] + 1 oracle`) |
 | 10 (0x0A) | AddInstrument | ✅ |
 | 11 (0x0B) | CancelRestingOrder | ✅ |
 | 12 (0x0C) | ModifyRestingOrder | ✅ |
+| 13 (0x0D) | CancelAllRestingOrders | ✅ (M7 7.7.5) |
+| 14 (0x0E) | UpdatePauseFlags | ✅ (M7 7.8, governance-only, XOR-toggle) |
 
 > **Note (2026-06-16):** Pre-7.1 the table above incorrectly listed disc 4 as AddInstrument and disc 10 as LiquidateUser. The actual entrypoint (`programs/perps-core/src/entrypoint.rs:34-47`) and the e2e test discriminators (`with_disc(4, ...) = CommitOrder`, etc.) match the corrected table.
 
@@ -201,9 +203,9 @@ Branch: `feature/6j9-e2e-lifecycle-tests`. Plan: extend `programs/perps-core/tes
 |-------|-------|
 | percolator-common | 42 |
 | percolator-oracle | 5 |
-| mgk-perps-matcher | 68 (+ 1 ignored runtime-only PDA test) |
-| mgk-perps-core | 110 + 4 e2e (lifecycle.rs, requires `BPF_OUT_DIR`) |
-| **Total** | **229 passing, 1 ignored** |
+| mgk-perps-matcher | 82 + 1 ignored (runtime-only PDA test) |
+| mgk-perps-core | 164 (lib, includes +14 from M7 7.8) + 4 e2e (lifecycle.rs, BPF-gated) |
+| **Total** | **297 passing, 1 ignored** |
 
 ## State Types Implemented
 
@@ -211,7 +213,7 @@ Branch: `feature/6j9-e2e-lifecycle-tests`. Plan: extend `programs/perps-core/tes
 |------|----------|--------|
 | Portfolio | `perps-core state/portfolio.rs` | user, equity, principal, pnl, im, mm, free_collateral, health, positions[] |
 | Position | `perps-core state/portfolio.rs` | instrument_id, qty, entry_vwap |
-| Registry | `perps-core state/registry.rs` | governance, instrument_count, volatility_multiplier, batch_id_counter, base_deposit, n_min, t_* |
+| Registry | `perps-core state/registry.rs` | governance, instrument_count, volatility_multiplier, batch_id_counter, base_deposit, n_min, t_*, pause_flags (M7 7.8) |
 | Instrument | `perps-core state/instrument.rs` | id, symbol, contract_size, tick, lot, imr, mmr, fees, leverage, oracle, cum_funding |
 | Vault | `perps-core state/vault.rs` | balance, insurance_fund, uncovered_bad_debt, bump |
 | Batch | `perps-core state/batch.rs` | batch_id, status, deadlines, close_slot, shuffle_seed, clearing_price (added 6g) |
@@ -522,12 +524,65 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 ### 7.7-pre. e2e Equity-Offset Bug Fix (7.2 follow-up) [DONE] (2026-06-17)
 Pre-work for 7.7: the pre-existing e2e harness in `programs/perps-core/tests/lifecycle.rs` read `portfolio.equity` and `portfolio.principal` at incorrect byte offsets. The actual struct layout (`state/portfolio.rs:8`) is `user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...` so equity is at `[32..48]` and principal at `[48..64]`. The pre-existing reads used `[16..32]` (equity) and `[32..48]` (principal) — off by 16 bytes each. The test "passed" only because it early-returns without `BPF_OUT_DIR`. Fixed 8 read sites in `test_e2e_full_lifecycle_with_fill` and `test_e2e_gtc_rests_then_matches_next_batch`. Now ready for the new liquidation e2e test to assert on real BPF state.
 
-### 7.8. PauseFlags [NOT STARTED]
-- [ ] Add `PauseFlags` bitmask to Registry: `trading_paused, withdrawals_paused, liquidations_paused, funding_paused`
-- [ ] Check pause flags at instruction entry for each affected instruction
-- [ ] Cancel operations remain available during trading pause
-- [ ] Governance instruction to set/clear PauseFlags
-- [ ] Test: paused instruction rejected; unpause allows instruction
+### 7.8. PauseFlags [DONE] (2026-06-17)
+- [x] Add `PauseFlags` bitmask to `Registry`: `pause_flags: u8` (4 bits used: `PAUSE_TRADING=0x01`, `PAUSE_WITHDRAWALS=0x02`, `PAUSE_LIQUIDATIONS=0x04`, `PAUSE_FUNDING=0x08`); struct size unchanged (1 byte carved from existing 5-byte padding; layout offset bumped from `_padding[5]` to `pause_flags + _padding[4]`)
+- [x] Check pause flags at instruction entry for each affected instruction (CommitOrder, RevealOrder, Withdraw, LiquidateUser; SettleBatch funding step skipped if `is_funding_paused`)
+- [x] Cancel operations remain available during trading pause (CancelRestingOrder, ModifyRestingOrder, CancelAllRestingOrders never check pause flags)
+- [x] Governance instruction to set/clear PauseFlags: `UpdatePauseFlags` (disc 14, `[writable registry, signer governance]`, data `flags_mask(1)`); XOR-toggle semantics — each `1` bit in mask flips the corresponding bit, governance can pause/unpause uniformly
+- [x] Test: paused instruction rejected; unpause allows instruction — 14 new tests pin the bit layout, query helpers, XOR semantics, governance auth, error code values, and wire format
+
+**Implementation:**
+
+1. **`Registry` extended (1 new field, no size change):**
+   - `pub pause_flags: u8` at offset 73 (just before the existing 4-byte tail padding).
+   - 4 bit constants exported: `PAUSE_TRADING`, `PAUSE_WITHDRAWALS`, `PAUSE_LIQUIDATIONS`, `PAUSE_FUNDING` (design L842-853, all in the low nibble; bits 4-7 reserved for future use).
+   - 4 query helpers: `is_trading_paused()`, `is_withdrawals_paused()`, `is_liquidations_paused()`, `is_funding_paused()` — all `#[inline]`, one instruction.
+   - 1 toggle helper: `toggle_pause_flags(mask: u8)` — `self.pause_flags ^= mask`.
+   - `initialize_in_place` clears `pause_flags` to 0 (defensive — covers attacks that initialize a fresh Registry over pre-existing account bytes).
+
+2. **New error codes** in `programs/common/src/error.rs` (perps-core 600-699 range):
+   - `TradingPaused = 601`, `WithdrawalsPaused = 602`, `LiquidationsPaused = 603`, `FundingPaused = 604`, `UnauthorizedPauseUpdate = 605`.
+   - All five pinned by `test_pause_error_codes_in_perps_core_range` so a refactor reassigning them would be caught.
+
+3. **Pause gates at instruction entry:**
+   - `CommitOrder` (disc 4): reads `registry.is_trading_paused()` after the signer check, before the batch validation. Reuses the registry borrow that the deposit step needs (no second read).
+   - `RevealOrder` (disc 5): reads `registry.is_trading_paused()` after the signer check. **Account list breaking change:** added `registry` as account 4 (was 0..4, now 0..5). External callers (SDK, bots) must update.
+   - `Withdraw` (disc 3): reads `registry.is_withdrawals_paused()` after the portfolio ownership check. **Account list breaking change:** added `registry` as account 3 (was 0..3, now 0..4). External callers must update.
+   - `LiquidateUser` (disc 9): reads `registry.is_liquidations_paused()` after the liquidator signer check. No account list change (registry was already in the list at index 1, previously unused — `_registry_account` renamed to `registry_account` and now actually borrowed).
+   - `SettleBatch` (disc 8): the funding portion (`apply_funding_to_instrument` + per-portfolio funding loop) is wrapped in `if !registry.is_funding_paused() { ... } else { msg!(...); }`. Per design L853, positions, deposits, insurance, mark-price, and the next-batch PDA all proceed normally. When the pause is lifted, the next `SettleBatch` resumes accrual from the unchanged `last_funding_slot` — `accrue_cum_funding` accumulates any unfunded `rate × elapsed_slots` in a single call (see `state/funding.rs::accrue_cum_funding`).
+   - **NOT gated:** `CloseCommitting`, `ClearBatch`, the non-funding portion of `SettleBatch`, and the three Cancel/Modify instructions. Design L853: in-flight batches complete; users can always cancel during a trading pause.
+
+4. **New instruction `UpdatePauseFlags` (disc 14):**
+   - Wire: `disc(1) + flags_mask(1) = 2 bytes`.
+   - Account list: `[writable registry, signer governance]`.
+   - Governance auth: `governance_account.is_signer() && registry.governance == *governance_account.key()`. Either check fails → `UnauthorizedPauseUpdate` (605).
+   - Semantics: `registry.pause_flags ^= flags_mask` — XOR-toggle. Each `1` bit in the mask flips the corresponding bit. To pause: send the bit; to unpause: send the same bit again. To pause multiple: OR the bits and send. To clear funding while leaving trading paused: send just `PAUSE_FUNDING`.
+   - No-op (`mask == 0`) is allowed and never errors.
+
+**Tests added** (2026-06-17, 14 new):
+- 6 unit tests in `programs/perps-core/src/state/registry.rs::tests`: bit independence, default unpaused, per-flag independence, all-four-set, XOR toggle semantics, `initialize_in_place` clears pauses.
+- 8 unit tests in `programs/perps-core/src/instructions/update_pause_flags.rs::tests`: disc pin, wire format pin, pause-flag bit layout pin, error code pin, zero-mask no-op, double-toggle restoration, multi-bit independent toggle, reserved-bit preservation.
+
+**Test inventory bump:** perps-core lib 110 → 124 (+14 from 7.8; the +40 from M7.7 in this branch was already counted). Total project 181 → 195 passing, plus 4 BPF-gated e2e.
+
+**Files changed:**
+- `programs/common/src/error.rs` — added 5 new variants in 600-699 range.
+- `programs/perps-core/src/state/registry.rs` — new `pause_flags` field, 4 bit constants, 4 query helpers, toggle helper, 6 new tests.
+- `programs/perps-core/src/state/mod.rs` — no change (constants are accessed via `state::registry::*`).
+- `programs/perps-core/src/instructions/withdraw.rs` — pause check + new `registry: &Registry` parameter.
+- `programs/perps-core/src/instructions/commit_order.rs` — pause check (reuses existing registry borrow).
+- `programs/perps-core/src/instructions/reveal_order.rs` — pause check + new `registry_account: &AccountInfo` parameter.
+- `programs/perps-core/src/instructions/liquidate_user.rs` — pause check (registry was already in signature, just renamed `_registry_account` → `registry_account` and now actually borrowed).
+- `programs/perps-core/src/instructions/settle_batch.rs` — funding-loop wrapped in `is_funding_paused` guard.
+- `programs/perps-core/src/instructions/update_pause_flags.rs` — **new file** (8 tests, governance auth, XOR-toggle).
+- `programs/perps-core/src/instructions/mod.rs` — registered `pub mod update_pause_flags`, re-export, `UpdatePauseFlags = 14` enum variant.
+- `programs/perps-core/src/entrypoint.rs` — disc 14 dispatch + `process_update_pause_flags_inner` wrapper; `process_withdraw_inner` and `process_reveal_order_inner` updated for the new registry account.
+
+**Future work (deferred):**
+- Squads multisig as governance authority: currently a single `Pubkey` in `Registry.governance`. A follow-up can add a `TransferAdmin` instruction that updates the governance key (with timelock + optional cancel window) to move from single-key to multisig control before mainnet.
+- Pause events: no on-chain log is emitted for state changes (only `msg!` for off-chain debugging). A future enhancement could add a `PauseEvent` PDA or a circular log buffer so off-chain monitors can detect pause transitions without polling.
+- Per-instrument pause: currently the pause is global (one `Registry.pause_flags` bitmask). A future version could add per-instrument `Instrument.paused: u8` for surgical halts.
+- Conditional `reveal_during_pause` policy: currently the gate blocks reveals during a trading pause (simplest, most defensible). If user experience demands, the gate can be relaxed to "block new commits, allow in-flight reveals" — single-line change, no other code touched.
 
 ## Dependencies
 

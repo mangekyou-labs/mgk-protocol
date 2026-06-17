@@ -71,6 +71,13 @@ pub enum PercolatorError {
 
     // Perps-core errors (600-699) — M7 onwards
     RevealDeadlineExpired = 600,
+
+    // M7 7.8 — PauseFlags
+    TradingPaused = 601,
+    WithdrawalsPaused = 602,
+    LiquidationsPaused = 603,
+    FundingPaused = 604,
+    UnauthorizedPauseUpdate = 605,
 }
 
 impl From<PercolatorError> for u64 {

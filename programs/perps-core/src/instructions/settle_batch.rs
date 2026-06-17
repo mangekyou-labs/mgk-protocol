@@ -532,14 +532,30 @@ pub fn process_settle_batch(
     // the resulting payment to every portfolio holding a position in
     // this instrument. See `state/funding.rs` for the pure helpers and
     // design L504-553 for the formulas.
-    apply_funding_to_instrument(instrument, &book, oracle_price, current_slot);
-    let post_funding_cum = instrument.cum_funding;
-    let instrument_id_for_funding = instrument.instrument_id;
-    for portfolio_account in portfolio_accounts.iter() {
-        let portfolio = unsafe {
-            &mut *(portfolio_account.borrow_mut_data_unchecked().as_ptr() as *mut Portfolio)
-        };
-        apply_funding_to_portfolio(portfolio, instrument_id_for_funding, post_funding_cum);
+    //
+    // M7 7.8: emergency pause gate. When `is_funding_paused` is set,
+    // skip the funding accrual step entirely — `instrument.cum_funding`
+    // and `last_funding_slot` are left at their current values, and no
+    // portfolio payments are applied. Per design L853, the in-flight
+    // batch still settles normally: positions, deposits, insurance, and
+    // mark-price update all proceed. Only the funding-rate step is
+    // suppressed. Once `is_funding_paused` is cleared, the next
+    // `SettleBatch` will resume accrual from the unchanged
+    // `last_funding_slot` — the rate accumulates any unfunded
+    // `rate × elapsed_slots` from the paused period in a single
+    // `accrue_cum_funding` call (see `state/funding.rs::accrue_cum_funding`).
+    if !registry.is_funding_paused() {
+        apply_funding_to_instrument(instrument, &book, oracle_price, current_slot);
+        let post_funding_cum = instrument.cum_funding;
+        let instrument_id_for_funding = instrument.instrument_id;
+        for portfolio_account in portfolio_accounts.iter() {
+            let portfolio = unsafe {
+                &mut *(portfolio_account.borrow_mut_data_unchecked().as_ptr() as *mut Portfolio)
+            };
+            apply_funding_to_portfolio(portfolio, instrument_id_for_funding, post_funding_cum);
+        }
+    } else {
+        msg!("SettleBatch: funding_paused, skipping funding accrual");
     }
 
     // M7 7.6 (decision D2): post-hoc margin check. After all fills +
