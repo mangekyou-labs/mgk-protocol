@@ -848,14 +848,16 @@ async fn test_e2e_full_lifecycle_with_fill() {
         .expect("batch");
 
     // Maker portfolio: principal=10M, equity=10M+1M+rebate, short 10 @ 100_000.
-    let maker_principal: [u8; 16] = maker_portfolio_acct.data[32..48].try_into().unwrap();
+    // Portfolio struct layout (state/portfolio.rs:8):
+    //   user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...
+    let maker_principal: [u8; 16] = maker_portfolio_acct.data[48..64].try_into().unwrap();
     let maker_principal = i128::from_le_bytes(maker_principal);
     assert_eq!(
         maker_principal, USER_DEPOSIT_LAMPORTS as i128,
         "maker principal"
     );
 
-    let maker_equity: [u8; 16] = maker_portfolio_acct.data[16..32].try_into().unwrap();
+    let maker_equity: [u8; 16] = maker_portfolio_acct.data[32..48].try_into().unwrap();
     let maker_equity = i128::from_le_bytes(maker_equity);
     // 10M deposit + 1M notional from sell + 200 maker rebate = 11_000_200.
     assert_eq!(
@@ -878,14 +880,14 @@ async fn test_e2e_full_lifecycle_with_fill() {
     );
 
     // Taker portfolio: principal=10M, equity=10M-1M-500 fee, long 10 @ 100_000.
-    let taker_principal: [u8; 16] = taker_portfolio_acct.data[32..48].try_into().unwrap();
+    let taker_principal: [u8; 16] = taker_portfolio_acct.data[48..64].try_into().unwrap();
     let taker_principal = i128::from_le_bytes(taker_principal);
     assert_eq!(
         taker_principal, USER_DEPOSIT_LAMPORTS as i128,
         "taker principal"
     );
 
-    let taker_equity: [u8; 16] = taker_portfolio_acct.data[16..32].try_into().unwrap();
+    let taker_equity: [u8; 16] = taker_portfolio_acct.data[32..48].try_into().unwrap();
     let taker_equity = i128::from_le_bytes(taker_equity);
     // 10M deposit - 1M notional from buy - 500 taker fee = 8_999_500.
     assert_eq!(
@@ -1201,14 +1203,14 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
         .unwrap()
         .expect("maker portfolio after batch 1");
     let maker_principal_b1: [u8; 16] =
-        maker_portfolio_after_b1.data[32..48].try_into().unwrap();
+        maker_portfolio_after_b1.data[48..64].try_into().unwrap();
     let maker_principal_b1 = i128::from_le_bytes(maker_principal_b1);
     assert_eq!(
         maker_principal_b1, USER_DEPOSIT_LAMPORTS as i128,
         "maker principal unchanged after batch 1 (no fills)"
     );
     let maker_equity_b1: [u8; 16] =
-        maker_portfolio_after_b1.data[16..32].try_into().unwrap();
+        maker_portfolio_after_b1.data[32..48].try_into().unwrap();
     let maker_equity_b1 = i128::from_le_bytes(maker_equity_b1);
     assert_eq!(
         maker_equity_b1, USER_DEPOSIT_LAMPORTS as i128,
@@ -1337,7 +1339,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
 
     // Maker: equity = 10M (post b1) + 1M (sell) + 200 (rebate) = 11_000_200.
     let maker_equity_b2: [u8; 16] =
-        maker_portfolio_after_b2.data[16..32].try_into().unwrap();
+        maker_portfolio_after_b2.data[32..48].try_into().unwrap();
     let maker_equity_b2 = i128::from_le_bytes(maker_equity_b2);
     assert_eq!(
         maker_equity_b2,
@@ -1347,7 +1349,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
 
     // Taker: equity = 10M (deposit) - 1M (buy) - 500 (fee) = 8_999_500.
     let taker_equity_b2: [u8; 16] =
-        taker_portfolio_after_b2.data[16..32].try_into().unwrap();
+        taker_portfolio_after_b2.data[32..48].try_into().unwrap();
     let taker_equity_b2 = i128::from_le_bytes(taker_equity_b2);
     assert_eq!(
         taker_equity_b2,

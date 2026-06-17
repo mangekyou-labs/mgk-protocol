@@ -469,6 +469,9 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 - [ ] No ADL implementation — ADL stub flags bad debt for keeper observation
 - [ ] Test: simple liquidation; iterative reduction avoids full-flat; ADL stub flags uncovered debt
 
+### 7.7-pre. e2e Equity-Offset Bug Fix (7.2 follow-up) [DONE] (2026-06-17)
+Pre-work for 7.7: the pre-existing e2e harness in `programs/perps-core/tests/lifecycle.rs` read `portfolio.equity` and `portfolio.principal` at incorrect byte offsets. The actual struct layout (`state/portfolio.rs:8`) is `user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...` so equity is at `[32..48]` and principal at `[48..64]`. The pre-existing reads used `[16..32]` (equity) and `[32..48]` (principal) — off by 16 bytes each. The test "passed" only because it early-returns without `BPF_OUT_DIR`. Fixed 8 read sites in `test_e2e_full_lifecycle_with_fill` and `test_e2e_gtc_rests_then_matches_next_batch`. Now ready for the new liquidation e2e test to assert on real BPF state.
+
 ### 7.8. PauseFlags [NOT STARTED]
 - [ ] Add `PauseFlags` bitmask to Registry: `trading_paused, withdrawals_paused, liquidations_paused, funding_paused`
 - [ ] Check pause flags at instruction entry for each affected instruction
