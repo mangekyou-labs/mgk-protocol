@@ -351,6 +351,41 @@ pub fn cancel_resting_by_id(
     Err(BookError::NotFound)
 }
 
+/// M7 7.7.5 (D4 §MVP.1): cancel ALL resting orders for a given user
+/// across all price levels. Used by the keeper before `LiquidateUser`
+/// to clear exposure. Returns the number of orders removed.
+///
+/// Iterates the `resting[]` array and removes every order where
+/// `r.qty > 0 && r.user == *user`. After `remove_at_offset` compacts
+/// the array, we DON'T increment `i` — the next slot now holds what
+/// was the next order, and we need to check it.
+///
+/// Per-level `total_qty` and `order_count` are updated by
+/// `remove_at_offset`. `book.bid_count` / `book.ask_count` decrement
+/// when a level becomes empty (also handled by `remove_at_offset`).
+///
+/// O(N) over the resting array. For MAX_RESTING_ORDERS=256 slots,
+/// worst case is 256 iterations — well within BPF compute budget.
+pub fn cancel_all_for_user(state: &mut BookState, user: &Pubkey) -> u32 {
+    let mut removed: u32 = 0;
+    let mut i: u32 = 0;
+    while (i as usize) < state.resting_count {
+        let r = &state.resting[i as usize];
+        let is_alive = r.qty > 0;
+        if is_alive
+            && r.user == *user
+            && remove_at_offset(state, i).is_ok()
+        {
+            removed += 1;
+            // Don't increment i; the next order has shifted into
+            // slot i (remove_at_offset compacts in place).
+            continue;
+        }
+        i += 1;
+    }
+    removed
+}
+
 /// Modify a single resting order's remaining `qty` by `order_id`, asserting
 /// the calling user owns it. `new_qty` is the new total order qty (not the
 /// delta). Returns the updated order on success.
@@ -879,6 +914,113 @@ mod tests {
         place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).unwrap();
         let res = cancel_resting_by_id(&mut state, 9999, &user_pubkey(1));
         assert_eq!(res, Err(BookError::NotFound));
+    }
+
+    // ===== M7 7.7.5: cancel_all_for_user =====
+
+    #[test]
+    fn test_cancel_all_for_user_removes_only_target() {
+        // 3 orders: 2 from user 1, 1 from user 2. Cancel user 1's.
+        let mut state = BookState::new();
+        place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).unwrap();
+        place_resting(&mut state, &make_order(1, Side::Buy, 101, 3)).unwrap();
+        place_resting(&mut state, &make_order(2, Side::Buy, 100, 7)).unwrap();
+        assert_eq!(state.resting_count, 3);
+
+        let removed = cancel_all_for_user(&mut state, &user_pubkey(1));
+        assert_eq!(removed, 2, "user 1 had 2 orders");
+        // user 2's order remains
+        let alive: Vec<&RestingOrder> = state
+            .resting
+            .iter()
+            .filter(|r| r.qty > 0)
+            .collect();
+        assert_eq!(alive.len(), 1);
+        assert_eq!(alive[0].user, user_pubkey(2));
+        assert_eq!(alive[0].qty, 7);
+    }
+
+    #[test]
+    fn test_cancel_all_for_user_unknown_user_is_noop() {
+        let mut state = BookState::new();
+        place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).unwrap();
+        let removed = cancel_all_for_user(&mut state, &user_pubkey(99));
+        assert_eq!(removed, 0);
+        assert_eq!(state.resting_count, 1);
+    }
+
+    #[test]
+    fn test_cancel_all_for_user_empty_book() {
+        let mut state = BookState::new();
+        let removed = cancel_all_for_user(&mut state, &user_pubkey(1));
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_cancel_all_for_user_removes_across_levels_and_sides() {
+        // user 1 has: 1 bid @ 100, 1 ask @ 105, 1 bid @ 102, 1 ask @ 110
+        // user 2 has: 1 bid @ 100
+        // Cancel user 1.
+        let mut state = BookState::new();
+        place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).unwrap();
+        place_resting(&mut state, &make_order(1, Side::Sell, 105, 4)).unwrap();
+        place_resting(&mut state, &make_order(1, Side::Buy, 102, 3)).unwrap();
+        place_resting(&mut state, &make_order(1, Side::Sell, 110, 2)).unwrap();
+        place_resting(&mut state, &make_order(2, Side::Buy, 100, 7)).unwrap();
+
+        let removed = cancel_all_for_user(&mut state, &user_pubkey(1));
+        assert_eq!(removed, 4);
+
+        // All 4 levels should now be empty (order_count=0); user 2's
+        // bid level should still have 1 order.
+        // Bids: levels @ 100 and 102 → both emptied
+        // Asks: levels @ 105 and 110 → both emptied
+        let bid_count_total: u16 = state
+            .book
+            .bids
+            .iter()
+            .map(|l| l.order_count)
+            .sum();
+        let ask_count_total: u16 = state
+            .book
+            .asks
+            .iter()
+            .map(|l| l.order_count)
+            .sum();
+        assert_eq!(bid_count_total, 1, "only user 2's bid remains");
+        assert_eq!(ask_count_total, 0, "all asks were user 1's");
+
+        // The user 2 order at level 100 should be the only live one.
+        let alive: Vec<&RestingOrder> = state
+            .resting
+            .iter()
+            .filter(|r| r.qty > 0)
+            .collect();
+        assert_eq!(alive.len(), 1);
+        assert_eq!(alive[0].user, user_pubkey(2));
+    }
+
+    #[test]
+    fn test_cancel_all_for_user_then_place_again_works() {
+        // After cancel-all, the user can place new orders. The book
+        // state should be reusable.
+        let mut state = BookState::new();
+        place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).unwrap();
+        let _id2 = place_resting(&mut state, &make_order(1, Side::Buy, 101, 3)).unwrap();
+
+        let removed = cancel_all_for_user(&mut state, &user_pubkey(1));
+        assert_eq!(removed, 2);
+
+        // Place a new order; it should succeed.
+        let id3 = place_resting(&mut state, &make_order(1, Side::Buy, 102, 10)).unwrap();
+        let alive: Vec<&RestingOrder> = state
+            .resting
+            .iter()
+            .filter(|r| r.qty > 0)
+            .collect();
+        assert_eq!(alive.len(), 1);
+        assert_eq!(alive[0].order_id, id3);
+        assert_eq!(alive[0].qty, 10);
     }
 
     #[test]

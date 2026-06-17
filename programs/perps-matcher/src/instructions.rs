@@ -1,8 +1,8 @@
 use crate::state::{
-    cancel_resting_by_id, clob_match_with_caps, clob_match_with_risk, compute_clearing,
-    default_risk_check, deserialize_book_state, modify_resting_qty, separate_priority_queues,
-    serialize_book_state, shuffle_orders, FillReceipt, LimitOrder, OrderType, Side,
-    MAX_FILLS_PER_BATCH, MAX_ORDERS,
+    cancel_all_for_user, cancel_resting_by_id, clob_match_with_caps, clob_match_with_risk,
+    compute_clearing, default_risk_check, deserialize_book_state, modify_resting_qty,
+    separate_priority_queues, serialize_book_state, shuffle_orders, FillReceipt, LimitOrder,
+    OrderType, Side, MAX_FILLS_PER_BATCH, MAX_ORDERS,
 };
 use pinocchio::{
     account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey, ProgramResult,
@@ -197,6 +197,7 @@ fn write_results(
 
 const CANCEL_DATA_LEN: usize = 32 + 8; // user(32) + order_id(8)
 const MODIFY_DATA_LEN: usize = 32 + 8 + 8; // user(32) + order_id(8) + new_qty(8)
+const CANCEL_ALL_DATA_LEN: usize = 32; // user(32) only — no order_id (M7 7.7.5)
 
 /// Cancel a single resting order by `order_id`.
 ///
@@ -293,6 +294,49 @@ pub fn process_modify_resting(
     serialize_book_state(&state, &mut book_account.try_borrow_mut_data()?)?;
 
     msg!("ModifyResting: order updated");
+    Ok(())
+}
+
+/// M7 7.7.5 (D4 §MVP.1): cancel ALL resting orders for a user across
+/// all price levels. Called by core's `CancelAllRestingOrders`
+/// instruction before `LiquidateUser` to clear exposure.
+///
+/// Accounts:
+/// 0. `[writable]` Book account (PDA: `["book", instrument_id_le]`)
+///
+/// Data: user(32) = 32 bytes
+pub fn process_cancel_all_resting(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    if accounts.is_empty() {
+        msg!("Error: CancelAllResting requires at least 1 account (book)");
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let book_account = &accounts[0];
+    if !book_account.is_writable() {
+        msg!("Error: Book account must be writable");
+        return Err(ProgramError::InvalidAccountData);
+    }
+    if book_account.owner() != program_id {
+        msg!("Error: Book account not owned by matcher");
+        return Err(ProgramError::IllegalOwner);
+    }
+    if data.len() < CANCEL_ALL_DATA_LEN {
+        msg!("Error: CancelAllResting data too short");
+        return Err(ProgramError::InvalidInstructionData);
+    }
+
+    let user = Pubkey::from(
+        <[u8; 32]>::try_from(&data[0..32]).map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
+
+    let mut state = deserialize_book_state(&book_account.try_borrow_data()?)?;
+    let _removed = cancel_all_for_user(&mut state, &user);
+    serialize_book_state(&state, &mut book_account.try_borrow_mut_data()?)?;
+
+    msg!("CancelAllResting: orders removed");
     Ok(())
 }
 

@@ -8,9 +8,10 @@ use pinocchio::{
 };
 
 use crate::instructions::{
-    CoreInstruction, process_add_instrument, process_cancel_resting_order, process_clear_batch,
-    process_close_committing, process_commit_order, process_deposit, process_init_portfolio,
-    process_initialize, process_liquidate_user, process_modify_resting_order, process_reveal_order,
+    CoreInstruction, process_add_instrument, process_cancel_all_resting_orders,
+    process_cancel_resting_order, process_clear_batch, process_close_committing,
+    process_commit_order, process_deposit, process_init_portfolio, process_initialize,
+    process_liquidate_user, process_modify_resting_order, process_reveal_order,
     process_settle_batch, process_withdraw,
 };
 use crate::state::{Portfolio, Registry, Vault};
@@ -45,6 +46,7 @@ pub fn process_instruction(
         10 => CoreInstruction::AddInstrument,
         11 => CoreInstruction::CancelRestingOrder,
         12 => CoreInstruction::ModifyRestingOrder,
+        13 => CoreInstruction::CancelAllRestingOrders,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(PercolatorError::InvalidInstruction.into());
@@ -103,6 +105,10 @@ pub fn process_instruction(
         CoreInstruction::ModifyRestingOrder => {
             msg!("Instruction: ModifyRestingOrder");
             process_modify_resting_order_inner(program_id, accounts, &instruction_data[1..])
+        }
+        CoreInstruction::CancelAllRestingOrders => {
+            msg!("Instruction: CancelAllRestingOrders");
+            process_cancel_all_resting_orders_inner(program_id, accounts, &instruction_data[1..])
         }
     }
 }
@@ -714,5 +720,37 @@ fn process_modify_resting_order_inner(
         matcher_program,
         order_id,
         new_qty,
+    )
+}
+
+/// Cancel ALL resting orders for a user across all price levels (M7 7.7.5).
+///
+/// Accounts:
+/// 0. [writable] Portfolio PDA
+/// 1. [signer, writable] User wallet
+/// 2. [writable] Book account (matcher-owned)
+/// 3. [] Matcher program
+///
+/// Data: none
+fn process_cancel_all_resting_orders_inner(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    _data: &[u8],
+) -> ProgramResult {
+    if accounts.len() < 4 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+
+    let portfolio_account = &accounts[0];
+    let user_account = &accounts[1];
+    let book_account = &accounts[2];
+    let matcher_program = &accounts[3];
+
+    process_cancel_all_resting_orders(
+        program_id,
+        portfolio_account,
+        user_account,
+        book_account,
+        matcher_program,
     )
 }

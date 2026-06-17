@@ -507,6 +507,18 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
   - **No market sweep via CPI.** Per design: oracle-only marking.
   - **No hedge-preserving detection or impact-ratio ranking.** Per design: deferred.
 
+### 7.7.5. CancelAllRestingOrders Instruction [DONE] (2026-06-17)
+- [x] **Matcher** (`programs/perps-matcher/`):
+  - `state/book.rs`: new `cancel_all_for_user(state, user) -> u32` helper — iterates the resting array, removes every order with matching user. Per-level `total_qty` and `order_count` are updated by `remove_at_offset`. 5 new unit tests (removes only target, unknown user is no-op, empty book, removes across levels and sides, place-after-cancel works).
+  - `instructions.rs`: new `process_cancel_all_resting` (disc 4) — wire format `disc(1) + user(32) = 33 bytes`. Mirrors `CancelResting`'s validation pattern.
+  - `entrypoint.rs`: added `CancelAllResting` enum variant + disc 4 dispatch.
+- [x] **Core** (`programs/perps-core/`):
+  - `instructions/cancel_all_resting_orders.rs` (new file): `process_cancel_all_resting_orders` wraps a CPI to matcher's CancelAll (disc 4). 2 new tests (disc pinning to 4, wire format `33 bytes`).
+  - `instructions/mod.rs`: added `CancelAllRestingOrders = 13` enum variant + module wiring.
+  - `entrypoint.rs`: added `CancelAllRestingOrders` enum dispatch + `process_cancel_all_resting_orders_inner` raw-byte wrapper (4 accounts, no data).
+- **Total: 8 new tests** (5 matcher + 2 core instruction + 1 matcher pre-existing persisted-book test that also exercises this path).
+- **Note:** This instruction is what `process_liquidate_user` (7.7.4) assumes the keeper has called BEFORE liquidation. Without it, the user's resting orders would remain live and could match during the next batch, undermining the iterative reduction.
+
 ### 7.7-pre. e2e Equity-Offset Bug Fix (7.2 follow-up) [DONE] (2026-06-17)
 Pre-work for 7.7: the pre-existing e2e harness in `programs/perps-core/tests/lifecycle.rs` read `portfolio.equity` and `portfolio.principal` at incorrect byte offsets. The actual struct layout (`state/portfolio.rs:8`) is `user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...` so equity is at `[32..48]` and principal at `[48..64]`. The pre-existing reads used `[16..32]` (equity) and `[32..48]` (principal) — off by 16 bytes each. The test "passed" only because it early-returns without `BPF_OUT_DIR`. Fixed 8 read sites in `test_e2e_full_lifecycle_with_fill` and `test_e2e_gtc_rests_then_matches_next_batch`. Now ready for the new liquidation e2e test to assert on real BPF state.
 
