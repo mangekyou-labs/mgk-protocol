@@ -489,6 +489,24 @@ Added `RevealDeadlineExpired = 600` to `PercolatorError` in `programs/common/src
 - [x] 11 new unit tests: empty/single/two/three positions, long+short mix, zero-qty skip, all-zero-qty, oracle price variation, sentinel padding.
 - **Why insertion sort:** matches the pattern in `state/mark_price.rs:62-81` (same n ≤ 64, no heap, no_std clean). The sort runs once at the start of `process_liquidate_user` in 7.7.4, then the index array is walked in order.
 
+### 7.7.4. Refactor process_liquidate_user to Iterative Reduction [DONE] (2026-06-17)
+- [x] Refactor `process_liquidate_user` to implement D4's full algorithm (the heart of 7.7):
+  1. **Cancel before liquidation (D4 §MVP.1):** documented in comments. Keeper calls `CancelAllRestingOrders` (7.7.5) and a future `CancelCommitment` instruction BEFORE `LiquidateUser`. The function does NOT take book/commitment accounts — matches D4's actual implementation notes ("For MVP, skip the book account in liquidation... Cancel resting orders via a separate `CancelAllRestingOrders` instruction called by the keeper before liquidation").
+  2. **Iterative reduction (D4 §MVP.2):** 5 rounds max. Each round: re-sort positions by abs notional desc (since qtys change), reduce top non-zero by 25% of qty (`qty * 3 / 4`, integer math), or 100% if only one non-zero left. Stop when `equity >= mm` (healthy) or 5 rounds done.
+  3. **Full-flat fallback (D4 §MVP.2 step 3):** if still underwater after 5 rounds, mark all remaining positions at liquidation price, zero qty/entry_vwap, set `positions_len = 0`.
+  4. **Insurance claim (D4 §MVP.3):** unchanged.
+  5. **ADL stub (D4 §MVP.4):** NEW. If `uncovered_bad_debt > 0` after insurance, set `vault.adl_pending = true` and add uncovered to `vault.adl_debt`. No counterparty deleveraging in MVP.
+  6. **Final:** zero im/mm, recalc_margin. Portfolio is "settled" — reduced positions (iterative success) or empty (full-flat).
+- [x] Replaced inline PnL math with `Position::liquidation_pnl` from 7.7.2.
+- [x] Reused `sort_position_indices_by_abs_notional` from 7.7.3 (called per round, not once — because qtys change).
+- [x] 5 new unit tests: single-position full-close, two-position 25% (with correct "round 5 reduces pos 1, not pos 0" expectation, since pos 0 became smaller than pos 1 after 4 reductions), ADL stub fires when uncovered > 0, ADL stub does NOT fire when insurance covers everything, iterative reduction stops when healthy.
+- **Deviations from design (post-MVP):**
+  - **Single oracle for all positions.** Per-instrument oracle lookup is deferred.
+  - **No commitment cleanup in LiquidateUser.** Per D4's actual implementation notes, this is a separate instruction (follow-up).
+  - **No book access in LiquidateUser.** Per D4's actual implementation notes, `CancelAllRestingOrders` is 7.7.5.
+  - **No market sweep via CPI.** Per design: oracle-only marking.
+  - **No hedge-preserving detection or impact-ratio ranking.** Per design: deferred.
+
 ### 7.7-pre. e2e Equity-Offset Bug Fix (7.2 follow-up) [DONE] (2026-06-17)
 Pre-work for 7.7: the pre-existing e2e harness in `programs/perps-core/tests/lifecycle.rs` read `portfolio.equity` and `portfolio.principal` at incorrect byte offsets. The actual struct layout (`state/portfolio.rs:8`) is `user(32) | equity(16) | principal(16) | pnl(16) | im(16) | mm(16) | ...` so equity is at `[32..48]` and principal at `[48..64]`. The pre-existing reads used `[16..32]` (equity) and `[32..48]` (principal) — off by 16 bytes each. The test "passed" only because it early-returns without `BPF_OUT_DIR`. Fixed 8 read sites in `test_e2e_full_lifecycle_with_fill` and `test_e2e_gtc_rests_then_matches_next_batch`. Now ready for the new liquidation e2e test to assert on real BPF state.
 
