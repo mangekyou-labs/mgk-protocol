@@ -1,0 +1,77 @@
+- generic:
+  - generic [active]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - navigation [ref=e6]:
+          - button [disabled] [ref=e7]:
+            - img "previous" [ref=e8]
+          - generic [ref=e10]:
+            - generic [ref=e11]: 1/
+            - text: "1"
+          - button [disabled] [ref=e12]:
+            - img "next" [ref=e13]
+        - link "Next.js 16.2.9 (stale) Turbopack" [ref=e16] [cursor=pointer]:
+          - /url: https://nextjs.org/docs/messages/version-staleness
+          - generic "There is a newer version (16.3.1) available, upgrade recommended!" [ref=e19]: Next.js 16.2.9 (stale)
+          - generic [ref=e20]: Turbopack
+      - dialog "Build Error" [ref=e22]:
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - generic [ref=e28]: Build Error
+              - generic [ref=e30]:
+                - button "Copy Error Info" [ref=e31] [cursor=pointer]
+                - link "Go to related documentation" [ref=e34] [cursor=pointer]:
+                  - /url: https://nextjs.org/docs/messages/module-not-found
+                - button "Attach Node.js inspector" [ref=e37] [cursor=pointer]
+            - generic [ref=e46]: "Module not found: Can't resolve '@mgk/sdk'"
+          - generic [ref=e49]:
+            - generic [ref=e51]:
+              - generic [ref=e56]: ./.worktrees/feature-dfba-auction/mgk-frontend/apps/web/app/trade/page.tsx (4:1)
+              - button "Open in editor" [ref=e57] [cursor=pointer]
+            - generic [ref=e62]:
+              - generic [ref=e63]: "Module not found: Can't resolve '@mgk/sdk'"
+              - generic [ref=e64]: 2 |
+              - generic [ref=e65]: 3 |
+              - text: import
+              - generic [ref=e66]: "{ useCallback, useEffect, useRef, useState }"
+              - text: from 'react'
+              - generic [ref=e67]: ;
+              - text: ">"
+              - generic [ref=e68]: 4 |
+              - text: import
+              - generic [ref=e69]: "*"
+              - text: as
+              - generic [ref=e70]: sdk
+              - text: from '@mgk/sdk'
+              - generic [ref=e71]: ;
+              - generic [ref=e72]: "|"
+              - text: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+              - generic [ref=e73]: 5 |
+              - generic [ref=e74]: 6 |
+              - text: import
+              - generic [ref=e75]: "{"
+              - text: PriceChart
+              - generic [ref=e76]: "}"
+              - text: from '@/components/chart/PriceChart'
+              - generic [ref=e77]: ;
+              - generic [ref=e78]: 7 |
+              - text: import
+              - generic [ref=e79]: "{"
+              - text: TxToast
+              - generic [ref=e80]: "}"
+              - text: from '@/components/common/TxToast'
+              - generic [ref=e81]:
+                - text: "; Import traces: Client Component Browser: ./.worktrees/feature-dfba-auction/mgk-frontend/apps/web/app/trade/page.tsx [Client Component Browser] ./.worktrees/feature-dfba-auction/mgk-frontend/apps/web/app/trade/page.tsx [Server Component] Client Component SSR: ./.worktrees/feature-dfba-auction/mgk-frontend/apps/web/app/trade/page.tsx [Client Component SSR] ./.worktrees/feature-dfba-auction/mgk-frontend/apps/web/app/trade/page.tsx [Server Component]"
+                - link "https://nextjs.org/docs/messages/module-not-found" [ref=e82] [cursor=pointer]:
+                  - /url: https://nextjs.org/docs/messages/module-not-found
+        - generic [ref=e83]: "1"
+        - generic [ref=e84]: "2"
+    - generic [ref=e89] [cursor=pointer]:
+      - button "Open Next.js Dev Tools" [ref=e90]
+      - button "Open issues overlay" [ref=e95]:
+        - generic [ref=e96]:
+          - generic [ref=e97]: "0"
+          - generic [ref=e98]: "1"
+        - generic [ref=e99]: Issue
+  - alert [ref=e100]

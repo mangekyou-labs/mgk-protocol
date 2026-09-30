@@ -44,26 +44,43 @@ describe('ChartToolbar', () => {
 
   // ── WS status badge ══════════════════════════════════════════════
 
-  it('shows ● live in green when connected', () => {
+  it('shows ● fills live in green when connected', () => {
     render(<ChartToolbar {...defaultProps} isConnected />);
     const el = screen.getByTestId('chart-ws-status');
-    expect(el.textContent).toContain('live');
+    expect(el.textContent).toContain('fills live');
     // The dot is a child span
     const dot = el.querySelector('span');
     expect(dot?.className).toContain('text-online');
   });
 
-  it('shows ○ off in warn/orange when disconnected', () => {
+  it('shows ○ fills off in warn/orange when disconnected', () => {
     render(<ChartToolbar {...defaultProps} isConnected={false} />);
     const el = screen.getByTestId('chart-ws-status');
-    expect(el.textContent).toContain('off');
-    // "off" label uses warn color
+    expect(el.textContent).toContain('fills off');
     const spans = el.querySelectorAll('span');
     expect(spans.length).toBeGreaterThanOrEqual(2);
-    // The dot should be in the offline color (red)
     expect(spans[0]?.className).toContain('text-offline');
-    // The label should be in warn color (orange)
     expect(spans[1]?.className).toContain('text-warn');
+  });
+
+  it('shows fills delayed in warn when healthStatus is degraded', () => {
+    render(<ChartToolbar {...defaultProps} isConnected healthStatus="degraded" />);
+    const el = screen.getByTestId('chart-ws-status');
+    expect(el.textContent).toContain('fills delayed');
+    const spans = el.querySelectorAll('span');
+    expect(spans[1]?.className).toContain('text-warn');
+  });
+
+  it('shows fills delayed when healthStatus is warming', () => {
+    render(<ChartToolbar {...defaultProps} isConnected healthStatus="warming" />);
+    const el = screen.getByTestId('chart-ws-status');
+    expect(el.textContent).toContain('fills delayed');
+  });
+
+  it('shows fills off when healthStatus is critical even if isConnected', () => {
+    render(<ChartToolbar {...defaultProps} isConnected healthStatus="critical" />);
+    const el = screen.getByTestId('chart-ws-status');
+    expect(el.textContent).toContain('fills off');
   });
 
   // ── disabled buttons ═════════════════════════════════════════════

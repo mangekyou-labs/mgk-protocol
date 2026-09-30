@@ -1,0 +1,300 @@
+- generic [ref=f10e1]:
+  - generic [ref=f10e2]:
+    - banner [ref=f10e3]:
+      - link "mgk home" [ref=f10e4] [cursor=pointer]:
+        - /url: /trade
+        - img "mgk" [ref=f10e5]
+      - navigation "Primary" [ref=f10e14]:
+        - link "Trade" [ref=f10e15] [cursor=pointer]:
+          - /url: /trade
+        - link "Portfolio" [ref=f10e16] [cursor=pointer]:
+          - /url: /portfolio
+      - link "Get devnet SOL" [ref=f10e17] [cursor=pointer]:
+        - /url: https://faucet.solana.com
+      - button "2ecH…MiQX" [ref=f10e19]
+    - generic [ref=f10e20]:
+      - generic [ref=f10e21]:
+        - generic [ref=f10e22]: BTC-USD
+        - generic [ref=f10e23]: $65,075.73
+        - generic [ref=f10e24]: ▼
+      - generic [ref=f10e25]:
+        - generic [ref=f10e26]: ETH-USD
+        - generic [ref=f10e27]: $1,922.61
+        - generic [ref=f10e28]: ▼
+      - generic [ref=f10e29]:
+        - generic [ref=f10e30]: SOL-USD
+        - generic [ref=f10e31]: $76.62
+        - generic [ref=f10e32]: ▼
+      - generic [ref=f10e33]: Pyth
+    - main [ref=f10e325]:
+      - generic [ref=f10e326]:
+        - button "SOL-USD Perp" [disabled] [ref=f10e327]:
+          - generic [ref=f10e328]: ★
+          - text: SOL-USD Perp
+        - generic [ref=f10e329]:
+          - generic [ref=f10e330]: —
+          - generic [ref=f10e331]: book crossed
+        - generic "Book is crossed; midpoint is unavailable until the next clear." [ref=f10e333]:
+          - generic [ref=f10e334]: Last
+          - generic [ref=f10e335]: —
+        - generic "The on-chain oracle feed is deployed, but its value is not surfaced in the v1 header yet." [ref=f10e336]:
+          - generic [ref=f10e337]: Oracle
+          - generic [ref=f10e338]: —
+        - generic "From indexer /api/markets/0/state (sum of candles_1m over the last 24h, recomputed every 60s)." [ref=f10e339]:
+          - generic [ref=f10e340]: 24h Vol
+          - generic [ref=f10e341]: "0.00"
+        - generic "From indexer /api/markets/0/state. Long 0 + Short 0." [ref=f10e342]:
+          - generic [ref=f10e343]: OI
+          - generic [ref=f10e344]: "0.00"
+        - generic [ref=f10e590]: "Batch: —"
+      - generic [ref=f10e352]:
+        - generic [ref=f10e354]:
+          - generic [ref=f10e355]:
+            - button "1m" [ref=f10e356]
+            - button "5m" [ref=f10e357]
+            - button "15m" [ref=f10e358]
+            - button "1H" [ref=f10e359]
+            - button "4H" [ref=f10e360]
+            - button "1D" [ref=f10e361]
+            - generic [ref=f10e362]:
+              - button "Chart" [ref=f10e364]
+              - generic [ref=f10e365]:
+                - generic [ref=f10e366]: "|"
+                - button "Market Info" [ref=f10e367]
+            - generic [ref=f10e368]:
+              - button "Mark" [disabled] [ref=f10e369]
+              - generic [ref=f10e370]: "|"
+              - button "Oracle" [disabled] [ref=f10e371]
+            - button "Indicators" [disabled] [ref=f10e372]
+            - generic [ref=f10e374]:
+              - generic [ref=f10e375]: ●
+              - generic [ref=f10e376]: live
+          - iframe [ref=f10e381]:
+            - generic [ref=f12e1]:
+              - 'region "Chart #1" [ref=f12e7]':
+                - generic [ref=f12e11]:
+                  - generic:
+                    - generic:
+                      - toolbar:
+                        - generic:
+                          - generic [ref=f12e12]:
+                            - generic [ref=f12e13]:
+                              - generic [ref=f12e14]: S
+                              - generic [ref=f12e18]: SOL / TetherUS
+                            - generic "Change interval" [ref=f12e19]:
+                              - text: ·
+                              - button "Change interval" [ref=f12e20]: "5"
+                            - generic [ref=f12e21]:
+                              - text: ·
+                              - generic [ref=f12e22]: Binance
+                          - generic:
+                            - generic:
+                              - button "More"
+                          - button "Market open" [ref=f12e70]
+                        - generic [ref=f12e24]:
+                          - generic [ref=f12e25]:
+                            - generic [ref=f12e26]: O
+                            - generic [ref=f12e27]: "76.70"
+                          - generic [ref=f12e28]:
+                            - generic [ref=f12e29]: H
+                            - generic [ref=f12e30]: "76.72"
+                          - generic [ref=f12e31]:
+                            - generic [ref=f12e32]: L
+                            - generic [ref=f12e33]: "76.67"
+                          - generic [ref=f12e34]:
+                            - generic [ref=f12e35]: C
+                            - generic [ref=f12e36]: "76.68"
+                          - generic [ref=f12e37]: −0.01 (−0.01%)
+                    - generic:
+                      - button "Hide indicator legend" [ref=f12e44]
+                      - generic:
+                        - toolbar:
+                          - generic:
+                            - generic "Volume · SOL" [ref=f12e49]: Vol · SOL
+                            - generic:
+                              - generic:
+                                - button "Hide"
+                                - button "Settings"
+                                - button "Remove"
+                                - button "More"
+                          - generic "Volume" [ref=f12e54]: 1.71 K
+                  - generic "Chart for BINANCE:SOLUSDT, 5 minutes" [ref=f12e56]
+              - generic: SOLUSDT · Binance, 5
+        - generic [ref=f10e383]:
+          - generic [ref=f10e384]:
+            - generic [ref=f10e385]: Price
+            - generic [ref=f10e386]: Size
+            - generic [ref=f10e387]: Total
+          - generic [ref=f10e389]:
+            - generic [ref=f10e391]: "0.10"
+            - generic [ref=f10e392]: "1.200020"
+            - generic [ref=f10e393]: "1.200020"
+          - generic [ref=f10e395]:
+            - generic [ref=f10e396]: Spread
+            - generic [ref=f10e397]: "-76.45 (-99.86%)"
+          - generic [ref=f10e398]:
+            - generic [ref=f10e399]:
+              - generic [ref=f10e401]: "76.55"
+              - generic [ref=f10e402]: "0.010000"
+              - generic [ref=f10e403]: "0.010000"
+            - generic [ref=f10e404]:
+              - generic [ref=f10e406]: "76.50"
+              - generic [ref=f10e407]: "0.010000"
+              - generic [ref=f10e408]: "0.020000"
+            - generic [ref=f10e409]:
+              - generic [ref=f10e411]: "0.10"
+              - generic [ref=f10e412]: "0.500025"
+              - generic [ref=f10e413]: "0.520025"
+          - generic [ref=f10e414]:
+            - generic [ref=f10e415]: B 30%
+            - generic [ref=f10e419]: S 70%
+        - generic [ref=f10e421]:
+          - generic [ref=f10e422]: Cross
+          - generic [ref=f10e424]: Limit
+          - generic [ref=f10e426]:
+            - button "Buy / Long" [ref=f10e427]
+            - button "Sell / Short" [ref=f10e428]
+          - generic [ref=f10e430]:
+            - generic [ref=f10e431]: Price USD
+            - generic [ref=f10e432]:
+              - textbox "0.10" [ref=f10e560]
+              - generic [ref=f10e434]: "0.10"
+          - generic [ref=f10e435]:
+            - generic [ref=f10e436]: Size Avail 0
+            - generic [ref=f10e437]:
+              - textbox "0.00" [ref=f10e438]: "1"
+              - generic [ref=f10e439]: USD
+            - generic [ref=f10e440]:
+              - button "Set size to 20%" [ref=f10e441]
+              - button "Set size to 40%" [ref=f10e442]
+              - button "Set size to 60%" [ref=f10e443]
+              - button "Set size to 80%" [ref=f10e444]
+              - button "Set size to 100%" [ref=f10e445]
+          - generic [ref=f10e446]:
+            - generic [ref=f10e447] [cursor=pointer]:
+              - checkbox "Post as maker" [checked] [ref=f10e448]
+              - text: Post as maker
+            - generic [ref=f10e449] [cursor=pointer]:
+              - checkbox "Reduce Only" [checked] [ref=f10e450]
+              - text: Reduce Only
+            - generic [ref=f10e451]:
+              - checkbox "TP/SL" [disabled] [ref=f10e452]
+              - text: TP/SL
+          - generic [ref=f10e453]:
+            - button "Buy / Long" [ref=f10e454]
+            - button "Sell / Short" [ref=f10e582]
+          - generic [ref=f10e456]:
+            - generic [ref=f10e457]:
+              - generic [ref=f10e458]: Current Pos
+              - generic [ref=f10e459]: 0 SOL
+            - generic [ref=f10e460]:
+              - generic [ref=f10e461]: Liq
+              - generic [ref=f10e462]: — / —
+            - generic [ref=f10e463]:
+              - generic [ref=f10e464]: Order Value
+              - generic [ref=f10e465]: $0.10
+            - generic [ref=f10e466]:
+              - generic [ref=f10e467]: Margin
+              - generic [ref=f10e468]: $0.01 / $0
+            - generic [ref=f10e469]:
+              - generic [ref=f10e470]: Fees
+              - generic [ref=f10e471]: — / —
+          - generic [ref=f10e472]:
+            - generic [ref=f10e473]:
+              - generic [ref=f10e474]: Liq Price
+              - generic [ref=f10e475]: —
+            - generic [ref=f10e476]:
+              - generic [ref=f10e477]: Leverage
+              - generic [ref=f10e478]: —
+            - generic [ref=f10e479]:
+              - generic [ref=f10e480]: Free Collateral
+              - generic [ref=f10e481]: —
+          - generic [ref=f10e482]:
+            - generic [ref=f10e483]: Account
+            - generic [ref=f10e484]:
+              - textbox "0.1" [ref=f10e485]
+              - generic [ref=f10e486]: SOL
+            - generic [ref=f10e487]:
+              - button "Deposit" [disabled] [ref=f10e488]
+              - button "Withdraw" [disabled] [ref=f10e489]
+      - generic [ref=f10e490]:
+        - generic [ref=f10e493]:
+          - generic [ref=f10e494]:
+            - button "Positions(0)" [ref=f10e495]:
+              - text: Positions
+              - generic [ref=f10e496]: (0)
+            - button "Open Orders(6)" [ref=f10e572]:
+              - text: Open Orders
+              - generic [ref=f10e514]: (6)
+            - button "Balances" [ref=f10e498]
+            - button "Order History" [ref=f10e499]
+            - button "Trade History" [ref=f10e500]
+          - generic [ref=f10e501]:
+            - generic [ref=f10e502]:
+              - button "Funding History" [ref=f10e503]
+              - button "Position History" [ref=f10e504]
+              - button "Account History" [ref=f10e505]
+            - generic [ref=f10e506] [cursor=pointer]:
+              - checkbox "Current Market" [checked] [ref=f10e507]
+              - text: Current Market
+        - generic [ref=f10e516]:
+          - generic [ref=f10e517]:
+            - generic [ref=f10e518]: Long
+            - generic [ref=f10e519]: "0.10"
+            - generic [ref=f10e591]: "0.400000"
+            - button "Modify" [ref=f10e592]
+            - button "Cancel" [active] [ref=f10e522]
+          - generic [ref=f10e523]:
+            - generic [ref=f10e524]: Short
+            - generic [ref=f10e525]: "0.10"
+            - generic [ref=f10e526]: "0.199995"
+            - button "Modify" [ref=f10e527]
+            - button "Cancel" [ref=f10e528]
+          - generic [ref=f10e529]:
+            - generic [ref=f10e530]: Long
+            - generic [ref=f10e531]: "0.10"
+            - generic [ref=f10e532]: "0.100000"
+            - button "Modify" [ref=f10e533]
+            - button "Cancel" [ref=f10e534]
+          - generic [ref=f10e535]:
+            - generic [ref=f10e536]: Long
+            - generic [ref=f10e537]: "76.50"
+            - generic [ref=f10e538]: "0.010000"
+            - button "Modify" [ref=f10e539]
+            - button "Cancel" [ref=f10e540]
+          - generic [ref=f10e541]:
+            - generic [ref=f10e542]: Long
+            - generic [ref=f10e543]: "76.55"
+            - generic [ref=f10e544]: "0.010000"
+            - button "Modify" [ref=f10e545]
+            - button "Cancel" [ref=f10e546]
+          - generic [ref=f10e573]:
+            - generic [ref=f10e574]: Short
+            - generic [ref=f10e575]: "0.10"
+            - generic [ref=f10e576]: "1.000000"
+            - button "Modify" [ref=f10e577]
+            - button "Cancel" [ref=f10e578]
+      - generic [ref=f10e584]:
+        - generic [ref=f10e585]:
+          - generic [ref=f10e586]: Transaction Confirmed
+          - link "4pqfCF9b…LgddNiP3" [ref=f10e588] [cursor=pointer]:
+            - /url: https://explorer.solana.com/tx/4pqfCF9bNYjtQG3zhCpN7WBWuzAU7j7C1LVwsRmtPKZtLKPevHXDjt2AjBStpJ95gRZ5Wojie5ufXZ1bLgddNiP3?cluster=devnet
+        - button "Dismiss" [ref=f10e589]: ×
+    - generic [ref=f10e215]:
+      - generic "online" [ref=f10e216]: ●
+      - generic [ref=f10e217]: Online
+      - generic [ref=f10e218]: Devnet
+      - generic [ref=f10e220]: —
+      - generic [ref=f10e221]: "Wallet: 2ecH…MiQX"
+  - generic [ref=f10e226] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=f10e227]
+    - generic [ref=f10e547]:
+      - button "Open issues overlay" [ref=f10e548]:
+        - generic [ref=f10e579]:
+          - generic [ref=f10e580]: "5"
+          - generic [ref=f10e581]: "6"
+        - generic [ref=f10e552]:
+          - text: Issue
+          - generic [ref=f10e553]: s
+      - button "Collapse issues badge" [ref=f10e554]
+  - alert [ref=f10e231]

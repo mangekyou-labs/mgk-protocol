@@ -208,6 +208,33 @@ describe('OrderForm', () => {
     expect((screen.getByTestId('order-form-price-input') as HTMLInputElement).placeholder).toBe('151.00');
   });
 
+  it('does not default to a price from a crossed book', () => {
+    render(<OrderForm bestBid={150_000_000n} bestAsk={100_000_000n} />);
+
+    const price = screen.getByTestId('order-form-price-input') as HTMLInputElement;
+    expect(price.placeholder).toBe('0.00');
+
+    fireEvent.click(screen.getByTestId('order-form-side-sell'));
+    expect(price.placeholder).toBe('0.00');
+  });
+
+  it('shows base-asset size availability and margin capacity from free collateral', () => {
+    render(
+      <OrderForm
+        bestBid={100_000_000n}
+        bestAsk={101_000_000n}
+        freeCollateral={300_000_000n}
+      />,
+    );
+
+    expect(screen.getByTestId('order-form-size-available')).toHaveTextContent('3.00 SOL');
+
+    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
+      target: { value: '1' },
+    });
+    expect(screen.getByTestId('order-form-margin-available')).toHaveTextContent('$30.00');
+  });
+
   it('renders the locked Cross margin mode tab', () => {
     render(<OrderForm bestBid={null} bestAsk={null} />);
     const el = screen.getByTestId('margin-mode-cross');

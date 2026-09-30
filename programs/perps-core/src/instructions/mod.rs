@@ -15,6 +15,7 @@ pub mod liquidate_user;
 pub mod modify_resting_order;
 pub mod post_order;
 pub mod reveal_order;
+pub mod set_batch_params;
 pub mod set_pause_flags;
 pub mod settle_batch;
 pub mod withdraw;
@@ -36,6 +37,7 @@ pub use liquidate_user::*;
 pub use modify_resting_order::*;
 pub use post_order::*;
 pub use reveal_order::*;
+pub use set_batch_params::*;
 pub use set_pause_flags::*;
 pub use settle_batch::*;
 pub use withdraw::*;
@@ -83,4 +85,7 @@ pub enum CoreInstruction {
     /// DFBA open post (disc 20) — single-tx place on book with maker/taker flag.
     /// Replaces CommitOrder+RevealOrder for the DFBA path.
     PostOrder = 20,
+    /// Governance-only: update batch parameters (disc 21).
+    /// Controls: max_orders_per_batch, marginal_size_cap, t_min/t_max slots, n_min.
+    SetBatchParams = 21,
 }

@@ -3,6 +3,7 @@
 import { formatTradeTime } from '@/components/trade/RecentTrades';
 import { Pill } from '@/components/common/Pill';
 import { NumberDisplay } from '@/components/common/NumberDisplay';
+import { useIndexerHealth } from '@/lib/stores/useIndexerHealthStore';
 import { useMyFills } from '@/lib/stores/useMyFillsStore';
 import { useWallet } from '@solana/wallet-adapter-react';
 
@@ -24,6 +25,8 @@ function explorerLink(signature: string): string {
 export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps) {
   const { publicKey, connected } = useWallet();
   const { fills, loading, error, isPolling } = useMyFills(instrumentId);
+  const indexerHealth = useIndexerHealth();
+  const isDelayed = error != null || indexerHealth.status === 'degraded' || indexerHealth.status === 'critical';
 
   if (!connected || !publicKey) {
     return (
@@ -36,7 +39,7 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
     );
   }
 
-  if (error) {
+  if (fills.length === 0 && error) {
     return (
       <div
         data-testid="trade-history-error"
@@ -80,6 +83,15 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
       data-count={fills.length}
       className={`flex flex-col font-mono text-xs ${className ?? ''}`}
     >
+      {isDelayed && (
+        <div
+          data-testid="trade-history-delayed-notice"
+          className="bg-surface-2 border-b border-warn/30 text-warn px-2 py-1 text-[10px] flex items-center gap-1.5"
+        >
+          <span>⚠</span>
+          <span>Indexer synchronization is delayed · Showing cached trade history.</span>
+        </div>
+      )}
       <div
         data-testid="trade-history-header"
         className="text-text-faint grid grid-cols-[100px_70px_70px_1fr_1fr_80px] gap-2 border-b border-border px-2 py-1 text-[10px] uppercase tracking-wider"

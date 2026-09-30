@@ -94,6 +94,11 @@ const nextConfig: NextConfig = {
   // Hard-disable powered-by header (don't leak framework info to attackers).
   poweredByHeader: false,
 
+  // Playwright MCP reaches the local app through the loopback IP. Next.js
+  // blocks cross-origin dev assets by default, which leaves server-rendered
+  // controls visible but prevents React hydration (wallet/chart clicks inert).
+  allowedDevOrigins: ["127.0.0.1"],
+
   async headers() {
     const csp = buildCsp(isProd);
     return [

@@ -4,12 +4,14 @@ import { create } from 'zustand';
 
 export type OrderFormStatus =
   | 'idle'
-  | 'committing'
-  | 'awaiting_reveal'
-  | 'revealing'
+  | 'submitting'
   | 'done'
   | 'failed'
-  | 'slashed';
+  | 'slashed'
+  // Legacy commit-reveal statuses (still decoded from localStorage)
+  | 'committing'
+  | 'awaiting_reveal'
+  | 'revealing';
 
 export type OrderSide = 'buy' | 'sell';
 
@@ -20,8 +22,11 @@ export interface OrderFormState {
   qty: bigint;
   reduceOnly: boolean;
   batchId: bigint;
+  /** @deprecated DFBA has no salt */
   salt: bigint;
+  /** @deprecated DFBA has no commitment hash */
   hash: string;
+  isMaker: boolean;
   status: OrderFormStatus;
 }
 
@@ -33,8 +38,9 @@ interface OrderFormStore extends OrderFormState {
     qty: bigint;
     reduceOnly: boolean;
     batchId: bigint;
-    salt: bigint;
-    hash: string;
+    salt?: bigint;
+    hash?: string;
+    isMaker?: boolean;
   }) => void;
   setStatus: (status: OrderFormStatus) => void;
   clear: () => void;
@@ -42,6 +48,7 @@ interface OrderFormStore extends OrderFormState {
 
 const STORAGE_KEY = 'mgk-order-form';
 const IN_FLIGHT_STATUSES: OrderFormStatus[] = [
+  'submitting',
   'committing',
   'awaiting_reveal',
   'revealing',
@@ -61,7 +68,16 @@ function deserialize(json: string | null): OrderFormState | null {
   if (!json) return null;
   try {
     const raw = JSON.parse(json);
-    const state = {
+    const status: OrderFormStatus = raw.status ?? 'idle';
+    // Drop in-flight commit-reveal recovery; DFBA has no salt/hash resume.
+    if (
+      status === 'committing' ||
+      status === 'awaiting_reveal' ||
+      status === 'revealing'
+    ) {
+      return null;
+    }
+    const state: OrderFormState = {
       instrumentId: raw.instrumentId ?? 0,
       side: raw.side ?? 'buy',
       price: BigInt(raw.price ?? '0'),
@@ -70,7 +86,8 @@ function deserialize(json: string | null): OrderFormState | null {
       batchId: BigInt(raw.batchId ?? '0'),
       salt: BigInt(raw.salt ?? '0'),
       hash: raw.hash ?? '',
-      status: raw.status ?? 'idle',
+      isMaker: raw.isMaker ?? false,
+      status,
     };
     if (!isRecoverableState(state)) return null;
     return state;
@@ -99,18 +116,14 @@ function getDefaultState(): OrderFormState {
     batchId: 0n,
     salt: 0n,
     hash: '',
+    isMaker: false,
     status: 'idle',
   };
 }
 
 function isRecoverableState(state: OrderFormState): boolean {
   if (!IN_FLIGHT_STATUSES.includes(state.status)) return true;
-  return (
-    state.price > 0n &&
-    state.qty > 0n &&
-    state.salt > 0n &&
-    state.hash.length > 0
-  );
+  return state.price > 0n && state.qty > 0n;
 }
 
 export const useOrderFormStore = create<OrderFormStore>((set) => ({
@@ -121,6 +134,9 @@ export const useOrderFormStore = create<OrderFormStore>((set) => ({
       const next = {
         ...state,
         ...params,
+        salt: params.salt ?? 0n,
+        hash: params.hash ?? '',
+        isMaker: params.isMaker ?? false,
         status: 'idle' as OrderFormStatus,
       };
       if (typeof window !== 'undefined') {

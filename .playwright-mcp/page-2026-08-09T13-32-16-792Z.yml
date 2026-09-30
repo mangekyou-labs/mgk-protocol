@@ -1,0 +1,87 @@
+- generic [active] [ref=f10e1]:
+  - generic [ref=f10e2]:
+    - banner [ref=f10e3]:
+      - link "mgk home" [ref=f10e4] [cursor=pointer]:
+        - /url: /trade
+        - img "mgk" [ref=f10e5]
+      - navigation "Primary" [ref=f10e14]:
+        - link "Trade" [ref=f10e15] [cursor=pointer]:
+          - /url: /trade
+        - link "Portfolio" [ref=f10e16] [cursor=pointer]:
+          - /url: /portfolio
+      - link "Get devnet SOL" [ref=f10e17] [cursor=pointer]:
+        - /url: https://faucet.solana.com
+      - button "2ecH…MiQX" [ref=f10e19]
+    - generic [ref=f10e20]:
+      - generic [ref=f10e21]:
+        - generic [ref=f10e22]: BTC-USD
+        - generic [ref=f10e23]: $65,064.66
+        - generic [ref=f10e24]: ▲
+      - generic [ref=f10e25]:
+        - generic [ref=f10e26]: ETH-USD
+        - generic [ref=f10e27]: $1,923.21
+        - generic [ref=f10e28]: ▲
+      - generic [ref=f10e29]:
+        - generic [ref=f10e30]: SOL-USD
+        - generic [ref=f10e31]: $76.67
+        - generic [ref=f10e32]: ▲
+      - generic [ref=f10e33]: Pyth
+    - main [ref=f10e272]:
+      - generic [ref=f10e273]:
+        - heading "Portfolio" [level=1] [ref=f10e274]
+        - generic [ref=f10e275]:
+          - heading "Balances" [level=3] [ref=f10e276]
+          - generic [ref=f10e277]:
+            - term [ref=f10e278]: Equity
+            - definition [ref=f10e279]: 0.3000SOL
+            - term [ref=f10e280]: Free Collateral
+            - definition [ref=f10e281]: 0.3000SOL
+            - term [ref=f10e282]: Locked Collateral
+            - definition [ref=f10e283]: 0.0000SOL
+            - term [ref=f10e284]: Unrealized PnL
+            - definition [ref=f10e285]:
+              - generic [ref=f10e286]: "0.00"
+            - term [ref=f10e288]: Maintenance Margin
+            - definition [ref=f10e289]: 0.0000SOL
+        - generic [ref=f10e290]:
+          - heading "Positions" [level=3] [ref=f10e291]
+          - paragraph [ref=f10e292]: You have no open positions yet.
+        - generic [ref=f10e294]:
+          - generic [ref=f10e295]:
+            - generic [ref=f10e296]: Long
+            - generic [ref=f10e297]: "0.10"
+            - generic [ref=f10e298]: "0.400000"
+            - button "Modify" [ref=f10e299]
+            - button "Cancel" [ref=f10e300]
+          - generic [ref=f10e301]:
+            - generic [ref=f10e302]: Short
+            - generic [ref=f10e303]: "0.10"
+            - generic [ref=f10e304]: "0.199995"
+            - button "Modify" [disabled] [ref=f10e305]
+            - button "Cancel" [disabled] [ref=f10e306]
+          - generic [ref=f10e307]:
+            - generic [ref=f10e308]: Long
+            - generic [ref=f10e309]: "0.10"
+            - generic [ref=f10e310]: "0.100000"
+            - button "Modify" [ref=f10e311]
+            - button "Cancel" [ref=f10e312]
+          - generic [ref=f10e313]:
+            - generic [ref=f10e314]: Long
+            - generic [ref=f10e315]: "76.50"
+            - generic [ref=f10e316]: "0.010000"
+            - button "Modify" [ref=f10e317]
+            - button "Cancel" [ref=f10e318]
+          - generic [ref=f10e319]:
+            - generic [ref=f10e320]: Long
+            - generic [ref=f10e321]: "76.55"
+            - generic [ref=f10e322]: "0.010000"
+            - button "Modify" [ref=f10e323]
+            - button "Cancel" [ref=f10e324]
+    - generic [ref=f10e215]:
+      - generic "online" [ref=f10e216]: ●
+      - generic [ref=f10e217]: Online
+      - generic [ref=f10e218]: Devnet
+      - generic [ref=f10e220]: "Batch: Collecting · Orders open · Waiting for minimum flow (0/1)"
+      - generic [ref=f10e221]: "Wallet: 2ecH…MiQX"
+  - button "Open Next.js Dev Tools" [ref=f10e227] [cursor=pointer]
+  - alert [ref=f10e231]

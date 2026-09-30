@@ -6,6 +6,7 @@ import { ChartToolbar, type CandleResolution } from './ChartToolbar';
 import { MgkTradeMarkers } from './MgkTradeMarkers';
 import { TradingViewWidget, type TradingViewInterval } from './TradingViewWidget';
 import { useIndexerWs } from '@/lib/chart/useIndexerWs';
+import { useIndexerHealth } from '@/lib/stores/useIndexerHealthStore';
 
 export interface PriceChartProps {
   instrumentId?: number;
@@ -29,6 +30,7 @@ export function PriceChart({ instrumentId = 0, className }: PriceChartProps) {
   const [resolution, setResolution] = useState<CandleResolution>('5m');
   const [viewMode, setViewMode] = useState<'chart' | 'market-info'>('chart');
   const { simpleMarkers, isConnected } = useIndexerWs(instrumentId);
+  const indexerHealth = useIndexerHealth();
 
   const handleResolution = useCallback((r: CandleResolution) => {
     setResolution(r);
@@ -42,6 +44,7 @@ export function PriceChart({ instrumentId = 0, className }: PriceChartProps) {
         onResolutionChange={handleResolution}
         onViewModeChange={setViewMode}
         viewMode={viewMode}
+        healthStatus={indexerHealth.status}
       />
 
       <div className="relative" style={{ height: CHART_HEIGHT }}>

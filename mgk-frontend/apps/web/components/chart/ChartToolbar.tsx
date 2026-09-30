@@ -1,4 +1,4 @@
-'use client';
+import type { IndexerHealthStatus } from '@/lib/stores/useIndexerHealthStore';
 
 export type CandleResolution = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 
@@ -8,6 +8,7 @@ export interface ChartToolbarProps {
   onResolutionChange: (r: CandleResolution) => void;
   onViewModeChange?: (mode: 'chart' | 'market-info') => void;
   viewMode?: 'chart' | 'market-info';
+  healthStatus?: IndexerHealthStatus;
 }
 
 type ViewMode = 'chart' | 'market-info';
@@ -32,7 +33,25 @@ export function ChartToolbar({
   onResolutionChange,
   onViewModeChange,
   viewMode = 'chart',
+  healthStatus,
 }: ChartToolbarProps) {
+  let statusText = 'fills live';
+  let dotColor = 'text-online';
+  let dotGlyph = '●';
+  let textColor = 'text-text-muted';
+
+  if (!isConnected || healthStatus === 'critical') {
+    statusText = 'fills off';
+    dotColor = 'text-offline';
+    dotGlyph = '○';
+    textColor = 'text-warn';
+  } else if (healthStatus === 'degraded' || healthStatus === 'warming') {
+    statusText = 'fills delayed';
+    dotColor = 'text-warn';
+    dotGlyph = '●';
+    textColor = 'text-warn';
+  }
+
   return (
     <div
       data-testid="chart-toolbar"
@@ -87,7 +106,7 @@ export function ChartToolbar({
         </span>
       )}
 
-      {/* Mark/Oracle toggle (UI only in v1 — keeper not yet online) */}
+      {/* Mark/Oracle toggle (UI-only placeholders until those feeds are surfaced) */}
       <span className="flex items-center gap-0.5 ml-2">
         <button
           type="button"
@@ -105,7 +124,7 @@ export function ChartToolbar({
           data-testid="toggle-oracle"
           data-active="false"
           disabled
-          title="Oracle price (Pyth) — coming when keeper is online"
+          title="Oracle price overlay is not surfaced in v1"
           className="px-1.5 py-0.5 text-[10px] font-mono rounded text-text-faint cursor-not-allowed"
         >
           Oracle
@@ -123,17 +142,17 @@ export function ChartToolbar({
         Indicators
       </button>
 
-      {/* Indexer WS status: live (green) / off (warn) */}
+      {/* Indexer WS status: live (green) / delayed (warn) / off (offline) */}
       <span className="ml-2 flex items-center gap-1">
         <span
           data-testid="chart-ws-status"
           className="flex items-center gap-1 font-mono text-[10px]"
         >
-          <span className={isConnected ? 'text-online' : 'text-offline'}>
-            {isConnected ? '●' : '○'}
+          <span className={dotColor}>
+            {dotGlyph}
           </span>
-          <span className={isConnected ? 'text-text-muted' : 'text-warn'}>
-            {isConnected ? 'live' : 'off'}
+          <span className={textColor}>
+            {statusText}
           </span>
         </span>
       </span>

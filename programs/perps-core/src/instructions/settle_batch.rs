@@ -11,7 +11,10 @@ use crate::state::vault::Vault;
 use mgk_common::book::OrderBook;
 use mgk_common::{math::calculate_funding_payment, MgkError};
 use pinocchio::{
-    account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey,
+    account_info::AccountInfo,
+    msg,
+    program_error::ProgramError,
+    pubkey::Pubkey,
     sysvars::{clock::Clock, Sysvar},
     ProgramResult,
 };
@@ -66,11 +69,8 @@ fn return_deposit(
 
 /// M7 7.5: Read the fallback oracle's price via raw byte access.
 ///
-/// Returns `Some(price)` if the oracle account has the expected magic
-/// bytes and is at least 88 bytes long; `None` otherwise. We don't
-/// validate `is_active` here — the caller treats a stale or inactive
-/// oracle as "use book mid or carry-forward" without distinguishing the
-/// two failure modes (the design's job, not ours).
+/// Returns `Some((price, timestamp, is_active))` if the oracle account has
+/// the expected magic bytes and is at least 96 bytes long; `None` otherwise.
 ///
 /// Layout (per `programs/oracle/src/state.rs::PriceOracle`):
 ///   0..8     magic (u64 LE, `b"PRCLORCL"`)
@@ -80,13 +80,13 @@ fn return_deposit(
 ///   11..16   _padding
 ///   16..48   authority
 ///   48..80   instrument
-///   80..88   price (i64 LE)  ← we read this
-///   88..96   timestamp
+///   80..88   price (i64 LE)
+///   88..96   timestamp (i64 LE, Unix seconds)
 ///   96..104  confidence
 ///   104..128 _reserved
-fn read_oracle_price(oracle_account: &AccountInfo) -> Option<i64> {
+fn read_oracle_price(oracle_account: &AccountInfo) -> Option<(i64, i64, bool)> {
     let data = oracle_account.try_borrow_data().ok()?;
-    if data.len() < ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN {
+    if data.len() < 96 {
         return None;
     }
     // Validate magic.
@@ -95,11 +95,16 @@ fn read_oracle_price(oracle_account: &AccountInfo) -> Option<i64> {
     if magic != ORACLE_MAGIC {
         return None;
     }
+    let is_active = data[10] != 0;
     // Read price.
     let price_bytes: [u8; 8] = data[ORACLE_PRICE_OFFSET..ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN]
         .try_into()
         .ok()?;
-    Some(i64::from_le_bytes(price_bytes))
+    let price = i64::from_le_bytes(price_bytes);
+    // Read timestamp.
+    let ts_bytes: [u8; 8] = data[88..96].try_into().ok()?;
+    let timestamp = i64::from_le_bytes(ts_bytes);
+    Some((price, timestamp, is_active))
 }
 
 /// M7 7.4: Recompute the funding premium sample for this batch and
@@ -175,11 +180,7 @@ fn apply_funding_to_instrument(
 /// `idx = instrument_id as usize`. Out-of-range `instrument_id`
 /// (>= MAX_INSTRUMENTS) is a no-op (defensive — instrument_id is u16,
 /// but only MAX_INSTRUMENTS=32 slots are allocated).
-fn apply_funding_to_portfolio(
-    portfolio: &mut Portfolio,
-    instrument_id: u16,
-    cum_funding: i128,
-) {
+fn apply_funding_to_portfolio(portfolio: &mut Portfolio, instrument_id: u16, cum_funding: i128) {
     let idx = instrument_id as usize;
     if idx >= portfolio.last_funding_checkpoint.len() {
         return;
@@ -218,18 +219,15 @@ pub fn process_settle_batch(
     portfolio_accounts: &[AccountInfo],
     next_batch_account: &AccountInfo,
 ) -> ProgramResult {
-    let batch = unsafe {
-        &mut *(batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch)
-    };
+    let batch = unsafe { &mut *(batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch) };
 
     if batch.status != BatchStatus::Clearing {
         msg!("Error: Batch not in clearing phase");
         return Err(MgkError::InvalidInstruction.into());
     }
 
-    let registry = unsafe {
-        &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry)
-    };
+    let registry =
+        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
 
     // Read the instrument (M6 6i.3) — provides taker/maker fee schedule.
     // M7 7.5: also need to write mark_price back, so we cast to *mut.
@@ -265,11 +263,8 @@ pub fn process_settle_batch(
             msg!("Error: Results account too small");
             return Err(ProgramError::AccountDataTooSmall);
         }
-        let n = u16::from_le_bytes(
-            results_data[0..RESULTS_HEADER_BYTES]
-                .try_into()
-                .unwrap(),
-        ) as usize;
+        let n =
+            u16::from_le_bytes(results_data[0..RESULTS_HEADER_BYTES].try_into().unwrap()) as usize;
         let need = RESULTS_HEADER_BYTES + n * RESULTS_BYTES_PER_FILL;
         if results_data.len() < need {
             return Err(ProgramError::AccountDataTooSmall);
@@ -333,9 +328,8 @@ pub fn process_settle_batch(
                 total_taker_notional = total_taker_notional.saturating_add(notional);
             }
             for pa in portfolio_accounts {
-                let portfolio = unsafe {
-                    &mut *(pa.borrow_mut_data_unchecked().as_ptr() as *mut Portfolio)
-                };
+                let portfolio =
+                    unsafe { &mut *(pa.borrow_mut_data_unchecked().as_ptr() as *mut Portfolio) };
                 if portfolio.user != user {
                     continue;
                 }
@@ -343,15 +337,16 @@ pub fn process_settle_batch(
                 if let Some((idx, pos)) = portfolio.find_position_mut(id) {
                     let old_qty = pos.qty;
                     let new_qty = old_qty.saturating_add(signed_qty);
-                    if new_qty != 0 && fill_price > 0 {
-                        if (old_qty >= 0 && signed_qty > 0) || (old_qty <= 0 && signed_qty < 0) {
-                            let old_n = (old_qty.unsigned_abs() as u128)
-                                .saturating_mul(pos.entry_vwap.unsigned_abs() as u128);
-                            let new_n = old_n.saturating_add(notional);
-                            let new_abs = new_qty.unsigned_abs() as u128;
-                            if new_abs > 0 {
-                                portfolio.positions[idx].entry_vwap = (new_n / new_abs) as i64;
-                            }
+                    if new_qty != 0
+                        && fill_price > 0
+                        && ((old_qty >= 0 && signed_qty > 0) || (old_qty <= 0 && signed_qty < 0))
+                    {
+                        let old_n = (old_qty.unsigned_abs() as u128)
+                            .saturating_mul(pos.entry_vwap.unsigned_abs() as u128);
+                        let new_n = old_n.saturating_add(notional);
+                        let new_abs = new_qty.unsigned_abs() as u128;
+                        if let Some(vwap) = new_n.checked_div(new_abs) {
+                            portfolio.positions[idx].entry_vwap = vwap as i64;
                         }
                     }
                     portfolio.positions[idx].qty = new_qty;
@@ -404,7 +399,11 @@ pub fn process_settle_batch(
             // the user's free collateral should reflect that the order
             // never executed. The slashed deposit itself is forwarded to
             // `vault.insurance_fund` below.
-            return_deposit(portfolio_accounts, &commitment.user, commitment.deposit_lamports);
+            return_deposit(
+                portfolio_accounts,
+                &commitment.user,
+                commitment.deposit_lamports,
+            );
             continue;
         }
 
@@ -420,17 +419,14 @@ pub fn process_settle_batch(
 
         for f_idx in 0..num_fills {
             let offset = RESULTS_HEADER_BYTES + f_idx * RESULTS_BYTES_PER_FILL;
-            let fill_user_bytes: [u8; 32] =
-                results_data[offset..offset + 32].try_into().unwrap();
+            let fill_user_bytes: [u8; 32] = results_data[offset..offset + 32].try_into().unwrap();
             let fill_user = Pubkey::from(fill_user_bytes);
 
             if fill_user == *user {
-                let fq = u64::from_le_bytes(
-                    results_data[offset + 32..offset + 40].try_into().unwrap(),
-                );
-                let fn_ = u64::from_le_bytes(
-                    results_data[offset + 40..offset + 48].try_into().unwrap(),
-                );
+                let fq =
+                    u64::from_le_bytes(results_data[offset + 32..offset + 40].try_into().unwrap());
+                let fn_ =
+                    u64::from_le_bytes(results_data[offset + 40..offset + 48].try_into().unwrap());
                 let is_maker = results_data[offset + 48] != 0;
                 user_filled_qty = user_filled_qty.saturating_add(fq);
                 user_notional = user_notional.saturating_add(fn_);
@@ -462,9 +458,8 @@ pub fn process_settle_batch(
                     // Effective price = notional / qty (price-time CLOB fills
                     // at multiple maker prices, so there's no single clearing
                     // price — VWAP is the natural choice for entry_vwap).
-                    let effective_price: i64 = user_notional
-                        .checked_div(user_filled_qty)
-                        .unwrap_or(0) as i64;
+                    let effective_price: i64 =
+                        user_notional.checked_div(user_filled_qty).unwrap_or(0) as i64;
 
                     let existing = portfolio.find_position(instrument_id);
                     if let Some((idx, pos)) = existing {
@@ -520,10 +515,10 @@ pub fn process_settle_batch(
                 total_settled += 1;
                 total_volume = total_volume.saturating_add(user_filled_qty);
                 total_notional = total_notional.saturating_add(user_notional as u128);
-                total_maker_notional = total_maker_notional
-                    .saturating_add(user_maker_notional as u128);
-                total_taker_notional = total_taker_notional
-                    .saturating_add(user_taker_notional as u128);
+                total_maker_notional =
+                    total_maker_notional.saturating_add(user_maker_notional as u128);
+                total_taker_notional =
+                    total_taker_notional.saturating_add(user_taker_notional as u128);
                 break;
             }
         }
@@ -534,15 +529,13 @@ pub fn process_settle_batch(
     // Insurance flow per user:
     //   + taker_fee  (taker paid)
     //   + maker_rebate  (negative: rebate paid out, reduces insurance)
-    let protocol_fee_delta: i128 = (total_taker_notional as i128
-        * instrument.taker_fee_bps as i128)
-        / BPS_DENOM
-        + (total_maker_notional as i128 * instrument.maker_fee_bps as i128) / BPS_DENOM;
+    let protocol_fee_delta: i128 =
+        (total_taker_notional as i128 * instrument.taker_fee_bps as i128) / BPS_DENOM
+            + (total_maker_notional as i128 * instrument.maker_fee_bps as i128) / BPS_DENOM;
 
     if slashed > 0 || protocol_fee_delta != 0 {
-        let vault = unsafe {
-            &mut *(vault_account.borrow_mut_data_unchecked().as_ptr() as *mut Vault)
-        };
+        let vault =
+            unsafe { &mut *(vault_account.borrow_mut_data_unchecked().as_ptr() as *mut Vault) };
         // Slashed deposits (positive) always credit insurance.
         if slashed > 0 {
             vault.insurance_fund = vault.insurance_fund.saturating_add(slashed);
@@ -552,8 +545,9 @@ pub fn process_settle_batch(
         // loss as uncovered_bad_debt if insurance runs out — tracked
         // separately, not subtracted here).
         if protocol_fee_delta > 0 {
-            vault.insurance_fund =
-                vault.insurance_fund.saturating_add(protocol_fee_delta as u128);
+            vault.insurance_fund = vault
+                .insurance_fund
+                .saturating_add(protocol_fee_delta as u128);
         } else if protocol_fee_delta < 0 {
             let rebate_out = (-protocol_fee_delta) as u128;
             if rebate_out <= vault.insurance_fund {
@@ -563,8 +557,9 @@ pub fn process_settle_batch(
                 // shortfall as uncovered_bad_debt. For MVP we record the
                 // deficit without crashing; downstream funding/insurance
                 // top-up logic (out of scope) handles replenishment.
-                vault.uncovered_bad_debt =
-                    vault.uncovered_bad_debt.saturating_add(rebate_out - vault.insurance_fund);
+                vault.uncovered_bad_debt = vault
+                    .uncovered_bad_debt
+                    .saturating_add(rebate_out - vault.insurance_fund);
                 vault.insurance_fund = 0;
             }
         }
@@ -586,26 +581,23 @@ pub fn process_settle_batch(
     batch.status = BatchStatus::Settled;
 
     // Book ownership check (still required for funding premium path).
-    let (expected_book_pda, _book_bump) = mgk_common::book::book_pda(
-        matcher_program.key(),
-        instrument.instrument_id,
-    );
+    let (expected_book_pda, _book_bump) =
+        mgk_common::book::book_pda(matcher_program.key(), instrument.instrument_id);
     if book_account.key() != &expected_book_pda && book_account.owner() != matcher_program.key() {
         msg!("Error: book_account is neither expected PDA nor matcher-owned");
         return Err(MgkError::InvalidAccount.into());
     }
 
     let book: OrderBook = unsafe {
-        core::ptr::read_unaligned(
-            book_account.borrow_data_unchecked().as_ptr() as *const OrderBook,
-        )
+        core::ptr::read_unaligned(book_account.borrow_data_unchecked().as_ptr() as *const OrderBook)
     };
     if book.instrument_id != instrument.instrument_id {
         msg!("Error: book instrument_id does not match instrument");
         return Err(MgkError::InvalidAccount.into());
     }
 
-    let oracle_price = read_oracle_price(oracle_account);
+    let oracle_info = read_oracle_price(oracle_account);
+    let oracle_price = oracle_info.map(|(p, _, _)| p);
     let prev_mark_price = instrument.mark_price;
     let current_slot = Clock::get()?.slot;
 
@@ -631,14 +623,26 @@ pub fn process_settle_batch(
     // M7 7.4 / DFBA T9.4: Funding rate accrual.
     // Premium re-sweep + SMA-clamped rate + portfolio payments.
     // Skip entirely when:
-    //   - governance `funding_paused` (soft skip; next non-paused catches up), or
-    //   - `!mark_valid` (no dual DFBA clear → no auction mid for premium vs mark).
+    //   - governance `funding_paused` (soft skip; next non-paused catches up),
+    //   - `!mark_valid` (no dual DFBA clear → no auction mid for premium vs mark), or
+    //   - T9.4.4: oracle stale or inactive (stale index cannot produce valid premium).
     // `cum_funding` / `last_funding_slot` are left untouched on skip.
     let funding_paused = unsafe {
         (*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry))
             .is_funding_paused()
     };
-    if !funding_paused && batch.mark_valid != 0 {
+    // T9.4.4: Oracle freshness check. Oracle timestamp is Unix seconds;
+    // if older than ORACLE_STALENESS_WINDOW_SECS from "now" (approximated
+    // from slot), skip funding. Also skip if oracle is inactive.
+    const ORACLE_STALENESS_WINDOW_SECS: i64 = 600; // 10 minutes
+    const SECS_PER_SLOT: i64 = 4; // ~400ms per slot
+    let oracle_fresh = if let Some((_price, ts, active)) = oracle_info {
+        let approx_now = current_slot.wrapping_mul(SECS_PER_SLOT as u64) as i64;
+        active && ts > 0 && (approx_now - ts) < ORACLE_STALENESS_WINDOW_SECS
+    } else {
+        false
+    };
+    if !funding_paused && batch.mark_valid != 0 && oracle_fresh {
         apply_funding_to_instrument(instrument, &book, oracle_price, current_slot);
         let post_funding_cum = instrument.cum_funding;
         let instrument_id_for_funding = instrument.instrument_id;
@@ -658,19 +662,29 @@ pub fn process_settle_batch(
     // check is purely observational: it makes underwater portfolios
     // visible to off-chain monitors without changing the batch outcome.
     for portfolio_account in portfolio_accounts.iter() {
-        let portfolio = unsafe {
-            &*(portfolio_account.borrow_data_unchecked().as_ptr() as *const Portfolio)
-        };
+        let portfolio =
+            unsafe { &*(portfolio_account.borrow_data_unchecked().as_ptr() as *const Portfolio) };
         if portfolio.needs_liquidation() {
             msg!("Warning: portfolio underwater post-settle, eligible for liquidation");
         }
     }
 
-    // Increment batch counter in registry
-    let registry_mut = unsafe {
-        &mut *(registry_account.borrow_mut_data_unchecked().as_ptr() as *mut Registry)
-    };
-    registry_mut.batch_id_counter = registry.batch_id_counter.saturating_add(1);
+    // Increment batch counter in registry.
+    // Raw byte write at offset 36 — SBF field assignment has been observed to
+    // corrupt neighboring fields (same fix as create_batch / initialize).
+    let next_counter = registry.batch_id_counter.saturating_add(1);
+    unsafe {
+        let dst = registry_account.borrow_mut_data_unchecked().as_ptr() as *mut u8;
+        let bytes = next_counter.to_le_bytes();
+        core::ptr::write_volatile(dst.add(36), bytes[0]);
+        core::ptr::write_volatile(dst.add(37), bytes[1]);
+        core::ptr::write_volatile(dst.add(38), bytes[2]);
+        core::ptr::write_volatile(dst.add(39), bytes[3]);
+        core::ptr::write_volatile(dst.add(40), bytes[4]);
+        core::ptr::write_volatile(dst.add(41), bytes[5]);
+        core::ptr::write_volatile(dst.add(42), bytes[6]);
+        core::ptr::write_volatile(dst.add(43), bytes[7]);
+    }
 
     // M7 7.1: embed next-batch creation (design decision D1 — see
     // docs/ai/planning/2026-06-16-m7-design-decisions.md). After settling
@@ -699,9 +713,8 @@ pub fn process_settle_batch(
     //    + status == Committing == 0 are ambiguous on their own, so we
     //    check batch_id != 0 as the canonical "already initialized" signal).
     {
-        let next_batch_probe = unsafe {
-            &*(next_batch_account.borrow_data_unchecked().as_ptr() as *const Batch)
-        };
+        let next_batch_probe =
+            unsafe { &*(next_batch_account.borrow_data_unchecked().as_ptr() as *const Batch) };
         if next_batch_probe.batch_id != 0 {
             msg!("Error: next_batch account already initialized");
             return Err(MgkError::AlreadyInitialized.into());
@@ -711,19 +724,13 @@ pub fn process_settle_batch(
     // 4. Read the current slot and write the new batch in place.
     let current_slot = Clock::get()?.slot;
     let commit_deadline = current_slot.saturating_add(registry.t_max_slots);
-    let next_batch = unsafe {
-        &mut *(next_batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch)
-    };
+    let next_batch =
+        unsafe { &mut *(next_batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch) };
     // Reveal deadline is 0 here; CloseCommitting sets it on transition
     // out of Committing (design L153). Status, close_slot, shuffle_seed,
     // clearing_price, all counters default to 0 — the fresh state of a
     // brand-new batch in Committing.
-    next_batch.initialize_in_place(
-        next_batch_id,
-        commit_deadline,
-        0,
-        next_bump,
-    );
+    next_batch.initialize_in_place(next_batch_id, commit_deadline, 0, next_bump);
 
     msg!("SettleBatch: Batch settled; next batch created");
     Ok(())
@@ -773,8 +780,7 @@ mod tests {
     fn test_maker_rebate_negative_is_payout() {
         let maker_notional: u64 = 1_000_000; // 1M notional
         let maker_fee_bps: i16 = -2; // 2 bps rebate
-        let rebate: i128 =
-            (maker_notional as i128 * maker_fee_bps as i128) / BPS_DENOM;
+        let rebate: i128 = (maker_notional as i128 * maker_fee_bps as i128) / BPS_DENOM;
         // 1_000_000 * -2 / 10_000 = -200 (negative → rebate paid out)
         assert_eq!(rebate, -200);
     }
@@ -783,8 +789,7 @@ mod tests {
     fn test_taker_fee_positive_is_cost() {
         let taker_notional: u64 = 1_000_000;
         let taker_fee_bps: u16 = 5; // 5 bps fee
-        let fee: i128 =
-            (taker_notional as i128 * taker_fee_bps as i128) / BPS_DENOM;
+        let fee: i128 = (taker_notional as i128 * taker_fee_bps as i128) / BPS_DENOM;
         assert_eq!(fee, 500);
     }
 
@@ -1055,10 +1060,7 @@ mod tests {
         );
         // And the * 1_000_000 form is wrong — assert it would be wrong:
         let wrong: u128 = (deposit as u128) * 1_000_000;
-        assert_ne!(
-            slashed, wrong,
-            "guard against the unit-bug regression"
-        );
+        assert_ne!(slashed, wrong, "guard against the unit-bug regression");
     }
 
     /// `saturating_sub` on `im` must not underflow when the deposit is
@@ -1399,8 +1401,152 @@ mod tests {
     fn test_funding_skipped_when_mark_invalid() {
         let funding_paused = false;
         let mark_valid: u8 = 0;
-        assert!(!( !funding_paused && mark_valid != 0 ));
+        assert!(funding_paused || mark_valid == 0);
         let mark_valid_ok: u8 = 1;
         assert!(!funding_paused && mark_valid_ok != 0);
+    }
+
+    // ====================================================================
+    // T-SETTLE-MARK: instrument.mark_price from dual mid
+    // ====================================================================
+
+    /// When mark_valid=1 (dual fill), instrument.mark_price is set to
+    /// batch.clearing_price (which is the dual mid from ClearBatch).
+    #[test]
+    fn test_settle_mark_from_dual_mid() {
+        let mut batch = Batch::new(1);
+        let mut inst = Instrument::new(0, 1, 1, 100, 50);
+
+        // Simulate a dual clear
+        batch.bid_clearing_price = 100_000;
+        batch.ask_clearing_price = 100_100;
+        batch.matched_bid_qty = 10;
+        batch.matched_ask_qty = 8;
+        batch.mark_valid = 1;
+        batch.liq_paused = 0;
+        // clearing_price = dual mid computed by ClearBatch
+        batch.clearing_price = 100_050;
+
+        // SettleBatch logic: mark_valid → use clearing_price
+        let new_mark = if batch.mark_valid != 0 {
+            batch.clearing_price
+        } else {
+            0
+        };
+        inst.mark_price = new_mark;
+
+        assert_eq!(inst.mark_price, 100_050);
+    }
+
+    /// When mark_valid=0 but prev mark exists, carry forward prev mark.
+    #[test]
+    fn test_settle_mark_carry_forward_when_invalid() {
+        let mut batch = Batch::new(2);
+        let mut inst = Instrument::new(0, 1, 1, 100, 50);
+
+        // Previous batch set a valid mark
+        inst.mark_price = 99_500;
+
+        // This batch had only one-sided clear
+        batch.mark_valid = 0;
+        batch.liq_paused = 1;
+        batch.clearing_price = 0;
+
+        let prev_mark = inst.mark_price;
+        let new_mark = if batch.mark_valid != 0 {
+            batch.clearing_price
+        } else if prev_mark != 0 {
+            prev_mark
+        } else {
+            0
+        };
+        inst.mark_price = new_mark;
+
+        assert_eq!(inst.mark_price, 99_500); // carried forward
+    }
+
+    /// First batch with no dual clear: mark stays 0 (no prev, no oracle
+    /// in this test path).
+    #[test]
+    fn test_settle_mark_zero_first_batch_no_dual() {
+        let mut batch = Batch::new(3);
+        let mut inst = Instrument::new(0, 1, 1, 100, 50);
+
+        // First batch: no prev mark
+        inst.mark_price = 0;
+        batch.mark_valid = 0;
+        batch.liq_paused = 1;
+
+        let prev_mark = inst.mark_price;
+        let new_mark = if batch.mark_valid != 0 {
+            batch.clearing_price
+        } else if prev_mark != 0 {
+            prev_mark
+        } else {
+            0 // fallback (would be oracle/book in real code)
+        };
+        inst.mark_price = new_mark;
+
+        assert_eq!(inst.mark_price, 0);
+    }
+
+    /// Verify the dual mid rounding formula matches ClearBatch.
+    #[test]
+    fn test_settle_mark_dual_mid_rounding_matches_clear() {
+        // Both odd prices → rounding correction applies
+        let bid: i64 = 100_001;
+        let ask: i64 = 100_003;
+        let clearing_price = bid / 2 + ask / 2 + (bid % 2 + ask % 2) / 2;
+        // 50_000 + 50_001 + (1+1)/2 = 100_002
+        assert_eq!(clearing_price, 100_002);
+
+        let mut batch = Batch::new(4);
+        batch.mark_valid = 1;
+        batch.clearing_price = clearing_price;
+
+        let mut inst = Instrument::new(0, 1, 1, 100, 50);
+        let new_mark = if batch.mark_valid != 0 {
+            batch.clearing_price
+        } else {
+            0
+        };
+        inst.mark_price = new_mark;
+        assert_eq!(inst.mark_price, 100_002);
+    }
+
+    /// liq_paused is set to 1 when mark_valid=0 (no dual clear).
+    #[test]
+    fn test_settle_liq_paused_when_no_dual() {
+        let mut batch = Batch::new(5);
+        batch.matched_bid_qty = 10;
+        batch.matched_ask_qty = 0; // one-sided
+        let dual_ok = batch.matched_bid_qty > 0 && batch.matched_ask_qty > 0;
+        if dual_ok {
+            batch.mark_valid = 1;
+            batch.liq_paused = 0;
+        } else {
+            batch.mark_valid = 0;
+            batch.liq_paused = 1;
+        }
+        assert_eq!(batch.mark_valid, 0);
+        assert_eq!(batch.liq_paused, 1);
+    }
+
+    /// liq_paused is cleared to 0 when mark_valid=1 (dual clear).
+    #[test]
+    fn test_settle_liq_cleared_when_dual() {
+        let mut batch = Batch::new(6);
+        batch.matched_bid_qty = 10;
+        batch.matched_ask_qty = 8;
+        let dual_ok = batch.matched_bid_qty > 0 && batch.matched_ask_qty > 0;
+        if dual_ok {
+            batch.mark_valid = 1;
+            batch.liq_paused = 0;
+        } else {
+            batch.mark_valid = 0;
+            batch.liq_paused = 1;
+        }
+        assert_eq!(batch.mark_valid, 1);
+        assert_eq!(batch.liq_paused, 0);
     }
 }

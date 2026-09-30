@@ -121,4 +121,29 @@ describe('TradeHistory', () => {
     expect(links[0]?.getAttribute('href')).toContain('explorer.solana.com');
     expect(links[0]?.getAttribute('target')).toBe('_blank');
   });
+
+  it('retains cached rows with an inline delayed notice when subsequent fetch fails', async () => {
+    // 1. Initial success
+    globalThis.fetch = mockFetchOnce(FILLS_BODY);
+    const { rerender } = render(<TradeHistory />);
+    await waitFor(() => {
+      expect(screen.getByTestId('trade-history')).toBeInTheDocument();
+    });
+    expect(screen.getAllByTestId('trade-history-row')).toHaveLength(2);
+
+    // 2. Next fetch fails with 500 error
+    globalThis.fetch = mockFetchOnce({ error: 'service unavailable' }, 500);
+    // Trigger tick in myFillsStore
+    const { startMyFillsPolling } = await import('@/lib/stores/useMyFillsStore');
+    await startMyFillsPolling(PUBKEY, 0, 5000);
+
+    rerender(<TradeHistory />);
+
+    // Must still show trade-history table with all 2 rows
+    expect(screen.getByTestId('trade-history')).toBeInTheDocument();
+    expect(screen.getAllByTestId('trade-history-row')).toHaveLength(2);
+    // Must show inline delayed notice, NOT blocking error
+    expect(screen.getByTestId('trade-history-delayed-notice')).toBeInTheDocument();
+    expect(screen.queryByTestId('trade-history-error')).toBeNull();
+  });
 });

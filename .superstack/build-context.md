@@ -2,8 +2,8 @@
 
 ## Project
 - **Name**: mgk (formerly percolator; rebrand completed 2026-08-05)
-- **Description**: On-chain perpetual futures exchange with commit-reveal CLOB (Fisher-Yates shuffle + structural priority queues), price-time matching, persistent order book, and cross-margin. Built on Solana using Pinocchio (not Anchor).
-- **Status**: MVP scope per 2025-06-15 strip — perps-dex only. Router/slab/AMM/CLI/keeper/Kani-prover scaffolding removed.
+- **Description**: On-chain perpetual futures exchange with Dual Flow Batch Auctions (DFBA), user-designated maker/taker roles, dual uniform-price clears, a persistent resting book, and cross-margin. Built on Solana using Pinocchio (not Anchor).
+- **Status**: M9 DFBA migration is deployed and exercised on devnet; post-M9 security, CU-harness, indexer, and monitoring work remains.
 
 ## Stack
 - **Language**: Rust (`no_std`, zero-allocation, BPF-compatible)
@@ -18,9 +18,9 @@
 
 | Program | Crate | Program ID | Role |
 |---|---|---|---|
-| oracle | `mgk-oracle` | declared in `lib.rs` | Fallback price feed (admin-pushed, auto-activate) |
-| perps-core | `mgk-perps-core` | `3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja` | Custody, batch lifecycle, CLOB state, liquidation |
-| perps-matcher | `mgk-perps-matcher` | `AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF` | CLOB matching (CPI target from core) |
+| oracle | `mgk-oracle` | `CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ` | Fallback price feed (admin-pushed, auto-activate) |
+| perps-core | `mgk-perps-core` | `C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx` | Custody, batch lifecycle, DFBA state, liquidation |
+| perps-matcher | `mgk-perps-matcher` | `7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC` | DFBA dual auction (CPI target from core) |
 | common | `mgk-common` | (library) | Account validation, errors, math, types |
 
 ### Patterns
@@ -44,19 +44,38 @@
 ## Design
 
 - **Design doc**: `docs/ai/design/feature-onchain-perps-dex.md`
-- **Key mechanic**: Commit-reveal CLOB with Fisher-Yates shuffle seeded by `close_slot`, structural priority queues (cancels → ALO → regular), price-time priority matching, persistent order book
+- **Key mechanic**: Open PostOrder flow into two uniform-price auctions (maker-buy × taker-sell and maker-sell × taker-buy); unfilled orders rest with role preserved.
 - **Collateral**: SOL-only
-- **Oracle**: admin fallback (current); Pyth primary is post-MVP
+- **Oracle**: mgk admin-pushed oracle is the current funding index source; it never sets the DFBA mark. Multi-venue index aggregation remains post-M9.
+
+## Phase Handoff
+
+```yaml
+defi:
+  protocol_type: custom
+  program_id: C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx
+  security_review: none
+  oracle_integration: mgk-oracle funding index (multi-venue aggregation pending)
+  emergency_pause: true
+pipeline:
+  ingestion_method: websocket
+  data_types:
+    - transactions
+    - account-state
+    - program-events
+  storage: custom
+  backfill_implemented: false
+```
 
 ## Build Status
 
-- **Current milestone**: M8.1 deployed (2026-06-20). M8.2–M8.5 not started.
+- **Current milestone**: M9 DFBA complete and deployed (2026-08-06); deterministic browser-wallet Playwright coverage added 2026-08-08.
 - **Milestones completed**: M1, M3, M4, M5, M6 (6a-6k), M7.1, M7.2, M7.3, M7.4, M7.5, M7.6, M7.7, M7.8, M7.7.R (all tasks)
 - **MVP complete**: Yes — R4b fix unblocks BPF build + devnet deploy.
-- **Tests passing**: 322 (1 ignored BPF-only test)
+- **Tests passing**: See `docs/ai/testing/2026-08-02-feature-onchain-perps-dex.md` for fresh crate and Playwright evidence.
 - **Clippy**: clean
-- **Devnet deployed**: Yes — 2026-06-29 (fresh deploy after stale registry cleanup, verified 2026-07-01)
-- **Program IDs**: all 3 registered in `programs/common/src/program_ids.rs` (perps-core is `3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja`)
+- **Devnet deployed**: Yes — M9 programs initialized and dual-fill lifecycle verified 2026-08-06.
+- **Program IDs**: all 3 registered in `programs/common/src/program_ids.rs`; canonical IDs are listed in Architecture above.
 
 ## Blocking Issues
 
@@ -157,19 +176,20 @@ Same BPF alignment pattern. Two more `initialize_in_place()` calls were corrupti
 
 **SDK `encodeCommitOrder` off-by-one** (RESOLVED 2026-06-23): All fields after `side` were shifted by 1 byte (price@6→@5, qty@14→@13, salt@22→@21, batchId@30→@29, bump@38→@37). Corrected to match Rust wire format.
 
-## Devnet deployment status (2026-06-29 — fresh deploy after stale registry cleanup)
+## Devnet deployment status (2026-08-06 — M9 DFBA deployment)
 
-**Current deployment (2026-06-29, slot 472758111):**
+**Current deployment (2026-08-06):**
 | Program | ID | Size | Notes |
 |---|---|---|---|
-| `mgk-perps-core` | `3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja` | ~111KB | Fresh deploy after closing CThnLgZ...; program_ids.rs updated; .bss removed via llvm-objcopy |
-| `mgk-perps-matcher` | `AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF` | ~128KB | |
-| `mgk-oracle` | `6M9eEiDKy8imbDi44ZqquyfknNbveRjD4j9VnvYaHtmA` | ~25KB | |
+| `mgk-perps-core` | `C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx` | 119,976 B | DFBA migration — all M9 features |
+| `mgk-perps-matcher` | `7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC` | 111,536 B | DFBA dual auction (disc 5) |
+| `mgk-oracle` | `CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ` | 13,192 B | Admin-pushed price oracle |
 
-- perps-core: Fresh deploy after cleanup. CThnLgZvomva1HHQZVoZk4or9RDgyfCTrXXZqEMCR7JN closed (stale registry accounts). CzWqtmcrm6sivjNHfNWhoMJfxP7ibm8KqXXjZpkswXy5 still active (176KB, pre-cleanup).
-- matcher/oracle: unchanged
 - **Cluster:** devnet (`https://api.devnet.solana.com`)
-- **Deployer:** `ECmGsGAAPJimTwLk3SzkQ39pUQbaBj7U5qgSRRgYSFy`
+- **Deployer:** `ECmGsGAAPJimTwLk3SzkQ39pUQbaBj7U5qgSRRgYSFy` (upgrade authority)
+- **Build:** `cargo build-sbf` (clean, 0 stack overflow warnings)
+- **Pre-flight:** 200 core + 114 matcher + 45 common = 359 tests pass; clippy clean
+- **Status:** Programs deployed and initialized on devnet. Batch 0 collecting window open. Keeper crank required.
 
 ### Prior deployment (2026-06-24 prior — OBSOLETE)
 

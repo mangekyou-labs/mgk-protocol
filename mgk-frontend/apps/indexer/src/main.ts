@@ -9,19 +9,17 @@ import { createStore } from './store.js';
 import { healthRoutes } from './rest/health.js';
 import { marketsRoutes, candlesRoutes, tradesRoutes, bookRoutes, batchRoutes, userFillsRoutes } from './rest/routes.js';
 import { portfolioRoutes } from './rest/portfolio.js';
-import { createSubscriber } from './subscriber.js';
+import { createSyncer } from './syncer.js';
 import { createWsServer, broadcastFill, broadcastBatch } from './ws.js';
-import { backfillOnBoot } from './backfill.js';
-import { aggregateCandles } from './aggregator.js';
 import { startKeeper } from './keeper.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const RPC_URL = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
-// 2026-06-29: Fresh deploy to 3jYQ4mpW... after closing CThnLgZ... (stale registry cleanup)
-const CORE_PROGRAM_ID = process.env.CORE_PROGRAM_ID ?? '3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja';
-const MATCHER_PROGRAM_ID = process.env.MATCHER_PROGRAM_ID ?? 'AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF';
+// M9 DFBA deploy (2026-08-06) — matches programs/common/src/program_ids.rs
+const CORE_PROGRAM_ID = process.env.CORE_PROGRAM_ID ?? 'C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx';
+const MATCHER_PROGRAM_ID = process.env.MATCHER_PROGRAM_ID ?? '7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC';
 const DB_PATH = process.env.DB_PATH ?? 'mgk-indexer.db';
 
 function loadPersistedBatchAddress(): string | undefined {
@@ -56,7 +54,35 @@ async function main(): Promise<void> {
   const RESULTS_ADDRESS = process.env.RESULTS_ADDRESS;
   const activeBatch = { address: BATCH_ADDRESS ?? loadPersistedBatchAddress() };
 
-  await healthRoutes(app);
+  let wss: WebSocketServer | undefined;
+
+  const BACKFILL_SLOTS = Number(process.env.BACKFILL_SLOTS ?? 1000);
+  const syncer = createSyncer({
+    connection,
+    store,
+    coreProgramId: CORE_PROGRAM_ID,
+    matcherProgramId: MATCHER_PROGRAM_ID,
+    skipBackfill: Boolean(process.env.SKIP_BACKFILL),
+    bootSlots: BACKFILL_SLOTS,
+    maxChunkSlots: 256,
+    pollIntervalMs: 2000,
+    onFill: (fill) => {
+      if (!wss) return;
+      const f = fill as Record<string, unknown>;
+      const instrumentId = typeof f.instrument_id === 'number' ? f.instrument_id : 0;
+      broadcastFill(wss, instrumentId, fill);
+    },
+    onBatchEvent: (event: unknown) => {
+      if (!wss) return;
+      broadcastBatch(wss, event);
+    },
+  });
+
+  await healthRoutes(app, {
+    store,
+    getRuntimeHealth: () => syncer.getRuntimeHealth(),
+    tracker: syncer.getHealthTracker(),
+  });
   await marketsRoutes(app, store);
   await candlesRoutes(app, store);
   await tradesRoutes(app, store);
@@ -74,34 +100,6 @@ async function main(): Promise<void> {
   await userFillsRoutes(app, store);
   await portfolioRoutes(app, store);
 
-  let wss: WebSocketServer | undefined;
-
-  const subscriber = createSubscriber(
-    { rpcUrl: RPC_URL, coreProgramId: CORE_PROGRAM_ID, matcherProgramId: MATCHER_PROGRAM_ID, instrumentIds: [0] },
-    store,
-    (fills: unknown[]) => {
-      if (!wss) return;
-      for (const fill of fills) {
-        const f = fill as Record<string, unknown>;
-        const instrumentId = typeof f.instrument_id === 'number' ? f.instrument_id : 0;
-        broadcastFill(wss, instrumentId, fill);
-
-        aggregateCandles(store, [
-          {
-            instrumentId,
-            timestampMs: typeof f.slot === 'number' ? f.slot * 400 : Date.now(),
-            price: BigInt(typeof f.price === 'number' ? f.price : 0),
-            qty: BigInt(typeof f.qty === 'number' ? f.qty : 0),
-          },
-        ]);
-      }
-    },
-    (event: unknown) => {
-      if (!wss) return;
-      broadcastBatch(wss, event);
-    },
-  );
-
   try {
     const address = await app.listen({ port: PORT, host: HOST });
     app.log.info({ address }, 'indexer listening');
@@ -114,14 +112,9 @@ async function main(): Promise<void> {
       return { bids: [], asks: [], lastTrades: trades };
     });
 
-    app.log.info('running backfill...');
-    const backfillResult = process.env.SKIP_BACKFILL
-      ? { slotsScanned: 0, txsMatched: 0, fillsInserted: 0, batchesInserted: 0 }
-      : await backfillOnBoot(connection, store, corePk, matcherPk, 1000);
-    app.log.info({ backfillResult }, 'backfill complete');
-
-    subscriber.start();
-    app.log.info('subscriber started');
+    app.log.info('starting syncer...');
+    await syncer.start();
+    app.log.info('syncer started');
 
     // Start the keeper loop (runs in same process, shares Connection + store)
     const KEEPER_POLL_MS = Number(process.env.KEEPER_POLL_MS ?? 5_000);
@@ -156,9 +149,10 @@ async function main(): Promise<void> {
   for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.on(sig, () => {
       app.log.info({ sig }, 'shutting down');
-      subscriber.stop();
-      store.close();
-      app.close().then(() => process.exit(0));
+      void syncer.stop().then(() => {
+        store.close();
+        app.close().then(() => process.exit(0));
+      });
     });
   }
 }

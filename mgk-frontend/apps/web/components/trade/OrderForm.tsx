@@ -13,6 +13,8 @@ import { RiskPanel } from './RiskPanel';
 type PortfolioState = sdk.state.PortfolioState;
 
 const USD_SCALE = 1_000_000;
+const LAMPORTS_PER_SOL = 1_000_000_000n;
+const INITIAL_MARGIN_DIVISOR = 10n;
 
 export type OrderSide = 'buy' | 'sell';
 
@@ -21,6 +23,8 @@ export interface OrderFormParams {
   price: bigint;
   qty: bigint;
   reduceOnly: boolean;
+  /** false = taker (default), true = maker — DFBA dual-auction role */
+  isMaker?: boolean;
 }
 
 export interface OrderFormProps {
@@ -36,7 +40,7 @@ export interface OrderFormProps {
   freeCollateral?: bigint;
   /** Whether portfolio data is still loading. */
   loading?: boolean;
-  /** Whether a tx is in-flight (commit/reveal). */
+  /** Whether a tx is in-flight (PostOrder). */
   submitting?: boolean;
   /** Portfolio state for AccountActions (null when no PDA exists). */
   portfolio?: PortfolioState | null;
@@ -69,12 +73,15 @@ export function OrderForm({
   const [priceInput, setPriceInput] = useState('');
   const [qtyInput, setQtyInput] = useState('');
   const [reduceOnly, setReduceOnly] = useState(false);
+  /** DFBA: default taker; user may designate maker for the dual auction. */
+  const [isMaker, setIsMaker] = useState(false);
   const orderStatus = useOrderFormStore((s) => s.status);
   const clearOrder = useOrderFormStore((s) => s.clear);
 
   const lotSize = 1000000n;
 
-  const defaultPrice = side === 'buy' ? bestBid : bestAsk;
+  const bookCrossed = bestBid !== null && bestAsk !== null && bestBid > bestAsk;
+  const defaultPrice = bookCrossed ? null : side === 'buy' ? bestBid : bestAsk;
 
   const price = (() => {
     if (priceInput === '') {
@@ -141,11 +148,21 @@ export function OrderForm({
 
   const handleSubmit = useCallback(() => {
     if (!onSubmit || qty === 0n || price === 0n) return;
-    onSubmit({ side, price, qty, reduceOnly });
-  }, [onSubmit, side, price, qty, reduceOnly]);
+    onSubmit({ side, price, qty, reduceOnly, isMaker });
+  }, [onSubmit, side, price, qty, reduceOnly, isMaker]);
 
   const orderValue = price * qty / BigInt(USD_SCALE);
-  const marginEst = orderValue / 10n;
+  const marginEst = orderValue / INITIAL_MARGIN_DIVISOR;
+  // SOL-PERP v1 uses 1 base unit = 1 SOL and the same 10x initial-margin
+  // estimate shown in the summary. Keep the display in base units; the
+  // on-chain qty is not a USD amount.
+  const availableQty =
+    (freeCollateral * INITIAL_MARGIN_DIVISOR * BigInt(USD_SCALE)) /
+    LAMPORTS_PER_SOL;
+  const availableMarginUsd =
+    price > 0n
+      ? (freeCollateral * price) / LAMPORTS_PER_SOL
+      : 0n;
 
   return (
     <div
@@ -172,7 +189,12 @@ export function OrderForm({
       <div className="flex flex-col gap-1">
         <label className="text-text-muted text-[10px] uppercase tracking-wider">
           Size{' '}
-          <span className="text-text-faint">Avail 0</span>
+          <span
+            data-testid="order-form-size-available"
+            className="text-text-faint"
+          >
+            Avail <NumberDisplay value={availableQty} kind="scaled-base" decimals={2} /> SOL
+          </span>
         </label>
         <div className="flex items-center gap-2 border border-border rounded bg-surface-2 px-2 py-1">
           <input
@@ -184,7 +206,12 @@ export function OrderForm({
             placeholder="0.00"
             className="w-full bg-transparent text-text text-right placeholder:text-text-faint outline-none"
           />
-          <span className="text-text-muted text-[10px] uppercase">USD</span>
+          <span
+            data-testid="order-form-size-unit"
+            className="text-text-muted text-[10px] uppercase"
+          >
+            SOL
+          </span>
         </div>
         <div
           data-testid="order-form-qty-slider"
@@ -205,6 +232,12 @@ export function OrderForm({
 
       <div className="flex flex-col gap-1.5">
         <Checkbox
+          id="post-as-maker"
+          checked={isMaker}
+          onChange={setIsMaker}
+          label="Post as maker"
+        />
+        <Checkbox
           id="reduce-only"
           checked={reduceOnly}
           onChange={setReduceOnly}
@@ -224,6 +257,7 @@ export function OrderForm({
       <SummaryPanel
         orderValue={orderValue}
         marginEst={marginEst}
+        availableMarginUsd={availableMarginUsd}
       />
 
       <RiskPanel
@@ -412,9 +446,11 @@ function BuySellButtons({
 function SummaryPanel({
   orderValue,
   marginEst,
+  availableMarginUsd,
 }: {
   orderValue: bigint;
   marginEst: bigint;
+  availableMarginUsd: bigint;
 }) {
   return (
     <div
@@ -433,7 +469,11 @@ function SummaryPanel({
         value={
           <>
             <NumberDisplay value={marginEst} kind="scaled-usd" />
-            <span className="text-text-faint"> / $0</span>
+            <span className="text-text-faint"> / </span>
+            <span data-testid="order-form-margin-available">
+              $
+              <NumberDisplay value={availableMarginUsd} kind="scaled-usd" />
+            </span>
           </>
         }
         prefix="$"

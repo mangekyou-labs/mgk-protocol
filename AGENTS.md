@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## ⚠️ CRITICAL: Merge Safety Rules
+
+> **2026-08-24 Incident:** PR #1 was merged to `master` with 3 failing Vercel checks. This broke deployments. See `docs/ai/planning/2026-08-24-incident-report-merge-without-checks.md`.
+
+1. **NEVER merge a PR if any CI or deployment check is failing.** This includes Vercel deployments, GitHub Actions, or any status check.
+2. **Always verify check status before merging.** Run `gh pr checks <PR_NUMBER>` and confirm all checks show `pass` or `success`.
+3. **Default branch is `master`**, not `main`. CI workflows should trigger on `master`.
+4. **When in doubt, don't merge.** Ask the user first.
+
 ## Build & verify
 
 ```sh

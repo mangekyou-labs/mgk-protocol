@@ -1,0 +1,164 @@
+- generic [active] [ref=f7e1]:
+  - generic [ref=f7e2]:
+    - banner [ref=f7e3]:
+      - link "mgk home" [ref=f7e4] [cursor=pointer]:
+        - /url: /trade
+        - img "mgk" [ref=f7e5]
+      - navigation "Primary" [ref=f7e14]:
+        - link "Trade" [ref=f7e15] [cursor=pointer]:
+          - /url: /trade
+        - link "Portfolio" [ref=f7e16] [cursor=pointer]:
+          - /url: /portfolio
+      - link "Get devnet SOL" [ref=f7e17] [cursor=pointer]:
+        - /url: https://faucet.solana.com
+      - button "Select Wallet" [ref=f7e19]
+    - generic [ref=f7e20]:
+      - generic [ref=f7e21]:
+        - generic [ref=f7e22]: BTC-USD
+        - generic [ref=f7e23]: …
+        - generic [ref=f7e24]: —
+      - generic [ref=f7e25]:
+        - generic [ref=f7e26]: ETH-USD
+        - generic [ref=f7e27]: …
+        - generic [ref=f7e28]: —
+      - generic [ref=f7e29]:
+        - generic [ref=f7e30]: SOL-USD
+        - generic [ref=f7e31]: …
+        - generic [ref=f7e32]: —
+      - generic [ref=f7e33]: Pyth
+    - main [ref=f7e35]:
+      - generic [ref=f7e36]:
+        - button "SOL-USD Perp" [disabled] [ref=f7e37]:
+          - generic [ref=f7e38]: ★
+          - text: SOL-USD Perp
+        - generic [ref=f7e39]:
+          - generic [ref=f7e40]: —
+          - generic [ref=f7e41]: awaiting first fill
+        - generic "Book midpoint (best bid + best ask) / 2" [ref=f7e43]:
+          - generic [ref=f7e44]: Last
+          - generic [ref=f7e45]: —
+        - generic "The on-chain oracle feed is deployed, but its value is not surfaced in the v1 header yet." [ref=f7e46]:
+          - generic [ref=f7e47]: Oracle
+          - generic [ref=f7e48]: —
+        - 'generic "Available when the indexer is live (M4). Start it with `pnpm -F indexer dev`." [ref=f7e49]':
+          - generic [ref=f7e50]: 24h Vol
+          - generic [ref=f7e51]: —
+        - 'generic "Available when the indexer is live (M4). Start it with `pnpm -F indexer dev`." [ref=f7e52]':
+          - generic [ref=f7e53]: OI
+          - generic [ref=f7e54]: —
+        - generic [ref=f7e56]: "Batch: —"
+      - generic [ref=f7e57]:
+        - generic [ref=f7e59]:
+          - generic [ref=f7e60]:
+            - button "1m" [ref=f7e61]
+            - button "5m" [ref=f7e62]
+            - button "15m" [ref=f7e63]
+            - button "1H" [ref=f7e64]
+            - button "4H" [ref=f7e65]
+            - button "1D" [ref=f7e66]
+            - generic [ref=f7e67]:
+              - button "Chart" [ref=f7e69]
+              - generic [ref=f7e70]:
+                - generic [ref=f7e71]: "|"
+                - button "Market Info" [ref=f7e72]
+            - generic [ref=f7e73]:
+              - button "Mark" [disabled] [ref=f7e74]
+              - generic [ref=f7e75]: "|"
+              - button "Oracle" [disabled] [ref=f7e76]
+            - button "Indicators" [disabled] [ref=f7e77]
+            - generic [ref=f7e79]:
+              - generic [ref=f7e80]: ○
+              - generic [ref=f7e81]: "off"
+          - generic [ref=f7e82]: Loading chart…
+        - generic [ref=f7e86]: No resting orders.
+        - generic [ref=f7e89]:
+          - generic [ref=f7e90]: Cross
+          - generic [ref=f7e92]: Limit
+          - generic [ref=f7e94]:
+            - button "Buy / Long" [ref=f7e95]
+            - button "Sell / Short" [ref=f7e96]
+          - generic [ref=f7e98]:
+            - generic [ref=f7e99]: Price USD
+            - textbox "0.00" [ref=f7e101]
+          - generic [ref=f7e102]:
+            - generic [ref=f7e103]:
+              - text: Size
+              - generic [ref=f7e104]: Avail 0.00 SOL
+            - generic [ref=f7e105]:
+              - textbox "0.00" [ref=f7e106]
+              - generic [ref=f7e107]: SOL
+            - generic [ref=f7e108]:
+              - button "Set size to 20%" [ref=f7e109]
+              - button "Set size to 40%" [ref=f7e110]
+              - button "Set size to 60%" [ref=f7e111]
+              - button "Set size to 80%" [ref=f7e112]
+              - button "Set size to 100%" [ref=f7e113]
+          - generic [ref=f7e114]:
+            - generic [ref=f7e115] [cursor=pointer]:
+              - checkbox "Post as maker" [ref=f7e116]
+              - text: Post as maker
+            - generic [ref=f7e117] [cursor=pointer]:
+              - checkbox "Reduce Only" [ref=f7e118]
+              - text: Reduce Only
+            - generic [ref=f7e119]:
+              - checkbox "TP/SL" [disabled] [ref=f7e120]
+              - text: TP/SL
+          - generic [ref=f7e121]:
+            - button "Buy / Long" [ref=f7e122]
+            - button "Sell / Short" [ref=f7e123]
+          - generic [ref=f7e124]:
+            - generic [ref=f7e125]:
+              - generic [ref=f7e126]: Current Pos
+              - generic [ref=f7e127]: 0 SOL
+            - generic [ref=f7e128]:
+              - generic [ref=f7e129]: Liq
+              - generic [ref=f7e130]: — / —
+            - generic [ref=f7e131]:
+              - generic [ref=f7e132]: Order Value
+              - generic [ref=f7e133]: $0.00
+            - generic [ref=f7e134]:
+              - generic [ref=f7e135]: Margin
+              - generic [ref=f7e136]:
+                - text: $0.00 /
+                - generic [ref=f7e137]: $0.00
+            - generic [ref=f7e138]:
+              - generic [ref=f7e139]: Fees
+              - generic [ref=f7e140]: — / —
+          - generic [ref=f7e141]:
+            - generic [ref=f7e142]:
+              - generic [ref=f7e143]: Liq Price
+              - generic [ref=f7e144]: —
+            - generic [ref=f7e145]:
+              - generic [ref=f7e146]: Leverage
+              - generic [ref=f7e147]: —
+            - generic [ref=f7e148]:
+              - generic [ref=f7e149]: Free Collateral
+              - generic [ref=f7e150]: "0.0000"
+      - generic [ref=f7e151]:
+        - generic [ref=f7e154]:
+          - generic [ref=f7e155]:
+            - button "Positions(0)" [ref=f7e156]:
+              - text: Positions
+              - generic [ref=f7e157]: (0)
+            - button "Open Orders" [ref=f7e158]
+            - button "Balances" [ref=f7e159]
+            - button "Order History" [ref=f7e160]
+            - button "Trade History" [ref=f7e161]
+          - generic [ref=f7e162]:
+            - generic [ref=f7e163]:
+              - button "Funding History" [ref=f7e164]
+              - button "Position History" [ref=f7e165]
+              - button "Account History" [ref=f7e166]
+            - generic [ref=f7e167] [cursor=pointer]:
+              - checkbox "Current Market" [checked] [ref=f7e168]
+              - text: Current Market
+        - generic [ref=f7e171]:
+          - heading "Positions" [level=3] [ref=f7e172]
+          - paragraph [ref=f7e173]: You have no open positions yet.
+    - generic [ref=f7e174]:
+      - generic "offline" [ref=f7e175]: ○
+      - generic [ref=f7e176]: Offline
+      - generic [ref=f7e177]: Devnet
+      - generic [ref=f7e179]: —
+      - generic [ref=f7e180]: "Wallet: Not Connected"
+  - button "Open Next.js Dev Tools" [ref=f7e186] [cursor=pointer]

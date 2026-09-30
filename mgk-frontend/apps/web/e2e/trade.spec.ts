@@ -1,5 +1,29 @@
 import { test, expect } from '@playwright/test';
 
+test.describe('MCP development origin hydration', () => {
+  test('opens the wallet selector from 127.0.0.1', async ({ page }) => {
+    await page.goto('http://127.0.0.1:3000/trade');
+
+    await page.getByRole('button', { name: 'Select Wallet' }).click();
+
+    await expect(
+      page.getByRole('heading', { name: /connect a wallet on solana/i }),
+    ).toBeVisible({ timeout: 3_000 });
+  });
+
+  test('hydrates chart controls from 127.0.0.1', async ({ page }) => {
+    await page.goto('http://127.0.0.1:3000/trade');
+
+    await page.locator('[data-testid="tf-15m"]').click();
+
+    await expect(page.locator('[data-testid="tf-15m"]')).toHaveAttribute(
+      'data-active',
+      'true',
+      { timeout: 3_000 },
+    );
+  });
+});
+
 test.describe('Trade page — layout smoke', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/trade');
@@ -287,6 +311,26 @@ test.describe('Order form — UI', () => {
     await expect(checkbox).not.toBeChecked();
   });
 
+  test('DFBA post-as-maker checkbox toggles', async ({ page }) => {
+    // DFBA dual-auction role flag (is_maker) on PostOrder
+    const maker = page.getByRole('checkbox', { name: /post as maker/i });
+    await expect(maker).toBeVisible();
+    await expect(maker).not.toBeChecked();
+    await maker.check();
+    await expect(maker).toBeChecked();
+    await maker.uncheck();
+    await expect(maker).not.toBeChecked();
+  });
+
+  test('price and size inputs accept typed values', async ({ page }) => {
+    const price = page.locator('[data-testid="order-form-price-input"]');
+    const qty = page.locator('[data-testid="order-form-qty-input"]');
+    await price.fill('100.50');
+    await qty.fill('2.5');
+    await expect(price).toHaveValue('100.50');
+    await expect(qty).toHaveValue('2.5');
+  });
+
   test('buy button is disabled when wallet is not connected', async ({ page }) => {
     const buyBtn = page.locator('[data-testid="order-form-submit-buy"]');
     // No wallet connected — buy should be the active side (default) but not submit a tx
@@ -296,6 +340,13 @@ test.describe('Order form — UI', () => {
   test('sell button renders in correct state for default side', async ({ page }) => {
     const sellBtn = page.locator('[data-testid="order-form-submit-sell"]');
     await expect(sellBtn).toBeVisible();
+  });
+
+  test('order form section is present (account CTA needs connected wallet)', async ({ page }) => {
+    // AccountActions only mounts when wallet is connected (browser auto-connect
+    // varies). Layout smoke is the order form section + submit buttons.
+    await expect(page.locator('[data-testid="orderform-section"]')).toBeVisible();
+    await expect(page.locator('[data-testid="order-form-submit-buy"]')).toBeVisible();
   });
 });
 
@@ -321,6 +372,88 @@ test.describe('Order form — dev-mode status affordance', () => {
     await page.goto('/trade?set=failed');
     // Failed state should not show the slashed banner
     await expect(page.locator('[data-testid="order-form-slashed-banner"]')).not.toBeVisible();
+  });
+});
+
+test.describe('Indexer health degradation & continued trading', () => {
+  test('surfaces delayed status and stale stats during degradation while leaving trading enabled', async ({ page }) => {
+    await page.route('**/api/healthz', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          status: 'degraded',
+          ts: Date.now(),
+          sqliteWritable: true,
+          processedThroughSlot: 1000,
+          latestIndexedSlot: 1000,
+          rpcSlot: 1025,
+          rpcReachable: true,
+          slotLag: 25,
+          lastSuccessfulSyncAt: Date.now() - 5000,
+          lastSyncErrorAt: null,
+          subscriptions: { core: true, matcher: true },
+          lastBatch: { batchId: 1, phase: 0, ts: Date.now() },
+        }),
+      });
+    });
+
+    await page.goto('/trade');
+
+    // Status bar surfaces delayed indexer state
+    const indexerStatus = page.locator('[data-testid="status-indexer-label"]');
+    await expect(indexerStatus).toBeVisible({ timeout: 5000 });
+    await expect(indexerStatus).toContainText('Indexer delayed');
+
+    // Trading controls remain fully interactable
+    const priceInput = page.locator('[data-testid="order-form-price-input"]');
+    const qtyInput = page.locator('[data-testid="order-form-qty-input"]');
+    const buyBtn = page.locator('[data-testid="order-form-submit-buy"]');
+
+    await expect(priceInput).toBeEnabled();
+    await expect(qtyInput).toBeEnabled();
+    await expect(buyBtn).toBeEnabled();
+
+    await priceInput.fill('150.00');
+    await qtyInput.fill('1.0');
+    await expect(priceInput).toHaveValue('150.00');
+    await expect(qtyInput).toHaveValue('1.0');
+  });
+
+  test('surfaces critical status during outage while leaving trading enabled', async ({ page }) => {
+    await page.route('**/api/healthz', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          status: 'critical',
+          ts: Date.now(),
+          sqliteWritable: true,
+          processedThroughSlot: 1000,
+          latestIndexedSlot: 1000,
+          rpcSlot: 1200,
+          rpcReachable: false,
+          slotLag: 200,
+          lastSuccessfulSyncAt: null,
+          lastSyncErrorAt: Date.now(),
+          subscriptions: { core: false, matcher: false },
+          lastBatch: null,
+        }),
+      });
+    });
+
+    await page.goto('/trade');
+
+    const indexerStatus = page.locator('[data-testid="status-indexer-label"]');
+    await expect(indexerStatus).toBeVisible({ timeout: 5000 });
+    await expect(indexerStatus).toContainText('Indexer critical');
+
+    // Trading controls remain enabled
+    const buyBtn = page.locator('[data-testid="order-form-submit-buy"]');
+    await expect(buyBtn).toBeVisible();
+    await expect(buyBtn).toBeEnabled();
   });
 });
 
