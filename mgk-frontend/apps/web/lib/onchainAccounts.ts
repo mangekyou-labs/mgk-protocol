@@ -4,6 +4,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
+import { indexerBatchMatchesExpected } from '@/lib/trade/indexerBatch';
 
 export function resolveRegistryAddress(
   programId: PublicKey,
@@ -113,10 +114,7 @@ export async function fetchIndexerBatchAddress(
     const body = (await res.json()) as Record<string, unknown>;
     const batchAddress = body.batchAddress ?? body.batch_address;
     if (typeof batchAddress !== 'string') return null;
-
-    // Trust the indexer's batch address even when batch IDs diverge.  The
-    // indexer tracks the keeper's keypair-based batch directly; the registry
-    // counter may race ahead during SettleBatch → CreateBatch transitions.
+    if (!indexerBatchMatchesExpected(body, expectedBatchId)) return null;
     return new PublicKey(batchAddress);
   } catch {
     return null;

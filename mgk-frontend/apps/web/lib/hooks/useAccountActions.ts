@@ -12,6 +12,7 @@ import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
 import { usePortfolioStore } from '@/lib/stores/usePortfolioStore';
+import { WALLET_TX_SEND_OPTS } from '@/lib/trade/walletTxOpts';
 
 /** lamports in 1 SOL */
 const SOL = 1_000_000_000n;
@@ -73,9 +74,7 @@ export function useAccountActions() {
       ix,
     );
 
-    const sig = await sendTransaction(tx, connection, {
-      skipPreflight: true,
-    });
+    const sig = await sendTransaction(tx, connection, WALLET_TX_SEND_OPTS);
     await connection.confirmTransaction(sig, 'confirmed');
 
     // Refresh the portfolio store so the UI flips to Deposit/Withdraw.
@@ -120,12 +119,7 @@ export function useAccountActions() {
         ix,
       );
 
-      // Skip RPC preflight — Phantom does its own simulation internally.
-      // If Phantom's simulation fails (stale cache), user can confirm via
-      // "Confirm (unsafe)" checkbox.
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true,
-      });
+      const sig = await sendTransaction(tx, connection, WALLET_TX_SEND_OPTS);
       await connection.confirmTransaction(sig, 'confirmed');
       return { sig };
     },
@@ -170,10 +164,7 @@ export function useAccountActions() {
         ix,
       );
 
-      // Skip RPC preflight — same rationale as deposit.
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true,
-      });
+      const sig = await sendTransaction(tx, connection, WALLET_TX_SEND_OPTS);
       await connection.confirmTransaction(sig, 'confirmed');
       return { sig };
     },

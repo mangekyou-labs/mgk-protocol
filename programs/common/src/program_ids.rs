@@ -2,6 +2,7 @@
 //!
 //! Returns canonical program addresses for CPI callers.
 
+use crate::error::MgkError;
 use pinocchio::pubkey::Pubkey;
 
 const PERPS_CORE_ID: Pubkey = [
@@ -34,6 +35,26 @@ pub fn mgk_oracle_program_id() -> Pubkey {
     ORACLE_ID
 }
 
+/// Reject CPI targets that are not the canonical matcher program.
+#[inline]
+pub fn validate_matcher_program_id(key: &Pubkey) -> Result<(), MgkError> {
+    if key != &perps_matcher_program_id() {
+        Err(MgkError::InvalidAccount)
+    } else {
+        Ok(())
+    }
+}
+
+/// Reject System Program CPI targets that are not the all-zero program id.
+#[inline]
+pub fn validate_system_program_id(key: &Pubkey) -> Result<(), MgkError> {
+    if key != &[0u8; 32] {
+        Err(MgkError::InvalidAccount)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +77,19 @@ mod tests {
             zero,
             "mgk_oracle_program_id must not be zero"
         );
+    }
+
+    #[test]
+    fn rejects_spoofed_matcher_program_id() {
+        let spoof = [0x11u8; 32];
+        assert!(validate_matcher_program_id(&spoof).is_err());
+        assert!(validate_matcher_program_id(&perps_matcher_program_id()).is_ok());
+    }
+
+    #[test]
+    fn rejects_spoofed_system_program_id() {
+        let spoof = [0x22u8; 32];
+        assert!(validate_system_program_id(&spoof).is_err());
+        assert!(validate_system_program_id(&[0u8; 32]).is_ok());
     }
 }

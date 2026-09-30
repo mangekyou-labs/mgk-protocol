@@ -144,7 +144,7 @@ updated: 2026-08-24
 - Raising cap above CU-proven value  
 - Formal on-chain `BatchCleared` event IDL  
 - Interactive Phantom-extension smoke remains optional UX (not the matching-proof gate)
-- Security review before mainnet
+- Independent Solana audit before mainnet (internal CSO 2026-08-24 is preparation only; Fender/QEDGen/Kani unavailable)
 - Feature-named deployment/monitoring docs (lint paths)
 
 ### M9.8 — Frontend reliability + truthful DFBA state (reopened 2026-08-08)
@@ -296,10 +296,11 @@ Post-M9 ops ───────── Devnet dual-fill + frontend M9 wire + mo
 M9.8 frontend ─────── remainder closed 2026-08-20 (T9.8.7); T9.8.5 regression keep
 M9.9 matching proof ─ DONE 2026-08-20 (T9.9.1–5)
 M9.10 working-devnet ─ DONE (T9.10.1–7 + devnet deploy 2026-08-24)
-M9.11 devnet release ─ Code DONE (T9.11.1–11); deployment T9.11.12–13 pending merge
+M9.11 devnet release ─ Code DONE (T9.11.1–11); T9.11.12–13 out of CSO slice (no mutation)
+M9.12 internal CSO ──── DONE 2026-08-24 (compat remediations; independent audit still required)
 ```
 
-**Critical path remaining:** T9.11.12 post-merge deployment (Render + Vercel) and T9.11.13 smoke test validation. T9.8.5 Positions flicker stays a regression watch. Security review remains mandatory before mainnet.
+**Critical path remaining:** T9.11.12 post-merge deployment and T9.11.13 smoke (explicit ops slice; not this CSO). T9.8.5 Positions flicker stays a regression watch. Independent external Solana audit remains mandatory before mainnet. Internal CSO + compatible remediations completed 2026-08-24.
 
 ## Test scenario → task map
 
@@ -370,7 +371,7 @@ M9.11 devnet release ─ Code DONE (T9.11.1–11); deployment T9.11.12–13 pend
 | Deployment/monitoring docs | lint MISSING feature-named paths (deployment note exists: `2026-08-06-devnet-deploy-m9.md`) |
 | Keeper crank | ✅ `tools/keeper-crank.js`; verified multi-batch Close→Clear→Settle on devnet |
 | Book account size | Client keypair book (27 704 B); CPI CreateAccount 10KB cap — document ops path |
-| Security review | Required before mainnet; `solana-fender-mcp` + QEDGen |
+| Security review | Internal comprehensive CSO **done 2026-08-24** (see `.superstack/security-reports/feature-dfba-auction-2026-08-24.md`). Independent audit + Fender/QEDGen/Kani **not** complete |
 | Helius / public RPC rate limits | Prefer Helius for browser + Playwright; 429s on public devnet |
 | Positions/Portfolio polling causes visible churn | P0 UX issue reported 2026-08-08; root cause deliberately not assigned during planning. Future implementation must reproduce and pin the behavior before choosing cache/store changes |
 | Dev-origin hydration differs between `localhost` and `127.0.0.1` | Keep both origins in the browser regression matrix; do not treat a server-rendered screenshot as proof of client interactivity |
@@ -677,7 +678,7 @@ M9.11 devnet release ─ Code DONE (T9.11.1–11); deployment T9.11.12–13 pend
 - SDK: `PercolatorError.ReduceOnlyViolation = 606` + `encodeSetFundingParams`
 - Devnet: disc 23 oracle binding `26G5oZBq…`, multi-venue post `5yJFzRB5…`, batch 20 settle `2BYRK69U…`
 - AI DevKit feature lint: pre-existing warnings (TradingViewWidget, indexer syncer) not from this session
-- Pending: post-merge deployment (T9.11.12), smoke tests (T9.11.13), security review before mainnet
+- Pending at Session W time: T9.11.12–13 (still ops-only). Internal CSO completed in Session Y.
 
 ### Session X — T9.11 Public devnet release & rollout (2026-08-24)
 
@@ -696,7 +697,53 @@ M9.11 devnet release ─ Code DONE (T9.11.1–11); deployment T9.11.12–13 pend
 | 11 | T9.11.11 All gates + PR | ai-devkit lint ✓, clippy ✓, cargo test 114 ✓, SDK 162 ✓, indexer 87 ✓, web 486 ✓. PR #1 created with auto-merge |
 | 12 | T9.11.12–13 Pending | Post-merge deployment + smoke tests await merge |
 
-**Open task count:** M9.11 T9.11.1–11 done (2026-08-24). T9.11.12–13 pending merge. Security review remains before mainnet.
+### Session Y — M9.12 Internal comprehensive CSO (2026-08-24)
+
+| # | Item | Planning outcome |
+|---|------|------------------|
+| 1 | Isolation | Work only in `.worktrees/feature-dfba-auction` (HEAD `be6e590`). Primary checkout untouched |
+| 2 | Baseline | M9.10 + 2026-08-24 devnet treated complete. ARCHITECTURE rewritten to DFBA. Grant marked historical |
+| 3 | CSO | Comprehensive 2/10 scan of working tree + untracked. Report `.superstack/security-reports/feature-dfba-auction-2026-08-24.md` |
+| 4 | Remediations | Canonical vault/registry PDA, matcher/system ID checks, portfolio skip-reinit, liquidate owner gates, matcher stack-height CPI, ops-oracle require-guard + health/sanitize |
+| 5 | Stopped | Full matcher Core-caller auth (Instructions sysvar) — blocking design, not a silent layout break |
+| 6 | Not claimed | Independent audit, FV (Fender/QEDGen/Kani), T9.11.12–13 mutation |
+
+**Open task count:** M9.11 T9.11.1–11 done (2026-08-24). T9.11.12–13 pending explicit ops (out of CSO). Internal CSO M9.12 done 2026-08-24 (Session Y + Z + AA). Independent audit remains before mainnet.
+
+### Session Z — M9.12 frontend/operator remediations + re-audit (2026-08-24)
+
+| # | Item | Planning outcome |
+|---|------|------------------|
+| 1 | Isolation | Still `.worktrees/feature-dfba-auction` HEAD `be6e590`. Primary checkout not modified |
+| 2 | Operator | ops-keeper SDK-aligned decode; 6-byte SettleBatch; LiquidateUser disc 9; ops-oracle quorum/positivity/no ephemeral/stopLoop |
+| 3 | Indexer REST | Candle allowlist; GPA removed from request path; book cache by instrumentId |
+| 4 | Web/SDK | SettleBatch bump; indexer batchId must match; `skipPreflight: false`; RPC credential warn-only |
+| 5 | Playwright | T9.10.7 fixture aligned to BPF Portfolio/Book; 39 passed |
+| 6 | Stopped | Helius key rotation; matcher Core-caller sysvar; T9.11.12–13 mutation |
+| 7 | Evidence | tools 69; sdk 164; indexer 89; web 497; clippy/test/lib/sbf green; `pnpm -r build` Next 16.2.9; CSO report re-audit appended |
+
+### Session AA — C03–C06 skip-reinit / SettleBatch fill-gate (2026-08-24)
+
+| # | Item | Planning outcome |
+|---|------|------------------|
+| 1 | Isolation | Still `.worktrees/feature-dfba-auction` HEAD `be6e590`. Primary checkout not modified |
+| 2 | C03 | Initialize skip-reinit (`registry_already_initialized`) |
+| 3 | C04 | InitVault skip-rezero (`vault_already_initialized`) |
+| 4 | C05 | SettleBatch apply gated on batch match evidence; length-only OR removed |
+| 5 | C06 | Oracle Initialize skip-reinit (`oracle.validate()`) |
+| 6 | Stopped | Results pubkey on Batch (layout); matcher Core-caller sysvar; T9.11.12–13 mutation |
+| 7 | Evidence | clippy clean; oracle 7; core 291; sbf 00:02 oracle 13360 / core 145464 / matcher 120344; tools 69 |
+
+### Session AB — secrets/CI calibration (2026-08-25)
+
+| # | Item | Planning outcome |
+|---|------|------------------|
+| 1 | Isolation | Still `.worktrees/feature-dfba-auction` HEAD `be6e590`. Primary checkout not modified |
+| 2 | Parallel scan | 16 secrets/CI claims calibrated against live tree; not treated as new P0 |
+| 3 | Stale Highs | Candle SQL allowlist, ops-oracle timeout/stopLoop, no-ephemeral keypair already in tree |
+| 4 | Accepted | RENDER_API_KEY (gitignored), Helius warn-only, upgrade EOA, CORS, unpinned GHA, CSP `https:` wildcard |
+| 5 | Stopped | Key rotation, authority transfer, T9.11.12–13 mutation |
+| 6 | Evidence | Focused C03–C06 tests ok; `git diff --check` clean; report + history appended |
 
 **Blockers / residual issues:**
 
@@ -736,20 +783,21 @@ M9.11 devnet release ─ Code DONE (T9.11.1–11); deployment T9.11.12–13 pend
 | 12 | **T9.8.4 Full DFBA playwright-cli lifecycle** | P1 | **Done 2026-08-20** | mock `setBatchPhase` + live `--close-only` Clearing |
 | 13 | **T9.8.6 Keeper-lag visibility** | P1 | **Done 2026-08-20** | elapsed wait copy + indexer `/api/healthz` lag/lastBatch |
 | 14 | **T9.8.7 Retire remaining legacy web affordances** | P1 | **Done 2026-08-20** | active UI/tests are PostOrder-only; SDK slashed taxonomy kept |
-| 15 | **T9.10.*** Working-devnet follow-on | P1 | **Done 2026-08-24** (T9.10.1–7) | Security review before mainnet |
+| 15 | **T9.10.*** Working-devnet follow-on | P1 | **Done 2026-08-24** (T9.10.1–7) | Independent audit still before mainnet |
 | 16 | **T9.11.1–11 Public devnet release code** | P0 | **Done 2026-08-24** | Indexer read-only, wallet disc 19, standalone workers, render.yaml, Vercel, PR #1 |
-| 17 | **T9.11.12 Post-merge deployment** | P0 | **Pending** | Merge PR #1 → Render deploy → Vercel promote → main ff |
-| 18 | **T9.11.13 Smoke test validation** | P0 | **Pending** | After T9.11.12: portfolio init, dual fill, mark_valid, oracle freshness |
-| 19 | **Security review** — `solana-fender-mcp` + QEDGen | P1 | Not started | before mainnet |
+| 17 | **T9.11.12 Post-merge deployment** | P0 | **Pending (out of CSO slice)** | No mutation this slice |
+| 18 | **T9.11.13 Smoke test validation** | P0 | **Pending (out of CSO slice)** | After T9.11.12 |
+| 19 | **Internal CSO (M9.12)** | P0 | **Done 2026-08-24** | `.superstack/security-reports/feature-dfba-auction-2026-08-24.md`; compatible remediations |
+| 19b | **Independent audit** — external Solana + Fender/QEDGen/Kani if available | P1 | Not started | before mainnet; not claimed by M9.12 |
 | 20 | program-test CU budget / un-ignore 4 e2e tests | P1 | Open | harness only; not prod |
 | 21 | **Indexer** PDA-batch/oracle/rate-limit polish | P2 | Partial | M9 IDs wired |
 | 22 | **T9.8.5 Positions/Portfolio visual stability** | P0 | **Implemented** | regression watch; not a new slice |
 
 ### Suggested next 2–3 actions (when resuming)
 
-1. **Post-merge deployment (T9.11.12):** After PR #1 merges, deploy read-only indexer, rotate oracle authority, start keeper+oracle workers, promote Vercel, verify production URLs.
-2. **Smoke test (T9.11.13):** Portfolio init via wallet disc 19, dual fill, mark_valid=1, oracle freshness < 30s, indexer persistence across restart.
-3. **Security review:** `solana-fender-mcp` + QEDGen before mainnet.
+1. **Post-merge deployment (T9.11.12):** Explicit ops slice only — not authorized from CSO. Deploy read-only indexer, rotate oracle authority, start workers, promote Vercel.
+2. **Smoke test (T9.11.13):** After T9.11.12.
+3. **Independent audit + matcher Core-caller sysvar design:** Internal CSO is complete; Fender/QEDGen/Kani unavailable. Matcher stack-height gate is not full Core-caller auth.
 
 ## Historical plan
 
@@ -792,9 +840,14 @@ replaces the indexer queue. Deterministic PostOrder construction, truthful
 header/status intent, and portfolio refresh stability are evidenced.
 Positions flicker (T9.8.5) remains a regression.
 
-**Risks / upcoming focus:** Post-merge deployment (Render + Vercel);
-smoke test validation; Helius 429s; stale resting orders from other
-wallets; security review before mainnet.
+**Risks / upcoming focus:** Post-merge deployment (Render + Vercel) is
+an explicit ops slice; matcher Core-caller sysvar migration; independent
+audit; Helius 429s; T9.8.5 flicker regression.
 
-**Planning stop (Phase 6):** T9.11 reconciled 2026-08-24. Code complete,
-PR open with auto-merge. Deployment and smoke tests pending merge.
+**Planning stop (Phase 6):** M9.12 internal CSO + C03–C06 skip-reinit /
+fill-gate reconciled 2026-08-24 (Session AA). Secrets/CI parallel scan
+calibrated 2026-08-25 (Session AB): stale Highs already remediations;
+remaining Highs accepted / rotation unauthorized. No unresolved
+Critical/High fund-flow; no unresolved safety-relevant Medium.
+Independent audit not claimed. T9.11.12–13 not executed (no mutation).
+Confirm with the operator before any commit/PR.

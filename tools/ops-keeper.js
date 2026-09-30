@@ -31,6 +31,11 @@ const {
 const { readFileSync, existsSync } = require('fs');
 const { homedir } = require('os');
 const { join } = require('path');
+const {
+  decideLiquidation,
+  decodePortfolioHealth,
+  encodeLiquidateUser,
+} = require('./ops-liquidate');
 
 // ---------------------------------------------------------------------------
 // Canonical program IDs
@@ -51,6 +56,8 @@ const PORTFOLIO_SIZE = 1456;
 const BATCH_SIZE_BYTES = 160;
 const BOOK_ACCOUNT_SIZE = 27_704;
 const CLEAR_CU_LIMIT = 1_400_000;
+/** Remaining-account cap for SettleBatch (tx size / CU). */
+const MAX_SETTLE_PORTFOLIOS = 20;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,24 +83,52 @@ function le64(v) {
 }
 
 function decodeBatch(data) {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
   return {
-    batchId: Number(data.readBigUInt64LE(0)),
-    status: data[8],
-    totalCommitments: data.readUInt16LE(9),
-    totalRevealed: data.readUInt16LE(11),
-    commitDeadlineSlot: Number(data.readBigUInt64LE(16)),
-    markValid: data[152],
-    liqPaused: data[153],
+    batchId: buf.readBigUInt64LE(0),
+    status: buf[8],
+    commitDeadlineSlot: buf.readBigUInt64LE(16),
+    totalCommitments: buf.readUInt32LE(56),
+    totalRevealed: buf.readUInt32LE(60),
+    markValid: buf[152],
+    liqPaused: buf[153],
   };
 }
 
 function decodeRegistry(data) {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
   return {
-    governance: new PublicKey(data.slice(0, 32)),
-    instrumentCount: data.readUInt16LE(32),
-    nMin: data.readUInt32LE(36),
-    batchIdCounter: Number(data.readBigUInt64LE(40)),
+    governance: new PublicKey(buf.slice(0, 32)),
+    instrumentCount: buf.readUInt16LE(32),
+    batchIdCounter: buf.readBigUInt64LE(36),
+    nMin: buf.readUInt32LE(52),
   };
+}
+
+function capSettlementPortfolios(portfolios, opts) {
+  const fillCount = opts && opts.fillCount != null ? Number(opts.fillCount) : 0;
+  const max = (opts && opts.max != null) ? Number(opts.max) : MAX_SETTLE_PORTFOLIOS;
+  const list = portfolios || [];
+  if (fillCount > 0 && list.length === 0) {
+    throw new Error('settlement portfolios unresolved while DFBA fills exist');
+  }
+  if (list.length > max) {
+    throw new Error('too many settlement portfolios for one SettleBatch tx');
+  }
+  return list;
+}
+
+function liquidationPassDue(batch) {
+  if (!batch) return false;
+  const mark = batch.markValid === 1 || batch.markValid === true;
+  const paused = batch.liqPaused === 1 || batch.liqPaused === true;
+  return batch.status === BATCH_SETTLED && mark && !paused;
+}
+
+function decodeResultsFillCount(data) {
+  if (!data || data.length < 34) return 0;
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  return buf.readUInt16LE(32);
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -230,12 +265,6 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
   }
   const batch = decodeBatch(Buffer.from(batchInfo.data));
 
-  if (batch.status === BATCH_SETTLED) {
-    console.log(`  Batch #${currentBatchId} already settled — skipping`);
-    return;
-  }
-
-  // Resolve instrument and oracle
   const [instPDA] = pda([Buffer.from('instrument'), le16(0)], CORE_ID);
   const instInfo = await conn.getAccountInfo(instPDA);
   if (!instInfo || instInfo.data.length < 92) {
@@ -243,6 +272,12 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
     return;
   }
   const oraclePda = new PublicKey(instInfo.data.slice(60, 92));
+
+  if (batch.status === BATCH_SETTLED) {
+    console.log(`  Batch #${currentBatchId} already settled`);
+    await runLiquidationPass(conn, keeper, batch, batchPda, regPDA, vaultPDA, instPDA, oraclePda);
+    return;
+  }
 
   console.log(`  Batch #${currentBatchId}: status=${batch.status} markValid=${batch.markValid} deadline=${batch.commitDeadlineSlot}`);
 
@@ -275,12 +310,13 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
     clearTx.sign(keeper, resultsKP);
     await sendRawWithRetry(conn, clearTx.serialize(), 'ClearBatch');
 
+    const resultsInfo = await conn.getAccountInfo(resultsKP.publicKey);
+    const fillCount = resultsInfo ? decodeResultsFillCount(resultsInfo.data) : 0;
+
     // --- Phase 3: SettleBatch with dynamic settlement portfolios ---
-    const nextBatchId = batch.batchId + 1;
+    const nextBatchId = batch.batchId + 1n;
     const [nextBatchPda, nextBatchBump] = pda([Buffer.from('batch'), le64(nextBatchId)], CORE_ID);
 
-    // Discover settlement portfolios dynamically from cleared DFBA results
-    // instead of using hardcoded persona addresses.
     let portfolios = [];
     const envPortfolios = (process.env.PORTFOLIO_ADDRESSES || '')
       .split(',').map(s => s.trim()).filter(Boolean).map(s => new PublicKey(s));
@@ -289,10 +325,10 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
       portfolios = envPortfolios;
       console.log(`  Using ${portfolios.length} env-specified portfolio(s)`);
     } else {
-      // Discover from on-chain state
       portfolios = await discoverSettlementPortfolios(conn, CORE_ID, batch.batchId);
       console.log(`  Discovered ${portfolios.length} settlement portfolio(s) from on-chain state`);
     }
+    portfolios = capSettlementPortfolios(portfolios, { fillCount });
 
     console.log(`  [3/3] SettleBatch → next batch #${nextBatchId} @ ${nextBatchPda.toBase58()}`);
     await sendTx(conn,
@@ -303,8 +339,53 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
       ),
       [keeper], 'Settle',
     );
+    const settled = decodeBatch(Buffer.from((await conn.getAccountInfo(batchPda)).data));
+    await runLiquidationPass(conn, keeper, settled, batchPda, regPDA, vaultPDA, instPDA, oraclePda);
     console.log('  Crank cycle complete.');
   }
+}
+
+async function runLiquidationPass(conn, keeper, batch, batchPda, regPDA, vaultPDA, instPDA, oraclePda) {
+  if (!liquidationPassDue(batch)) {
+    return;
+  }
+  const accounts = await conn.getProgramAccounts(CORE_ID, {
+    filters: [{ dataSize: PORTFOLIO_SIZE }],
+    encoding: 'base64',
+  });
+  let attempted = 0;
+  for (const { pubkey, account } of accounts) {
+    let health;
+    try {
+      health = decodePortfolioHealth(account.data);
+    } catch {
+      continue;
+    }
+    const d = decideLiquidation({
+      health: health.health,
+      positionsLen: health.positionsLen,
+      markValid: batch.markValid,
+      liqPaused: batch.liqPaused,
+      liquidationsPaused: false,
+      batchStatus: batch.status,
+    });
+    if (d.action !== 'liquidate') continue;
+    attempted += 1;
+    await sendTx(conn, new TransactionInstruction({
+      keys: [
+        { pubkey, isSigner: false, isWritable: true },
+        { pubkey: regPDA, isSigner: false, isWritable: false },
+        { pubkey: vaultPDA, isSigner: false, isWritable: true },
+        { pubkey: keeper.publicKey, isSigner: true, isWritable: true },
+        { pubkey: batchPda, isSigner: false, isWritable: false },
+        { pubkey: instPDA, isSigner: false, isWritable: false },
+        { pubkey: oraclePda, isSigner: false, isWritable: false },
+      ],
+      programId: CORE_ID,
+      data: encodeLiquidateUser(1),
+    }), [keeper], 'Liquidate');
+  }
+  console.log(`  Liquidation pass: attempted=${attempted}`);
 }
 
 async function createBatch(conn, keeper, registry, regPDA) {
@@ -446,4 +527,15 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+module.exports = {
+  decodeRegistry,
+  decodeBatch,
+  capSettlementPortfolios,
+  MAX_SETTLE_PORTFOLIOS,
+  liquidationPassDue,
+  decodeResultsFillCount,
+};
+
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+}

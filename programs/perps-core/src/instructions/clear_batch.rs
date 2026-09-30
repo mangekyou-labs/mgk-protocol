@@ -1,5 +1,5 @@
 use crate::state::{Batch, BatchStatus, Registry};
-use mgk_common::MgkError;
+use mgk_common::{validate_matcher_program_id, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
@@ -84,6 +84,8 @@ pub fn process_clear_batch(
         msg!("Error: Results account must be writable");
         return Err(ProgramError::InvalidAccountData);
     }
+
+    validate_matcher_program_id(matcher_program.key())?;
 
     // CPI: disc 5 DfbaClear — marginal_size_cap(8) + num_orders(2)=0 → collect from book
     let mut cpi_data = [0u8; 1 + 10];

@@ -1,5 +1,5 @@
 use crate::state::Portfolio;
-use mgk_common::{MgkError, validate_owner, validate_writable};
+use mgk_common::{validate_matcher_program_id, validate_owner, validate_writable, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
@@ -37,6 +37,7 @@ pub fn process_cancel_resting_order(
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
     validate_writable(book_account)?;
+    validate_matcher_program_id(matcher_program.key())?;
 
     let portfolio = unsafe { &*(portfolio_account.borrow_data_unchecked().as_ptr() as *const Portfolio) };
     if portfolio.user != *user_account.key() {

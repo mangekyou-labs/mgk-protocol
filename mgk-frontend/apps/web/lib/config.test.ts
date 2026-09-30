@@ -95,6 +95,18 @@ describe('config', () => {
     expect(config.rpcUrl).toBe('https://my-rpc.example.com');
   });
 
+  it('does not throw when NEXT_PUBLIC_RPC_URL embeds an api-key query (warn-only)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv(
+      'NEXT_PUBLIC_RPC_URL',
+      'https://devnet.helius-rpc.com/?api-key=not-a-real-key',
+    );
+    const { config } = await import('./config');
+    expect(config.rpcUrl).toContain('api-key=');
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('reads NEXT_PUBLIC_CORE_PROGRAM_ID override', async () => {
     vi.stubEnv('NEXT_PUBLIC_CORE_PROGRAM_ID', SYSTEM_PROGRAM);
     const { config } = await import('./config');

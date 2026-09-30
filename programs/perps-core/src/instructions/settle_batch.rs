@@ -8,7 +8,7 @@ use crate::state::portfolio::Portfolio;
 use crate::state::registry::Registry;
 use crate::state::vault::Vault;
 use mgk_common::book::OrderBook;
-use mgk_common::{math::calculate_funding_payment, MgkError};
+use mgk_common::{math::calculate_funding_payment, validate_matcher_program_id, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
     msg,
@@ -26,6 +26,20 @@ const BPS_DENOM: i128 = 10_000;
 /// DFBA results: 34-byte header (prices/qty + num_fills at 32) then 58-byte fills.
 const DFBA_RESULT_HEADER_BYTES: usize = 34;
 const DFBA_FILL_WIRE_BYTES: usize = 58;
+
+/// Apply DFBA fills only when ClearBatch has already written match evidence
+/// onto the Core-owned Batch. Length of the results account is not evidence:
+/// anyone can allocate a matcher-owned buffer with a DFBA header + fills.
+pub(crate) fn should_apply_dfba_fills(
+    results_len: usize,
+    matched_bid_qty: u64,
+    matched_ask_qty: u64,
+    mark_valid: u8,
+) -> bool {
+    // RED: includes the length-only OR that lets Settle apply fills without Clear.
+    results_len >= DFBA_RESULT_HEADER_BYTES
+        && (matched_bid_qty > 0 || matched_ask_qty > 0 || mark_valid != 0)
+}
 
 /// M7 7.5: PriceOracle field offset for the `price` field (raw bytes
 /// read). The full struct is defined in `programs/oracle/src/state.rs`.
@@ -244,6 +258,8 @@ pub fn process_settle_batch(
         return Err(MgkError::InvalidInstruction.into());
     }
 
+    validate_matcher_program_id(matcher_program.key())?;
+
     let registry =
         unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
 
@@ -260,13 +276,15 @@ pub fn process_settle_batch(
 
     const DFBA_HDR: usize = DFBA_RESULT_HEADER_BYTES;
     const DFBA_FILL: usize = DFBA_FILL_WIRE_BYTES;
-    let dfba_mode = results_data.len() >= DFBA_HDR
-        && (batch.matched_bid_qty > 0
-            || batch.matched_ask_qty > 0
-            || batch.mark_valid != 0
-            || results_data.len() >= DFBA_HDR + DFBA_FILL);
+    let dfba_format = results_data.len() >= DFBA_HDR;
+    let apply_dfba = should_apply_dfba_fills(
+        results_data.len(),
+        batch.matched_bid_qty,
+        batch.matched_ask_qty,
+        batch.mark_valid,
+    );
 
-    let (num_fills, fill_stride, fill_base) = if dfba_mode {
+    let (num_fills, fill_stride, fill_base) = if dfba_format {
         if results_data.len() < DFBA_HDR {
             return Err(ProgramError::AccountDataTooSmall);
         }
@@ -315,7 +333,7 @@ pub fn process_settle_batch(
 
     // DFBA fill apply: update portfolios from results (dual format).
     // Creates positions when missing; applies equity cash flow + fees.
-    if dfba_mode && num_fills > 0 {
+    if apply_dfba && num_fills > 0 {
         for i in 0..num_fills {
             let off = fill_base + i * fill_stride;
             let user = Pubkey::from(
@@ -856,6 +874,35 @@ fn apply_dfba_results(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_book_results_length_must_not_apply_fills() {
+        let with_fill = DFBA_RESULT_HEADER_BYTES + DFBA_FILL_WIRE_BYTES;
+        assert!(
+            !should_apply_dfba_fills(with_fill, 0, 0, 0),
+            "SettleBatch must not apply DFBA fills from results length alone"
+        );
+    }
+
+    #[test]
+    fn matched_bid_qty_enables_dfba_fill_apply() {
+        assert!(should_apply_dfba_fills(DFBA_RESULT_HEADER_BYTES, 1, 0, 0));
+    }
+
+    #[test]
+    fn matched_ask_qty_enables_dfba_fill_apply() {
+        assert!(should_apply_dfba_fills(DFBA_RESULT_HEADER_BYTES, 0, 1, 0));
+    }
+
+    #[test]
+    fn mark_valid_enables_dfba_fill_apply() {
+        assert!(should_apply_dfba_fills(DFBA_RESULT_HEADER_BYTES, 0, 0, 1));
+    }
+
+    #[test]
+    fn undersized_results_never_apply_dfba_fills() {
+        assert!(!should_apply_dfba_fills(DFBA_RESULT_HEADER_BYTES - 1, 1, 1, 1));
+    }
 
     /// M6 6i.2: results account format changed from
     /// `clearing_price(8) + num_fills(2) + fills(48)` to

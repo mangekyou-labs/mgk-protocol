@@ -1,3 +1,4 @@
+use mgk_common::MgkError;
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction, Signer},
@@ -7,6 +8,16 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     ProgramResult,
 };
+
+fn zero_pubkey() -> Pubkey {
+    Pubkey::from([0u8; 32])
+}
+
+/// Registry is considered initialized once governance or the PDA bump is set.
+/// Fresh SystemProgram::CreateAccount data is all zeros and may still be written.
+pub(crate) fn registry_already_initialized(governance: &Pubkey, bump: u8) -> bool {
+    *governance != zero_pubkey() || bump != 0
+}
 
 /// System Program ID (all zeros).
 const SYSTEM_PROGRAM_ID_BYTES: [u8; 32] = [0u8; 32];
@@ -145,6 +156,20 @@ pub fn process_initialize(
         msg!("Vault PDA created");
     }
 
+    if registry_account.data_len() >= REGISTRY_SPACE {
+        let already = unsafe {
+            let src = registry_account.borrow_data_unchecked().as_ptr();
+            let mut gov = [0u8; 32];
+            core::ptr::copy_nonoverlapping(src, gov.as_mut_ptr(), 32);
+            let bump = *src.add(80);
+            registry_already_initialized(&Pubkey::from(gov), bump)
+        };
+        if already {
+            msg!("Error: Registry already initialized");
+            return Err(MgkError::AlreadyInitialized.into());
+        }
+    }
+
     // Zero-init vault fields (createAccount zeros data; set bump explicitly).
     if vault_account.data_len() >= VAULT_SPACE {
         unsafe {
@@ -235,4 +260,31 @@ pub fn process_initialize(
     msg!("Default instrument initialized");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uninitialized_registry_may_be_written() {
+        assert!(!registry_already_initialized(&zero_pubkey(), 0));
+    }
+
+    #[test]
+    fn initialized_governance_must_not_be_overwritten() {
+        let existing = Pubkey::from([9u8; 32]);
+        assert!(
+            registry_already_initialized(&existing, 0),
+            "Initialize must not steal governance on a live registry"
+        );
+    }
+
+    #[test]
+    fn initialized_bump_must_not_be_overwritten() {
+        assert!(
+            registry_already_initialized(&zero_pubkey(), 255),
+            "Initialize must not rewrite a registry that already stored its PDA bump"
+        );
+    }
 }

@@ -142,6 +142,7 @@ pub fn process_compute_clearing(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.is_empty() {
         msg!("Error: ComputeClearing requires at least 1 account");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -353,6 +354,7 @@ pub fn process_dfba_clear(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.is_empty() {
         msg!("Error: DfbaClear requires results account");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -936,6 +938,7 @@ pub fn process_place_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.is_empty() {
         msg!("Error: PlaceResting requires book account");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -988,6 +991,27 @@ pub fn process_place_resting(
     Ok(())
 }
 
+/// Direct (non-CPI) invocation of matcher mutations is forbidden.
+/// Stack height 1 is a top-level transaction instruction.
+pub fn is_direct_invocation(stack_height: u64) -> bool {
+    stack_height <= 1
+}
+
+/// Reject wallet-level direct calls. Full Core-caller authentication
+/// requires the Instructions sysvar (account-layout break) and is a
+/// blocking design/migration task.
+fn require_cpi() -> ProgramResult {
+    #[cfg(target_os = "solana")]
+    {
+        let height = unsafe { pinocchio::syscalls::sol_get_stack_height() };
+        if is_direct_invocation(height) {
+            msg!("Error: matcher mutation must be invoked via CPI");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+    }
+    Ok(())
+}
+
 // =============================================================================
 // 6h. Direct cancel / modify (CPI from Core)
 // =============================================================================
@@ -1011,6 +1035,7 @@ pub fn process_cancel_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.is_empty() {
         msg!("Error: CancelResting requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -1059,6 +1084,7 @@ pub fn process_modify_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.is_empty() {
         msg!("Error: ModifyResting requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -1122,6 +1148,7 @@ pub fn process_cancel_all(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.is_empty() {
         msg!("Error: CancelAll requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -1213,6 +1240,7 @@ pub fn process_clear_and_match(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    require_cpi()?;
     if accounts.len() < 2 {
         msg!("Error: ClearAndMatch requires book + results accounts");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -1639,5 +1667,19 @@ mod tests {
         b[0] = 222;
         assert_eq!(a[0], 111);
         assert_eq!(b[0], 222);
+    }
+
+    #[test]
+    fn direct_matcher_invocation_is_rejected() {
+        assert!(is_direct_invocation(1));
+        assert!(!is_direct_invocation(2));
+        assert!(!is_direct_invocation(3));
+    }
+
+    #[test]
+    fn native_require_cpi_is_a_no_op() {
+        // On native/libtest, the Solana stack-height syscall is unavailable.
+        // BPF builds still reject height <= 1 via `require_cpi`.
+        assert!(require_cpi().is_ok());
     }
 }

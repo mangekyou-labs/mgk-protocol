@@ -50,9 +50,11 @@
 
 ### 7. Vercel Configuration
 - Consolidated at repo root `vercel.json`
-- Pinned Node 22.x
-- Set canonical program/account IDs as public env vars
+- Pinned Node 22.x via `package.json` `engines.node` (NOT `vercel.json` `engines` — the official schema uses `additionalProperties: false` and rejects it)
+- Added `$schema` declaration for editor autocompletion
+- Removed `engines` and deprecated `env` from `vercel.json` (T9.11.8b recovery: program IDs live in `mgk-frontend/apps/web/lib/config.ts` `DEVNET_DEFAULTS`; dashboard has `NEXT_PUBLIC_INDEXER_URL` and `NEXT_PUBLIC_RPC_URL`)
 - `NEXT_PUBLIC_BATCH_ADDRESS` unset (dynamic)
+- Test: `tools/vercel-json.test.js` enforces schema compliance
 
 ### 8. Updated .gitignore
 - Added exclusions for `.env.*`, `*.db`, `.playwright-mcp/`, `.playwright-cli/`, `.freebuff/`, `.agents/skills/playwright-skill/`, `*.png`, `brand.md`
@@ -66,3 +68,12 @@
   - PriceOracle: `5NSDGAaRqfxe6mkZG9fEAZdzK4r77nEBEobohZGYP6PN`
   - Instrument: `Hz9UtmSXyKFnp1pGvrhrAmizMsvEkYRh5Eih1r7Lf1hG`
 - Batch address remains dynamic (derived from keeper state)
+
+## 10. Internal CSO remediations (2026-08-24, no deploy)
+
+Compatible program/tooling hardening from the comprehensive CSO. Details: `docs/ai/implementation/2026-08-24-feature-onchain-perps-dex.md` and `.superstack/security-reports/feature-dfba-auction-2026-08-24.md`.
+
+- Canonical vault/registry PDA; matcher + System Program ID checks; skip-reinit on initialized portfolios
+- Matcher stack-height CPI gate (Core-caller sysvar is a blocking follow-on)
+- `ops-oracle.js` no longer runs `main()` on `require()`; health/sanitize/decode helpers exported
+- T9.11.12–13 not executed (no authority/key/deploy mutation)

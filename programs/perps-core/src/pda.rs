@@ -1,4 +1,5 @@
-use pinocchio::pubkey::{find_program_address, Pubkey};
+use mgk_common::MgkError;
+use pinocchio::pubkey::{find_program_address, try_find_program_address, Pubkey};
 
 pub const PORTFOLIO_SEED: &[u8] = b"portfolio";
 pub const INSTRUMENT_SEED: &[u8] = b"instrument";
@@ -42,4 +43,66 @@ pub fn derive_commitment_pda(
         ],
         program_id,
     )
+}
+
+/// True iff `account` is the unique vault PDA for `program_id`.
+///
+/// Host (non-Solana) builds cannot service the PDA syscall and fail closed.
+pub fn is_canonical_vault(account: &Pubkey, program_id: &Pubkey) -> bool {
+    match try_find_program_address(&[VAULT_SEED], program_id) {
+        Some((expected, _)) => account == &expected,
+        None => false,
+    }
+}
+
+/// True iff `account` is the unique registry PDA for `program_id`.
+///
+/// Host (non-Solana) builds cannot service the PDA syscall and fail closed.
+pub fn is_canonical_registry(account: &Pubkey, program_id: &Pubkey) -> bool {
+    match try_find_program_address(&[REGISTRY_SEED], program_id) {
+        Some((expected, _)) => account == &expected,
+        None => false,
+    }
+}
+
+/// Reject any account that is not the unique vault PDA.
+pub fn require_canonical_vault(account: &Pubkey, program_id: &Pubkey) -> Result<(), MgkError> {
+    if is_canonical_vault(account, program_id) {
+        Ok(())
+    } else {
+        Err(MgkError::InvalidAccount)
+    }
+}
+
+/// Reject any account that is not the unique registry PDA.
+pub fn require_canonical_registry(account: &Pubkey, program_id: &Pubkey) -> Result<(), MgkError> {
+    if is_canonical_registry(account, program_id) {
+        Ok(())
+    } else {
+        Err(MgkError::InvalidAccount)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_non_vault_account_as_canonical_vault() {
+        let program_id = Pubkey::from([7u8; 32]);
+        let impostor = Pubkey::from([1u8; 32]);
+        // Host PDA syscalls are stubs; the gate must fail closed rather than
+        // treat an arbitrary core-owned account as the vault.
+        assert!(!is_canonical_vault(&impostor, &program_id));
+        assert!(require_canonical_vault(&impostor, &program_id).is_err());
+        assert!(!is_canonical_registry(&impostor, &program_id));
+        assert!(require_canonical_registry(&impostor, &program_id).is_err());
+    }
+
+    #[test]
+    fn impostor_core_owned_account_cannot_be_vault() {
+        let program_id = Pubkey::from([9u8; 32]);
+        let portfolio_shaped = Pubkey::from([2u8; 32]);
+        assert!(require_canonical_vault(&portfolio_shaped, &program_id).is_err());
+    }
 }

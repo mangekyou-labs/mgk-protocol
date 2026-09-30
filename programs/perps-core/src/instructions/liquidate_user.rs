@@ -7,9 +7,10 @@ use crate::state::liquidation::{
 use crate::state::portfolio::{Portfolio, Position, MAX_INSTRUMENTS};
 use crate::state::registry::Registry;
 use crate::state::vault::Vault;
+use crate::pda::require_canonical_vault;
 use mgk_common::{
     math::{calculate_im, calculate_mm},
-    MgkError,
+    mgk_oracle_program_id, validate_owner, MgkError,
 };
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
@@ -56,7 +57,7 @@ const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
 /// Data: num_instruments(2)
 #[allow(clippy::too_many_arguments)]
 pub fn process_liquidate_user(
-    _program_id: &Pubkey,
+    program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     registry_account: &AccountInfo,
     vault_account: &AccountInfo,
@@ -68,6 +69,11 @@ pub fn process_liquidate_user(
     if !liquidator_account.is_signer() {
         msg!("Error: Liquidator must be signer");
         return Err(MgkError::Unauthorized.into());
+    }
+
+    require_canonical_vault(vault_account.key(), program_id)?;
+    for inst in instrument_accounts {
+        validate_owner(inst, program_id)?;
     }
 
     let portfolio =
@@ -251,9 +257,18 @@ pub fn process_liquidate_user(
     Ok(())
 }
 
+/// True iff `owner` is the canonical MGK oracle program.
+pub(crate) fn oracle_owner_is_canonical(owner: &Pubkey) -> bool {
+    owner == &mgk_oracle_program_id()
+}
+
 /// Read the fallback oracle's price via raw byte access. Returns `None`
-/// if the account is missing, too small, or fails magic validation.
+/// if the account is missing, too small, fails owner checks, or fails
+/// magic validation. A spoofed oracle account must not inject a mark.
 fn read_oracle_price(oracle_account: &AccountInfo) -> Option<i64> {
+    if !oracle_owner_is_canonical(oracle_account.owner()) {
+        return None;
+    }
     let data = oracle_account.try_borrow_data().ok()?;
     if data.len() < ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN {
         return None;
@@ -325,7 +340,23 @@ fn full_flat(portfolio: &mut Portfolio, mark_prices: &[i64; MAX_INSTRUMENTS]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::require_canonical_vault;
+    use mgk_common::mgk_oracle_program_id;
     use pinocchio::pubkey::Pubkey;
+
+    #[test]
+    fn spoofed_oracle_owner_is_not_canonical() {
+        let spoof = Pubkey::from([0xABu8; 32]);
+        assert!(!oracle_owner_is_canonical(&spoof));
+        assert!(oracle_owner_is_canonical(&mgk_oracle_program_id()));
+    }
+
+    #[test]
+    fn liquidate_rejects_non_vault_as_insurance_account() {
+        let program_id = Pubkey::from([7u8; 32]);
+        let impostor = Pubkey::from([1u8; 32]);
+        assert!(require_canonical_vault(&impostor, &program_id).is_err());
+    }
 
     fn user_pubkey(byte: u8) -> Pubkey {
         let mut b = [0u8; 32];

@@ -1,10 +1,12 @@
 # Architecture — mgk Perps DEX
 
-**Commit-reveal CLOB on Solana · Pinocchio / no_std · sequencer-free · MEV-mitigated**
+**Dual Flow Batch Auction (DFBA) on Solana · Pinocchio / no_std · sequencer-free · MEV-mitigated**
 
 Repository: https://github.com/mangekyou-labs/mgk-solana
 Devnet programs: perps-core, perps-matcher, oracle (all executable — see [Verify](#how-to-verify))
 Design source of truth: `docs/ai/design/feature-onchain-perps-dex.md`
+
+> **Historical note:** Milestones M1–M8 shipped a short-batch commit-reveal CLOB (Fisher-Yates shuffle + structural priority queues). That model is **retired**. Active matching is pure DFBA (M9.0–M9.10, deployed on devnet 2026-08-24). Commit-reveal records remain in `docs/ai/planning/README.md` (historical M1–M8) and `docs/ai/testing/feature-mgk-onchain-perps-dex.md`. Do not implement new commit-reveal work from those files.
 
 ---
 
@@ -12,11 +14,11 @@ Design source of truth: `docs/ai/design/feature-onchain-perps-dex.md`
 
 ### High-Level Overview
 
-Perpetual futures are the largest category in DeFi by trading volume. On-chain perps today force a trade-off: fast but trust an off-chain sequencer (Drift, Mango, Zeta), or permissionless but AMM-capped with no resting depth (Jupiter Perps, Perpetual Protocol). **mgk takes a third path** — a fully on-chain commit-reveal CLOB with no sequencer, no AMM curve, and persistent GTC resting depth.
+Perpetual futures are the largest category in DeFi by trading volume. On-chain perps today force a trade-off: fast but trust an off-chain sequencer (Drift, Mango, Zeta), or permissionless but AMM-capped with no resting depth (Jupiter Perps, Perpetual Protocol). **mgk takes a third path** — a fully on-chain Dual Flow Batch Auction with no sequencer, no AMM curve, and persistent GTC resting depth.
 
-Every order, fill, liquidation, and settlement is verifiable on-chain. MEV is mitigated through sealed commitments: orders are committed as hashes during a commit phase, revealed after the commit phase closes, shuffled deterministically by the close slot, separated into structural priority queues (cancels → post-only/ALO → regular), then matched against the resting book with price-time priority.
+Every order, fill, liquidation, and settlement is verifiable on-chain. Orders are posted openly during a Collecting window. When the window closes, a permissionless crank runs **two independent uniform-price auctions** (bid auction: maker-buy × taker-sell; ask auction: maker-sell × taker-buy). Clearing maximizes matched volume; fills in each auction share one price; makers never match makers and takers never match takers. Within-batch arrival order has no priority.
 
-**Mission:** Sequencer-free, on-chain execution as a reusable primitive for Solana DeFi. The CLOB is the architecture — trading prices emerge from two-sided orderbook flow between competing participants, not from an external feed.
+**Mission:** Sequencer-free, on-chain execution as a reusable primitive for Solana DeFi. Prices emerge from two-sided DFBA flow between competing participants, not from an external matching sequencer.
 
 **Initial launch parameters:**
 
@@ -24,13 +26,13 @@ Every order, fill, liquidation, and settlement is verifiable on-chain. MEV is mi
 - Three planned markets: SOL-PERP, BTC-PERP, ETH-PERP
 - Cross-margin portfolio per wallet
 - 5–20x leverage range with per-instrument caps
-- Batch latency: ~2–4s p50, <8s p99 (short-batch commit-reveal)
+- Batch windows: live working-devnet `t_min=2`, `t_max=150` slots, `n_min=1` (latency SLOs still unmeasured; mainnet bar)
 
 **Competitive advantages:**
 
 - **No sequencer trust assumption:** all matching, settlement, and liquidation execute on-chain via Pinocchio BPF programs
-- **MEV-mitigated:** commit-reveal hides order contents from the mempool; Fisher-Yates shuffle eliminates time-advantage; structural priority queues guarantee fairness
-- **Persistent GTC depth:** resting orders survive across batches — capital accumulates, makers earn rebates
+- **MEV-mitigated by market structure:** batching + uniform dual clears eliminate within-batch time priority; order contents are visible when posted
+- **Persistent GTC depth:** resting maker orders survive across batches — capital accumulates, makers can receive price improvement
 - **Pinocchio, not Anchor:** `no_std`, zero-allocation, single-byte discriminators, checked arithmetic throughout — no IDL overhead, minimal SBF binary footprint
 - **Sequencer-free execution pattern** is transferable as a primitive to other Solana venues (options, structured products)
 
@@ -47,19 +49,19 @@ graph TD
     end
 
     subgraph "On-Chain Programs"
-        CORE[Core Program<br/>Portfolio Mgmt<br/>Batch Lifecycle<br/>CLOB State<br/>Funding Accrual<br/>Mark Price]
-        MATCH[Matching Engine<br/>Price-Time Priority CLOB<br/>Self-Trade Prevention<br/>Risk Callbacks<br/>Toxic-Taker Scoring]
-        FALLBACK[Fallback Oracle<br/>Auto-activate on Pyth staleness<br/>Admin override available]
+        CORE[Core Program<br/>Portfolio Mgmt<br/>Batch Lifecycle<br/>Custody<br/>Funding Accrual<br/>Mark Price]
+        MATCH[Matching Engine<br/>DFBA Dual Auction<br/>Self-Trade Prevention<br/>Resting Book]
+        FALLBACK[Fallback Oracle<br/>Admin-pushed price<br/>Auto-activate on staleness]
     end
 
     subgraph External
-        PYTH[Pyth Oracle<br/>Pull-model price feeds<br/>BTC, ETH, SOL index prices]
+        PYTH[Index venues<br/>Multi-venue quorum<br/>BTC, ETH, SOL index]
     end
 
     subgraph "Permissionless Keepers"
-        CRANK[Batch Crank<br/>Closes, clears, settles batches]
+        CRANK[Batch Crank<br/>Close Collecting, Clear, Settle]
         LIQ[Liquidator<br/>Hedge-preserving optimizer<br/>ADL as last resort]
-        RELAYER[Pre-signed Reveal Relayer<br/>Submits user-signed reveal<br/>within 1 slot]
+        ORACLE_KEEPER[Oracle publisher<br/>Quorum index into PriceOracle]
     end
 
     subgraph "Safety Stack"
@@ -68,38 +70,37 @@ graph TD
         ADL[Auto-Deleveraging<br/>Deleverage profitable counterparties<br/>Pro-rata by score]
     end
 
-    TRADER -->|commit_order / cancel_commit| CORE
-    TRADER -->|reveal_order| CORE
+    TRADER -->|post_order / cancel / modify| CORE
     TRADER -->|deposit / withdraw| CORE
-    CORE -->|"shuffle + priority_queues + clob_match"| MATCH
-    MATCH -->|"FillReceipt[] + resting orders"| CORE
+    CORE -->|"DfbaClear CPI (dual uniform auction)"| MATCH
+    MATCH -->|"bid/ask clears + fills + resting book"| CORE
     CORE -->|update_positions + accrue_funding| CORE
-    CORE -->|pull Pyth price| PYTH
-    CORE -.->|auto-fallback if Pyth stale| FALLBACK
-    CRANK -->|close_committing + clear_batch + settle_batch| CORE
+    CORE -->|read bound PriceOracle| FALLBACK
+    ORACLE_KEEPER -->|quorum publish| FALLBACK
+    ORACLE_KEEPER -->|venues| PYTH
+    CRANK -->|close_collecting + clear_batch + settle_batch| CORE
     LIQ -->|liquidate_user| OPTIMIZER
     OPTIMIZER -->|market sweep against book| MATCH
     OPTIMIZER -->|shortfall?| INSURANCE
     INSURANCE -->|insufficient?| ADL
-    RELAYER -->|submit pre-signed RevealOrder| CORE
 ```
 
 **Key architectural principle:** The Core Program is the **single custody authority**. All SOL collateral lives in Core-controlled vaults/PDA portfolios. The Matching Engine holds the order book state but never holds funds. This follows the Solana authority-isolation pattern: only one program can move user funds, reducing the blast radius of any bug in the matching logic.
 
-**Fair ordering principle:** 4-layer fair ordering — (1) commit-reveal as MEV protection, (2) deterministic Fisher-Yates shuffle seeded by close_slot, (3) structural priority queues (cancels → post-only/ALO → regular), (4) price-time priority CLOB. The fair-ordering and safety-stack designs follow [Bulk.Trade](https://docs.bulk.trade); commit-reveal substitutes for Bulk.Trade's BULKBFT quorum admission, which cannot be replicated on-chain.
+**Fair ordering principle:** DFBA removes within-batch time priority. Competition is on price and size; each auction clears at one uniform price; makers only match takers. Immediate cancel/modify of resting orders is available outside the auction. The safety-stack design follows [Bulk.Trade](https://docs.bulk.trade) (optimizer → insurance → ADL) without Bulk.Trade's off-chain admission quorum.
 
 **Safety stack principle:** liquidation optimizer (hedge-preserving, impact-ratio ranked) → insurance fund → auto-deleveraging (ADL). The optimizer selectively reduces positions that contribute most to portfolio risk while preserving hedges. ADL deleverages profitable counterparties as a last resort.
 
-### Why Not FIFO
+### Why Not FIFO / Continuous CLOB
 
-FIFO creates time-based advantages for colocated participants who submit faster. mgk's deterministic shuffle eliminates time-based priority within a batch:
+FIFO and continuous books create time-based advantages for colocated participants. DFBA removes within-batch time priority:
 
-| FIFO Weakness | Shuffle + Priority Queue Fix |
+| Continuous/FIFO Weakness | DFBA Fix |
 |---|---|
-| Time advantage for colocated/fast participants | Shuffle randomizes within batch — submission time irrelevant |
-| No guarantee cancels execute before fills | Cancels always execute before all order types (structural priority) |
-| No guarantee makers seed book before takers cross | Post-only/ALO orders execute before regular orders (structural priority) |
-| Sort key grinding possible even with protocol_nonce | Shuffle seed = `close_slot` (consensus output) — no grinding vector |
+| Time advantage for colocated/fast participants | Uniform dual auction; arrival order does not rank fills |
+| Sniping resting makers | Makers only match takers; each side clears at one price |
+| Hidden vs visible intents | Posts are open; fairness is structural, not sealed-hash |
+| Off-chain sequencer for MEV | All clears execute in Core→Matcher CPI |
 
 ---
 
@@ -116,9 +117,9 @@ FIFO creates time-based advantages for colocated participants who submit faster.
 
 ### Backend Services (Node.js — see `mgk-frontend/apps/indexer/`)
 
-- Indexes on-chain events (log subscriptions) into PostgreSQL
-- REST API + WebSocket server for frontend queries
-- Permissionless keepers: batch crank, liquidator, pre-signed reveal relayer
+- Indexes on-chain events (log subscriptions) into SQLite
+- REST API for frontend queries (read-only; no keeper inside the indexer process)
+- Permissionless keepers as standalone workers: batch crank, liquidator, oracle publisher
 
 ### Oracle Integration
 
@@ -139,49 +140,61 @@ FIFO creates time-based advantages for colocated participants who submit faster.
 
 Three on-chain programs + one shared library crate, all Pinocchio (`pinocchio::entrypoint!()`), no Anchor:
 
-| Program | Role | Devnet ID |
+| Program | Role | Canonical devnet ID (2026-08-24) |
 |---|---|---|
-| `mgk-perps-core` | Portfolio mgmt, batch lifecycle, custody, mark price | `3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja` |
-| `mgk-perps-matcher` | Price-time priority CLOB matching, shuffle, priority queues | `AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF` |
-| `mgk-oracle` | Fallback price feed (admin-pushed, auto-activate) | `6M9eEiDKy8imbDi44ZqquyfknNbveRjD4j9VnvYaHtmA` |
+| `mgk-perps-core` | Portfolio mgmt, batch lifecycle, custody, mark price | `C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx` |
+| `mgk-perps-matcher` | DFBA dual auction, resting book | `7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC` |
+| `mgk-oracle` | Fallback / bound PriceOracle feed | `CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ` |
 | `mgk-common` | Shared account validation, errors, math (library crate) | — |
 
 ### Program Descriptions
 
-**mgk-perps-core** is the sole custody authority and batch lifecycle coordinator. It owns portfolio state, the commitment registry, the collateral vault, the CLOB state accounts, and the mark-price computation. It owns the four-phase batch lifecycle (commit → reveal → clear → settle) and issues one-way CPI to the matcher during `clear_batch`. This program changes most often as new features are added — which is why fund custody is isolated from the matching engine.
+**mgk-perps-core** is the sole custody authority and batch lifecycle coordinator. It owns portfolio state, the registry, the collateral vault, and mark-price / funding writes. The live batch lifecycle is Collecting (alias Committing) → Clearing → Settled. Core issues one-way CPI to the matcher during `PostOrder`, `ClearBatch`, cancel/modify, and settle book reads. Fund custody stays in Core.
 
-Key instructions (single-byte discriminator, not Anchor's 8-byte SHA256 digest):
+Key instructions (single-byte discriminator, not Anchor's 8-byte SHA256 digest). Numeric values are frozen; `CommitOrder` / `RevealOrder` remain in the enum but return `InvalidInstruction`.
 
 | Disc | Instruction | Auth | Description |
 |---|---|---|---|
 | `0x00` | `Initialize` | Governance | Bootstrap registry |
-| `0x01` | `InitPortfolio` | User signer | Create per-user cross-margin account |
-| `0x02` | `Deposit` | User signer | Deposit SOL into portfolio vault |
+| `0x01` | `InitPortfolio` | User signer | Initialize per-user cross-margin account |
+| `0x02` | `Deposit` | User signer | Deposit SOL into the canonical vault PDA |
 | `0x03` | `Withdraw` | User signer | Withdraw SOL with margin check |
-| `0x04` | `CommitOrder` | User signer | Submit hashed order + deposit |
-| `0x05` | `RevealOrder` | User signer | Reveal order params + salt (relayer-compatible via pre-signed tx) |
-| `0x06` | `CloseCommitting` | Permissionless | Close commit phase once dynamic criteria met |
-| `0x07` | `ClearBatch` | Permissionless (crank) | Shuffle + priority queues + CLOB match via CPI |
-| `0x08` | `SettleBatch` | Permissionless | Return deposits, accrue funding, finalize |
-| `0x09` | `LiquidateUser` | Permissionless (keeper) | Hedge-preserving optimizer → insurance → ADL |
+| `0x04` | `CommitOrder` | — | Retired (returns `InvalidInstruction`) |
+| `0x05` | `RevealOrder` | — | Retired (returns `InvalidInstruction`) |
+| `0x06` | `CloseCommitting` | Permissionless | Close Collecting window → Clearing |
+| `0x07` | `ClearBatch` | Permissionless (crank) | CPI matcher `DfbaClear`; write dual clears + `mark_valid` |
+| `0x08` | `SettleBatch` | Permissionless | Positions, funding (D7), next batch |
+| `0x09` | `LiquidateUser` | Permissionless (keeper) | Hedge-preserving optimizer → insurance → ADL; gated on `mark_valid` |
 | `0x0A` | `AddInstrument` | Governance | Register new perp market |
 | `0x0B` | `CancelRestingOrder` | User signer | Cancel resting GTC order |
 | `0x0C` | `ModifyRestingOrder` | User signer | Modify resting order qty |
 | `0x0D` | `CancelAllRestingOrders` | User signer | Cancel all user resting orders |
-| `0x0E` | `SetPauseFlags` | Governance | 4-flag emergency pause (trading / withdrawals / liquidations / funding) |
-| `0x0F–0x13` | Bootstrap utilities | Governance / keeper | Solana 4.x PDA/account creation helpers |
+| `0x0E` | `SetPauseFlags` | Governance | Emergency pause flags |
+| `0x0F` | `InitVault` | Governance | Initialize canonical vault PDA |
+| `0x10` | `CreateBatch` | Keeper | Bootstrap first Collecting batch |
+| `0x11` | `SetBatchCounter` | Governance | Reset `batch_id_counter` |
+| `0x12` | `CreatePortfolio` | User signer | Create + init portfolio PDA |
+| `0x13` | `InitPortfolioForUser` | Wallet (2-acct) or keeper (3-acct) | Create portfolio PDA; skip-reinit; no wipe |
+| `0x14` | `PostOrder` | User signer | Open DFBA post with maker/taker flag |
+| `0x15` | `SetBatchParams` | Governance | `t_min` / `t_max` / `n_min` |
+| `0x16` | `SetInstrumentFees` | Governance | Maker/taker bps |
+| `0x17` | `SetInstrumentOracle` | Governance | Bind PriceOracle account |
+| `0x18` | `SetFundingParams` | Governance | D7 coefficient / interval / cap |
 
-**mgk-perps-matcher** is the matching engine. The design specifies one monolithic `ShuffleAndMatch` instruction; the shipped implementation decomposes it into 5 modular instructions for BPF stack safety (the 4 kB BPF stack frame cannot hold the full match in one call).
+**mgk-perps-matcher** is the matching engine. Live clearing is `DfbaClear` (disc 5). Legacy CLOB/shuffle instructions remain for ABI stability but are not the DFBA path. Matcher mutations other than `InitializeBook` require CPI (stack-height gate). Full Core-caller authentication is a blocking design/migration (Instructions sysvar).
 
 | Disc | Instruction | Description |
 |---|---|---|
-| `0x00` | `ComputeClearing` | Fisher-Yates shuffle + priority queue separation |
-| `0x01` | `CancelResting` | Cancel resting order during clearing |
-| `0x02` | `ModifyResting` | Modify resting order during clearing |
-| `0x03` | `ClearAndMatch` | Full match flow (aggressive walk + passive rest) |
-| `0x04` | `CancelAll` | Cancel-all for an account |
+| `0x00` | `ComputeClearing` | Legacy host/CLOB helper (not DFBA) |
+| `0x01` | `CancelResting` | Cancel resting order (CPI) |
+| `0x02` | `ModifyResting` | Modify resting order qty (CPI) |
+| `0x03` | `ClearAndMatch` | Legacy CLOB match |
+| `0x04` | `CancelAll` | Cancel-all for an account (CPI) |
+| `0x05` | `DfbaClear` | Dual uniform-price auction |
+| `0x06` | `PlaceResting` | Place GTC with `is_maker` (CPI from Core PostOrder) |
+| `0x07` | `InitializeBook` | Keeper-direct book setup |
 
-**Critical rule:** the matcher never calls Core, and never holds funds. Book state lives in matcher accounts but is rent-exempted by Core. The matcher is stateful: GTC orders persist as `OrderBook` PDA accounts across batches.
+**Critical rule:** the matcher never calls Core, and never holds funds. Book state lives in matcher-owned accounts. GTC orders persist across batches.
 
 **mgk-oracle** is the fallback price feed. Same `PriceFeed` struct used by the primary Pyth path. Auto-activates when Pyth is stale, frozen, or has excessive confidence intervals. Admin can manually activate/deactivate.
 
@@ -204,12 +217,11 @@ Key instructions (single-byte discriminator, not Anchor's 8-byte SHA256 digest):
 ### CPI Relationships
 
 ```
-Core  ──CPI──► Matching Engine  (clear_batch: revealed orders + close_slot + book → fills + book)
-Core  ──READ──► Pyth accounts    (pull index price for funding + mark + liquidation)
-Core  ──READ──► Fallback Oracle  (if Pyth stale / frozen)
+Core  ──CPI──► Matching Engine  (PostOrder PlaceResting; ClearBatch DfbaClear; cancel/modify)
+Core  ──READ──► Bound PriceOracle (funding index + liquidation; skip if stale / !mark_valid)
 Liquidator ──CALL──► Core        (liquidate_user → optimizer → market sweep)
-Crank      ──CALL──► Core        (close_committing / clear_batch / settle_batch)
-Relayer    ──CALL──► Core        (submit pre-signed RevealOrder)
+Crank      ──CALL──► Core        (close_collecting / clear_batch / settle_batch)
+Oracle pub ──CALL──► Oracle      (quorum UpdatePrice)
 ```
 
 ### Data Storage Overview
@@ -621,19 +633,20 @@ Low-latency read endpoints cached in memory. Frontend polls REST; WebSocket push
 ### Example 4 — Cancel a resting order
 
 1. Eve has a resting GTC buy at $145 for 2 SOL from batch N−3.
-2. Eve submits `CommitOrder(Cancel, order_id=<her resting order ID>, ...)`.
-3. Batch N clears. Cancel queue runs **first** (structural priority). Her resting order is removed from the book.
-4. Settle returns her commitment deposit.
+2. Eve submits `CancelRestingOrder` (disc 11) in a single transaction.
+3. Core CPI's matcher `CancelResting`. The resting order is removed immediately; it does not wait for the next DFBA clear.
 
-**Latency:** from commit to cancel-visible in the book is one batch (long-batch ~30s; short-batch ~2–4s).
+**Latency:** cancel is visible as soon as the transaction confirms (not one-batch delayed).
 
 ---
 
 ## Major Design Decisions & Trade-offs
 
-### 1. Commit-Reveal CLOB vs Continuous CLOB vs Batch Auction
+### 1. DFBA vs Continuous CLOB vs Off-Chain Batch Auction
 
-**Chosen: commit-reveal CLOB.** Continuous CLOBs (Drift, Zeta) require sequencer trust to prevent MEV; batch auctions (CoW Protocol) require off-chain solvers. Commit-reveal gives on-chain MEV mitigation without a sequencer. Trade-off: latency (~2–4s in short-batch mode).
+**Chosen (v1, M9): Dual Flow Batch Auction.** Continuous CLOBs (Drift, Zeta) require sequencer trust to prevent MEV; solver-based batch auctions (CoW Protocol) require off-chain matching. DFBA gives on-chain uniform-price dual clears without a sequencer. Trade-off: orders are visible in the mempool during Collecting; fairness is structural (price/size), not sealed-intent.
+
+**Historical (M1–M8, retired):** short-batch commit-reveal CLOB. Kept in historical planning/testing records only.
 
 ### 2. Hedge-Preserving Safety Stack vs Global Haircut
 
@@ -673,7 +686,7 @@ See `docs/ai/requirements/2026-06-18-feature-onchain-perps-dex.md` § Short-Batc
 
 | Metric | Target | Status |
 |---|---|---|
-| Batch latency (short-batch) | p50 < 4s, p99 < 8s | Governance param; load test pending Phase 3 |
+| Batch latency | p50 < 4s, p99 < 8s | Unmeasured; mainnet bar. Live `t_min=2`, `t_max=150` slots |
 | Throughput | 50+ orders per batch over 10+ batches | Target |
 | Frontend TTI | < 2s | Lighthouse-validated |
 | Indexer REST latency | < 100 ms p99 | Devnet |
@@ -684,7 +697,10 @@ See `docs/ai/requirements/2026-06-18-feature-onchain-perps-dex.md` § Short-Batc
 - `no_std` — no allocator — no heap-corruption class
 - Pinocchio `entrypoint!` without Anchor macros — smaller attack surface
 - PDA-based account ownership — no upgrade authority over user funds
-- 4 independent pause flags verified at call sites in commit/reveal/withdraw/liquidate/settle
+- Pause flags verified at PostOrder / ClearBatch / withdraw / liquidate / settle call sites
+- Canonical vault and registry PDA checks; matcher program-id checks on Core→Matcher CPI
+- Matcher mutations require CPI (stack height); full Core-caller auth is a documented migration
+- This document is **not** a substitute for the independent mainnet Solana audit
 
 ### Reliability
 
@@ -694,29 +710,31 @@ See `docs/ai/requirements/2026-06-18-feature-onchain-perps-dex.md` § Short-Batc
 
 ### Test Coverage
 
-- 322 Rust unit tests across 4 crates (`cargo test --all-features`)
-- 632 frontend tests (426 Vitest web + 151 SDK + 28 indexer + 27 Playwright E2E)
-- Clippy clean (`cargo clippy --all-targets --all-features -- -D warnings`)
+- Rust unit tests across 4 crates (`cargo +stable test --all-features`); four BPF lifecycle cases remain `#[ignore]` (program-test CU meter — test debt, not a proven on-chain defect)
+- Frontend: Vitest web + SDK + indexer + Playwright wallet/trade suites
+- Clippy clean (`cargo +stable clippy --all-targets --all-features -- -D warnings`)
 - SBF builds clean (zero stack-overflow errors)
-- 10 Kani math proofs (Phase 5 plans 6 more system invariants)
+- Formal verification (Fender / QEDGen / Kani) is **unavailable** in this slice; CI still references a removed `model_safety` crate. Do not claim machine-checked invariants.
 
 ---
 
 ## How to Verify
 
-- **Devnet explorer (core):** https://explorer.solana.com/address/3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja?cluster=devnet
-- **Devnet explorer (matcher):** https://explorer.solana.com/address/AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF?cluster=devnet
-- **Devnet explorer (oracle):** https://explorer.solana.com/address/6M9eEiDKy8imbDi44ZqquyfknNbveRjD4j9VnvYaHtmA?cluster=devnet
-- **ClearBatch tx:** https://explorer.solana.com/tx/2KuYdsDxjnq8VAUcRsMYGUs6PcqszWZ4BYZmXV3XqSWk548LJvMLJWiVsd5NYqY6qsCh52n6A64WJQLw9kXsXQBv?cluster=devnet
-- **SettleBatch tx:** https://explorer.solana.com/tx/5kSxSdUFtMwAXjBTp2fxPMBS96qWFDTWKut64C5MPh6xMkwreSKhYvAVjug9SM4NrM13XLyCJr6SY5mp2snPkavn?cluster=devnet
-- **Registry (live state):** https://explorer.solana.com/address/F7zWN2XrVqNDBBYqsYpgxHa6AuPK1aQE33kHwM4f8ayV?cluster=devnet
-- **Rust tests:** `cargo test --all-features` (322 tests)
-- **Frontend tests:** `pnpm -r test` (632); `pnpm exec playwright test` (27 E2E)
-- **Lint:** `cargo clippy --all-targets --all-features -- -D warnings`
+- **Devnet explorer (core):** https://explorer.solana.com/address/C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx?cluster=devnet
+- **Devnet explorer (matcher):** https://explorer.solana.com/address/7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC?cluster=devnet
+- **Devnet explorer (oracle):** https://explorer.solana.com/address/CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ?cluster=devnet
+- **PriceOracle:** `5NSDGAaRqfxe6mkZG9fEAZdzK4r77nEBEobohZGYP6PN`
+- **Instrument:** `Hz9UtmSXyKFnp1pGvrhrAmizMsvEkYRh5Eih1r7Lf1hG`
+- **M9.10 D7 core upgrade:** tx `Dmh6CEXi…` (slot 487386516)
+- **Dual-fill settle (batch 20):** tx `2BYRK69U…`
+- **Rust tests:** `cargo +stable test --all-features`
+- **Frontend tests:** `pnpm -r test` in `mgk-frontend/` (Node 22.19.0 / Corepack)
+- **Lint:** `cargo +stable clippy --all-targets --all-features -- -D warnings`
 - **SBF build:** `cargo build-sbf`
 - **Full design doc:** `docs/ai/design/feature-onchain-perps-dex.md`
-- **Implementation report:** `docs/ai/implementation/2026-07-03-feature-onchain-perps-dex.md`
-- **Grant proposal:** `docs/ai/planning/2026-06-24-mgk-perps-grant-proposal.md`
+- **Active plan:** `docs/ai/planning/2026-08-02-feature-onchain-perps-dex.md` (M9.10 complete; T9.11.12–13 post-merge deploy not this slice)
+- **Internal CSO report:** `.superstack/security-reports/feature-dfba-auction-2026-08-24.md` (not the independent mainnet audit)
+- **Historical grant (commit-reveal era):** `docs/ai/planning/2026-06-24-mgk-perps-grant-proposal.md`
 
 ---
 

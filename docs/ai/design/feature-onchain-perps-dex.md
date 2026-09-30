@@ -652,7 +652,7 @@ On-chain DFBA path (PostOrder disc 20, `dfba.rs` dual clear, Collecting→Cleari
 
 Historical steps (done): freeze commit-reveal features; add PostOrder + role flag; DFBA matcher clear; rewrite batch status; SDK encoders; indexer log decode.
 
-Still open from this list: on-chain CU spike at cap 64 (mainnet bar); formal events (mainnet); frontend/ARCHITECTURE commit-reveal rewrite (working-devnet should-do / mainnet).
+Still open from this list: on-chain CU spike at cap 64 (mainnet bar); formal events (mainnet). Public `docs/ARCHITECTURE.md` is DFBA as of 2026-08-24; grant proposal is marked historical.
 
 ## Open items (non-blocking for design approval)
 
@@ -699,7 +699,7 @@ Explicitly **not** required to call devnet “working”: Kani, formal events, S
 - On-chain CU spike at cap 64; raise cap only after that
 - Formal events if indexers need them
 - Kani proofs (secondary)
-- Public `docs/ARCHITECTURE.md` + grant narrative rewritten for DFBA (still commit-reveal)
+- Public `docs/ARCHITECTURE.md` rewritten for DFBA (2026-08-24). Grant draft is historical (banner). Independent audit still required.
 - Do not ship commit-reveal remnants, maker-rebate mismatch, or SMA-vs-spec funding as if they were the locked design
 
 ## See also
@@ -710,4 +710,4 @@ Explicitly **not** required to call devnet “working”: Kani, formal events, S
 - Engineering lessons: requirements § On-chain DFBA engineering lessons
 - Historical: this file’s pre-2026-08-02 commit-reveal design (replaced in place)
 - RFQ alternative (inactive): `feature-onchain-perps-dex-rfq.md`
-- Stale public story (out of this phase): `docs/ARCHITECTURE.md`, grant proposal, frontend requirements still describe commit-reveal.
+- Historical grant draft: `docs/ai/planning/2026-06-24-mgk-perps-grant-proposal.md` (bannered; not active). Frontend requirements file may still mention commit-reveal — do not implement from it.

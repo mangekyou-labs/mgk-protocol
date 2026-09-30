@@ -4,7 +4,7 @@ title: mgk On-Chain Perps DEX — DFBA Test Strategy
 description: Test coverage for Dual Flow Batch Auction matching (replaces commit-reveal CLOB plan).
 status: in-progress
 date: 2026-08-02
-updated: 2026-08-20
+updated: 2026-08-24
 requirements: docs/ai/requirements/2026-06-18-feature-onchain-perps-dex.md
 design: docs/ai/design/feature-onchain-perps-dex.md
 planning: docs/ai/planning/2026-08-02-feature-onchain-perps-dex.md
@@ -470,6 +470,127 @@ Web remainder (M9.8): T-WEB-ORIGIN-HYDRATION, T-WEB-CHART-STATE, T-WEB-DFBA-LIFE
 |---|------|----------|--------|
 | 1 | Positions/Portfolio visual stability (T9.8.5) | P0 UX | Regression keep |
 | 2 | BPF e2e CU exhaustion in ClearBatch | P1 | Open (test-only) |
-| 3 | Indexer polish (syncer.ts, backfill.test.ts) | P2 | Pre-existing type errors |
+| 3 | Indexer polish (rate-limit / PDA-batch) | P2 | Typecheck + 89 tests pass 2026-08-24; REST GPA removed; leftover `keeper.ts` GPA is operator remnant |
 | 4 | Batch latency p50/p99 measurement | P3 | Open (ops) |
-| 5 | Security review before mainnet | P1 | Not started |
+| 5 | Independent Solana audit before mainnet | P1 | Open (internal CSO done 2026-08-24) |
+
+## Session CSO — M9.12 remediations (2026-08-24)
+
+Worktree: `.worktrees/feature-dfba-auction` HEAD `be6e590`. Node `v22.19.0`. Rust `cargo +stable` (1.95.0).
+
+### Regression tests added with remediations
+
+- Portfolio skip-reinit / PDA: `already_initialized_portfolio_must_not_be_overwritten`, `two_account_path_rejects_mismatched_user`, `portfolio_account_must_match_derived_pda`, `create_portfolio_must_not_overwrite_initialized_user`
+- IDs: `rejects_spoofed_matcher_program_id`, `rejects_spoofed_system_program_id`, `deposit_rejects_spoofed_system_program`, `post_order_rejects_spoofed_matcher_program`
+- Vault/oracle: `pda.rs` impostor fail-closed; `spoofed_oracle_owner_is_not_canonical`; `liquidate_rejects_non_vault_as_insurance_account`
+- Matcher CPI: `direct_matcher_invocation_is_rejected`, `native_require_cpi_is_a_no_op`
+- Operator: `decodePriceOracleAccount`, `evaluateOracleHealth`, `sanitizeHealthPayload`; ops-keeper Registry/Batch decode, settle-ix 6-byte, liquidation disc 9
+- Indexer: candle resolution allowlist 400; `/api/batch/current` `gpaCalls===0`
+- SDK: `encodeSettleBatch` 6-byte bump at `[5]`
+- Web: `indexerBatchMatchesExpected`; `WALLET_TX_SEND_OPTS.skipPreflight===false`; rpcUrl credential warn-only
+- Playwright: T9.10.7 BPF portfolio layout + quoted book; prepare-close wire side@[1] / is_maker@[2]
+
+### Commands (this slice)
+
+```text
+cargo +stable clippy --all-targets --all-features -- -D warnings   # clean, exit 0
+cargo +stable test --all-features
+# common 48, oracle 5, core lib 279, lifecycle 7 pass / 4 ignored (CU harness),
+# matcher 116 pass / 1 ignored
+cargo +stable build --lib --all                                  # ok
+cargo build-sbf                                                  # .so timestamps 2026-08-24 23:48
+                                 # mgk_oracle 13192, mgk_perps_core 144912, mgk_perps_matcher 120344
+cd tools && npm test                                             # 69 pass / 0 fail
+# Node 22.19.0: pnpm rebuild better-sqlite3 (ABI 127)
+cd mgk-frontend
+pnpm -r lint            # web eslint ok
+pnpm -r typecheck       # sdk/web/indexer ok
+pnpm -r test            # sdk 164, indexer 89, web 497
+pnpm exec playwright test e2e/trade.spec.ts e2e/wallet-flow.spec.ts --project=chromium --workers=1
+                        # 39 passed (40.7s)
+pnpm -r build           # sdk/indexer tsc; web Next.js 16.2.9 (close-out)
+git diff --check        # clean, exit 0 (after docs)
+npx ai-devkit@latest lint                                        # all checks passed
+npx ai-devkit@latest lint --feature onchain-perps-dex            # pass; WARN no dedicated onchain-perps-dex worktree (using feature-dfba-auction)
+```
+
+Formal verification not run (Fender/QEDGen/Kani `model_safety` unavailable). CU-ignored lifecycle tests remain test debt. T9.11.12–13 not executed (no mutation). Independent audit not claimed.
+
+## Session CSO-C03–C06 — skip-reinit / fill-gate (2026-08-24)
+
+Worktree: `.worktrees/feature-dfba-auction` HEAD `be6e590`. Primary checkout untouched.
+
+### Regression tests (TDD red then green)
+
+- Initialize: `uninitialized_registry_may_be_written`, `initialized_governance_must_not_be_overwritten`, `initialized_bump_must_not_be_overwritten`
+- InitVault: `uninitialized_vault_may_be_zeroed`, `vault_with_balance_must_not_be_zeroed`, `vault_with_insurance_must_not_be_zeroed`, `vault_with_bump_must_not_be_reinitialized`
+- SettleBatch: `empty_book_results_length_must_not_apply_fills`, `matched_bid_qty_enables_dfba_fill_apply`, `matched_ask_qty_enables_dfba_fill_apply`, `mark_valid_enables_dfba_fill_apply`, `undersized_results_never_apply_dfba_fills`
+- Oracle: `zeroed_oracle_may_be_initialized`, `magic_oracle_must_not_be_reinitialized`
+
+### Commands (this wave)
+
+```text
+cargo +stable clippy --all-targets --all-features -- -D warnings   # clean, exit 0
+cargo +stable test --all-features
+# common 48, oracle 7, core lib 291, lifecycle 7 pass / 4 ignored,
+# matcher 116 pass / 1 ignored
+cargo +stable build --lib --all                                  # ok
+cargo build-sbf                                                  # .so timestamps 2026-08-25 00:02
+                                 # mgk_oracle 13360, mgk_perps_core 145464, mgk_perps_matcher 120344
+cd tools && npm test                                             # 69 pass / 0 fail
+git diff --check                                                 # clean, exit 0
+```
+
+Frontend/Playwright not re-run (no wallet, header, or tx-construction change this wave). Formal verification not run. Independent audit not claimed. T9.11.12–13 not executed.
+
+## Session CSO-close — frontend/operator re-audit (2026-08-24)
+
+| # | Item | Outcome |
+|---|------|---------|
+| 1 | REST GPA | Removed from `routes.ts`; leftover `indexer/src/keeper.ts` GPA accepted as non-request-path remnant |
+| 2 | Wallet preflight | `skipPreflight: true` gone from production `*.{ts,tsx,js}` |
+| 3 | Indexer batch trust | Address ignored unless `indexerBatchMatchesExpected` |
+| 4 | Playwright T9.10.7 | Fixture packing was test debt; 39/39 after BPF layout + book quotes |
+| 5 | F-HELIUS-PUBLIC | Warn-only; no key rotation this slice |
+| 6 | Report | `.superstack/security-reports/feature-dfba-auction-2026-08-24.md` re-audit section |
+
+## Session CSO-calibrate — secrets/CI vs tree (2026-08-25)
+
+Worktree: `.worktrees/feature-dfba-auction` HEAD `be6e590`. Primary checkout untouched. No product-code change this wave.
+
+### Calibration
+
+- Subagent Highs CSO-04 / CSO-12 / CSO-13 are stale vs `CANDLE_RESOLUTIONS`, `fetchWithTimeout` 3s, `loadOracleKeypair` fail-closed.
+- Remaining Highs map to L01, F-HELIUS-PUBLIC, M04, M02, M03, I01 — accepted this slice; rotation unauthorized.
+- New recorded: F-CSP-CONNECT (`connect-src` includes `https:`) — accepted P2, not a funds Medium.
+
+### Commands (this wave)
+
+```text
+git diff --check                                                 # clean, exit 0
+cargo +stable test --offline -p mgk-perps-core --lib already_initialized
+cargo +stable test --offline -p mgk-perps-core --lib fill_apply
+cargo +stable test --offline -p mgk-perps-core --lib uninitialized_registry
+cargo +stable test --offline -p mgk-perps-core --lib initialized_governance
+cargo +stable test --offline -p mgk-perps-core --lib initialized_bump
+cargo +stable test --offline -p mgk-perps-core --lib vault_with
+cargo +stable test --offline -p mgk-perps-core --lib uninitialized_vault
+cargo +stable test --offline -p mgk-perps-core --lib empty_book_results
+cargo +stable test --offline -p mgk-perps-core --lib undersized_results
+cargo +stable test --offline -p mgk-oracle --lib reinitialized
+cargo +stable test --offline -p mgk-oracle --lib zeroed_oracle
+# all listed regression names ok
+```
+
+First Node 22 `pnpm -r test` failed: `better-sqlite3` ABI 137 vs 127. Rebuilt under v22.19.0, then:
+
+```text
+cd mgk-frontend && pnpm -r test
+# sdk 164, indexer 89, web 497
+pnpm -r build
+# sdk/indexer tsc; web Next.js 16.2.9 (RPC credential warn, key not printed)
+cd tools && npm test
+# 69 pass / 0 fail
+```
+
+Playwright not re-run (no wallet/header/tx-construction change this wave). Formal verification not run. Independent audit not claimed. T9.11.12–13 not executed.

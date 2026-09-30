@@ -10,9 +10,9 @@ dfba: 2026-08-02 — Matching model pivots to pure DFBA. Active plan: docs/ai/pl
 
 # On-Chain Perps DEX — Task Breakdown
 
-> **ACTIVE PLAN (2026-08-02, reconciled 2026-08-20):** DFBA migration — [`2026-08-02-feature-onchain-perps-dex.md`](./2026-08-02-feature-onchain-perps-dex.md) (Milestone M9).
-> Next implementation slice: **T9.10.3** index keeper (T9.10.1–2 done 2026-08-20). Do not rewrite matching.
-> Requirements + design are DFBA. Everything below is **historical** M1–M8 (commit-reveal CLOB). Keep for audit; do not extend commit-reveal scope.
+> **ACTIVE PLAN (2026-08-02, reconciled 2026-08-24):** DFBA migration — [`2026-08-02-feature-onchain-perps-dex.md`](./2026-08-02-feature-onchain-perps-dex.md) (Milestone M9).
+> M9.0–M9.10 and the 2026-08-24 devnet deployment are **complete**. Internal CSO remediations (M9.12) landed in `feature-dfba-auction`. T9.11.12–13 deploy/smoke are out of that slice. Independent mainnet audit is **not** claimed. Do not rewrite matching.
+> Requirements + design + `docs/ARCHITECTURE.md` are DFBA. Everything below is **historical** M1–M8 (commit-reveal CLOB). Keep for audit; do not extend commit-reveal scope.
 
 ## Context
 

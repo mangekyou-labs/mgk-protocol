@@ -162,13 +162,50 @@ describe('indexer integration', () => {
     expect(body.num_commitments).toBe(22);
   });
 
-  it('GET /api/batch/current ignores a stale persisted keypair and scans for the active batch', async () => {
+  it('GET /api/batch/current does not getProgramAccounts on the request path', async () => {
+    const liveStore = createStore(':memory:');
+    const liveApp = Fastify({ logger: false });
+    const coreProgramId = Keypair.generate().publicKey;
+    const registryAddress = Keypair.generate().publicKey;
+    let gpaCalls = 0;
+
+    const connection = {
+      async getAccountInfo(address: PublicKey) {
+        if (address.equals(registryAddress)) return makeAccountInfo(makeRegistryBuffer(5n));
+        return null;
+      },
+      async getProgramAccounts() {
+        gpaCalls += 1;
+        return [];
+      },
+    } as unknown as Connection;
+
+    await liveApp.register(async (instance) => {
+      await batchRoutes(instance, liveStore, {
+        connection,
+        coreProgramId: coreProgramId.toBase58(),
+        registryAddress: registryAddress.toBase58(),
+      });
+    });
+    await liveApp.ready();
+
+    try {
+      const res = await liveApp.inject({ method: 'GET', url: '/api/batch/current' });
+      expect(res.statusCode).toBe(200);
+      expect(gpaCalls).toBe(0);
+    } finally {
+      await liveApp.close();
+      liveStore.close();
+    }
+  });
+
+  it('GET /api/batch/current ignores a stale persisted keypair and does not scan via getProgramAccounts', async () => {
     const liveStore = createStore(':memory:');
     const liveApp = Fastify({ logger: false });
     const coreProgramId = Keypair.generate().publicKey;
     const registryAddress = Keypair.generate().publicKey;
     const staleBatchAddress = Keypair.generate().publicKey;
-    const activeBatchAddress = Keypair.generate().publicKey;
+    let gpaCalls = 0;
 
     const connection = {
       async getAccountInfo(address: PublicKey) {
@@ -177,12 +214,8 @@ describe('indexer integration', () => {
         return null;
       },
       async getProgramAccounts() {
-        return [
-          {
-            pubkey: activeBatchAddress,
-            account: makeAccountInfo(makeBatchBuffer(4n)),
-          },
-        ];
+        gpaCalls += 1;
+        return [];
       },
     } as unknown as Connection;
 
@@ -199,9 +232,9 @@ describe('indexer integration', () => {
     try {
       const res = await liveApp.inject({ method: 'GET', url: '/api/batch/current' });
       expect(res.statusCode).toBe(200);
+      expect(gpaCalls).toBe(0);
       const body = JSON.parse(res.body);
-      expect(body.batchId).toBe('4');
-      expect(body.batchAddress).toBe(activeBatchAddress.toBase58());
+      expect(body.error).toMatch(/not found/i);
       expect(body.batch_id_counter).toBe('5');
     } finally {
       await liveApp.close();
@@ -512,6 +545,16 @@ describe('indexer integration', () => {
     const body = JSON.parse(res.body);
     expect(Array.isArray(body.candles)).toBe(true);
     expect(body.candles.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('GET /api/markets/0/candles rejects unallowlisted resolution (no SQL identifier concat)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/markets/0/candles?resolution=1m%20WHERE%200%20UNION%20SELECT%201',
+    });
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error).toMatch(/resolution/i);
   });
 
   it('GET /api/markets/0/book returns empty book stub', async () => {

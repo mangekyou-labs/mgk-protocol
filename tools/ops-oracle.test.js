@@ -317,6 +317,63 @@ test('evaluateOracleHealth: critical alert and stopLoop at 10 failures or 600s a
   assert.ok(critAge.alerts.some((a) => a.metric === 'oracle_staleness' && a.level === 'critical'));
 });
 
+test('selectQuorumPrice refuses a single remaining venue (no cross-check)', () => {
+  const { selectQuorumPrice } = require('./ops-oracle');
+  const now = Date.now();
+  const r = selectQuorumPrice(
+    [{ venue: 'binance', price: 87.5, ts: now }],
+    { minVenues: 2, maxDeviationBps: 50, maxFreshnessSec: 30, now },
+  );
+  assert.equal(r, null);
+});
+
+test('selectQuorumPrice rejects non-finite and non-positive prices', () => {
+  const { selectQuorumPrice } = require('./ops-oracle');
+  const now = Date.now();
+  const r = selectQuorumPrice(
+    [
+      { venue: 'binance', price: -1, ts: now },
+      { venue: 'okx', price: Number.NaN, ts: now },
+      { venue: 'bybit', price: Number.POSITIVE_INFINITY, ts: now },
+    ],
+    { minVenues: 2, maxDeviationBps: 50, maxFreshnessSec: 30, now },
+  );
+  assert.equal(r, null);
+});
+
+test('selectQuorumPrice returns median when two positive venues agree', () => {
+  const { selectQuorumPrice } = require('./ops-oracle');
+  const now = Date.now();
+  const r = selectQuorumPrice(
+    [
+      { venue: 'binance', price: 87.0, ts: now },
+      { venue: 'okx', price: 87.2, ts: now },
+    ],
+    { minVenues: 2, maxDeviationBps: 50, maxFreshnessSec: 30, now },
+  );
+  assert.ok(r);
+  assert.equal(r.price, BigInt(Math.round(87.2 * 1_000_000)));
+});
+
+test('loadOracleKeypair refuses an ephemeral authority', () => {
+  const { loadOracleKeypair } = require('./ops-oracle');
+  const prevA = process.env.ORACLE_AUTHORITY_KEYPAIR;
+  const prevB = process.env.ORACLE_AUTHORITY_KEYPAIR_FILE;
+  delete process.env.ORACLE_AUTHORITY_KEYPAIR;
+  delete process.env.ORACLE_AUTHORITY_KEYPAIR_FILE;
+  const origHome = process.env.HOME;
+  process.env.HOME = '/tmp/mgk-oracle-no-keypair-home';
+  try {
+    assert.throws(() => loadOracleKeypair(), /No persisted keypair/);
+  } finally {
+    if (prevA === undefined) delete process.env.ORACLE_AUTHORITY_KEYPAIR;
+    else process.env.ORACLE_AUTHORITY_KEYPAIR = prevA;
+    if (prevB === undefined) delete process.env.ORACLE_AUTHORITY_KEYPAIR_FILE;
+    else process.env.ORACLE_AUTHORITY_KEYPAIR_FILE = prevB;
+    process.env.HOME = origHome;
+  }
+});
+
 test('sanitizeHealthPayload strips all keys, API secrets, and sensitive URLs', () => {
   const dirty = {
     ok: true,

@@ -1,5 +1,5 @@
 use crate::state::{Portfolio, Vault};
-use mgk_common::MgkError;
+use mgk_common::{validate_system_program_id, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
@@ -31,6 +31,8 @@ pub fn process_deposit(
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());
     }
+
+    validate_system_program_id(system_program.key())?;
 
     // CPI to System Program: transfer SOL from user to vault
     let mut instruction_data = [0u8; 12];
@@ -73,4 +75,17 @@ pub fn process_deposit(
 
     msg!("Deposit successful");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use mgk_common::validate_system_program_id;
+    use pinocchio::pubkey::Pubkey;
+
+    #[test]
+    fn deposit_rejects_spoofed_system_program() {
+        let spoof = Pubkey::from([0x22u8; 32]);
+        assert!(validate_system_program_id(&spoof).is_err());
+        assert!(validate_system_program_id(&Pubkey::from([0u8; 32])).is_ok());
+    }
 }

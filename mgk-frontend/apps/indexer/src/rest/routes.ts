@@ -23,11 +23,16 @@ export async function marketsRoutes(app: FastifyInstance, store: Store): Promise
   );
 }
 
+const CANDLE_RESOLUTIONS = new Set(['1m', '5m', '1h'] as const);
+
 export async function candlesRoutes(app: FastifyInstance, store: Store): Promise<void> {
   app.get<{ Params: { id: string }; Querystring: { resolution?: string; from?: string; to?: string } }>(
     '/api/markets/:id/candles',
-    async (req) => {
+    async (req, reply) => {
       const resolution = req.query.resolution ?? '1m';
+      if (!CANDLE_RESOLUTIONS.has(resolution as '1m' | '5m' | '1h')) {
+        return reply.code(400).send({ error: 'bad resolution' });
+      }
       const table = `candles_${resolution}`;
       const from = req.query.from ? Number(req.query.from) : 0;
       const to = req.query.to ? Number(req.query.to) : Math.floor(Date.now() / 1000);
@@ -112,9 +117,8 @@ export async function bookRoutes(
     }
   }
 
-  // Cache the book PDA response for 3 seconds to avoid hammering RPC
-  let cachedBook: { bids: BookLevelResponse[]; asks: BookLevelResponse[] } | null = null;
-  let cachedAt = 0;
+  // Cache the book PDA response for 3 seconds, keyed by instrument.
+  const bookCache = new Map<number, { body: { bids: BookLevelResponse[]; asks: BookLevelResponse[] }; at: number }>();
 
   app.get<{ Params: { id: string } }>(
     '/api/markets/:id/book',
@@ -126,8 +130,9 @@ export async function bookRoutes(
       }
 
       const now = Date.now();
-      if (cachedBook && now - cachedAt < 3000) {
-        return cachedBook;
+      const hit = bookCache.get(instrumentId);
+      if (hit && now - hit.at < 3000) {
+        return hit.body;
       }
 
       try {
@@ -135,9 +140,9 @@ export async function bookRoutes(
         const accounts = await connection.getMultipleAccountsInfo([bookAccount]);
         const acc = accounts[0] ?? null;
         if (!acc) {
-          cachedAt = now;
-          cachedBook = { bids: [], asks: [] };
-          return cachedBook;
+          const empty = { bids: [], asks: [] };
+          bookCache.set(instrumentId, { body: empty, at: now });
+          return empty;
         }
 
         const book = sdk.state.decodeBookHeader(new Uint8Array(acc.data));
@@ -146,12 +151,12 @@ export async function bookRoutes(
         bids.sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : 0));
         asks.sort((a, b) => (a.price > b.price ? 1 : a.price < b.price ? -1 : 0));
 
-        cachedBook = {
+        const body = {
           bids: bids.slice(0, 20).map(serializeBookLevel),
           asks: asks.slice(0, 20).map(serializeBookLevel),
         };
-        cachedAt = now;
-        return cachedBook;
+        bookCache.set(instrumentId, { body, at: now });
+        return body;
       } catch (err) {
         app.log.warn({ err, instrumentId }, 'bookRoutes: RPC fetch failed, returning stubs');
         return { bids: [], asks: [] };
@@ -167,29 +172,7 @@ export interface BatchRouteConfig {
   getCurrentBatchAddress?: () => string | undefined;
 }
 
-async function findLiveBatchAccount(
-  connection: Connection,
-  coreProgramId: PublicKey,
-  activeBatchId: bigint,
-): Promise<{ address: PublicKey; batch: sdk.state.BatchState } | null> {
-  const accounts = await connection.getProgramAccounts(coreProgramId, {
-    filters: [{ dataSize: sdk.state.BATCH_SIZE }],
-    encoding: 'base64',
-  });
-
-  for (const { pubkey, account } of accounts) {
-    try {
-      const batch = sdk.state.decodeBatch(new Uint8Array(account.data));
-      if (batch.batchId === activeBatchId) {
-        return { address: pubkey, batch };
-      }
-    } catch {
-      // Ignore non-batch accounts that happen to share the same byte length.
-    }
-  }
-
-  return null;
-}
+/** Unauthenticated REST must not scan program accounts (RPC DoS / quota). */
 
 function batchStateToJson(batch: sdk.state.BatchState, batchAddress: string): Record<string, unknown> {
   return {
@@ -296,17 +279,6 @@ export async function batchRoutes(
 
           cachedLiveBatch = {
             ...batchStateToJson(batch, batchPk.toBase58()),
-            registry_address: registryPk.toBase58(),
-            batch_id_counter: registry.batchIdCounter.toString(),
-          };
-          cachedLiveBatchAt = now;
-          return cachedLiveBatch;
-        }
-
-        const scannedBatch = await findLiveBatchAccount(connection, corePk, activeBatchId);
-        if (scannedBatch) {
-          cachedLiveBatch = {
-            ...batchStateToJson(scannedBatch.batch, scannedBatch.address.toBase58()),
             registry_address: registryPk.toBase58(),
             batch_id_counter: registry.batchIdCounter.toString(),
           };

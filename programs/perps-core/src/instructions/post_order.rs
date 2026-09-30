@@ -1,7 +1,7 @@
 //! PostOrder (disc 20) — DFBA open limit post (replaces Commit+Reveal for v1).
 
 use crate::state::{Batch, BatchStatus, Portfolio, Registry};
-use mgk_common::{validate_owner, validate_writable, MgkError};
+use mgk_common::{validate_matcher_program_id, validate_owner, validate_writable, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
@@ -63,6 +63,7 @@ pub fn process_post_order(
     validate_writable(batch_account)?;
     validate_owner(registry_account, program_id)?;
     validate_writable(book_account)?;
+    validate_matcher_program_id(matcher_program.key())?;
 
     if qty == 0 {
         return Err(MgkError::InvalidQuantity.into());
@@ -154,6 +155,13 @@ mod tests {
     #[test]
     fn test_matcher_place_disc_is_six() {
         assert_eq!(MATCHER_PLACE_RESTING, 6);
+    }
+
+    #[test]
+    fn post_order_rejects_spoofed_matcher_program() {
+        let spoof = Pubkey::from([0x11u8; 32]);
+        assert!(validate_matcher_program_id(&spoof).is_err());
+        assert!(validate_matcher_program_id(&mgk_common::perps_matcher_program_id()).is_ok());
     }
 
     #[test]

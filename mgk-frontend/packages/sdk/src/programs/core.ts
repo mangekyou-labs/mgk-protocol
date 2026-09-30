@@ -252,18 +252,21 @@ export function encodeClearBatch(
 }
 
 /**
- * SettleBatch — discriminator + 2 u16 LE counts, 5 bytes total.
- * Wire format: disc(1) + num_commitments(2) + num_portfolios(2) = 5.
+ * SettleBatch — discriminator + 2 u16 LE counts + next_batch_bump.
+ * Wire format: disc(1) + num_commitments(2) + num_portfolios(2) + bump(1) = 6.
+ * Extra bump byte is optional on-chain (`data.len() > 4`); default 0.
  */
 export function encodeSettleBatch(
   numCommitments: number,
   numPortfolios: number,
+  nextBatchBump = 0,
 ): Uint8Array {
-  const buf = new Uint8Array(5);
+  const buf = new Uint8Array(6);
   const view = new DataView(buf.buffer);
   view.setUint8(0, CORE_INSTRUCTION.SettleBatch);
   view.setUint16(1, numCommitments, true);
   view.setUint16(3, numPortfolios, true);
+  view.setUint8(5, nextBatchBump);
   return buf;
 }
 

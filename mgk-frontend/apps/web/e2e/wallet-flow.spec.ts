@@ -198,20 +198,16 @@ test.describe('T9.10.7 prepare-close', () => {
     );
     expect(postOrder).toBeDefined();
 
-    // Discriminator 20 = PostOrder
+    // Wire: disc(1) + side(1) + is_maker(1) + price(8) + qty(8) + instrument(2) + reduce_only(1)
     expect(postOrder?.data[0]).toBe(20);
-    // side = 1 (Sell)
-    expect(postOrder?.data[2]).toBe(1);
-    // is_maker = 0 (taker — prepare-close disables maker)
-    expect(postOrder?.data[3]).toBe(0);
+    expect(postOrder?.data[1]).toBe(1); // Sell
+    expect(postOrder?.data[2]).toBe(0); // taker — prepare-close disables maker
 
     const wire = Uint8Array.from(postOrder?.data ?? []);
     const view = new DataView(wire.buffer);
-    // qty = 5_000_000n (5 SOL at 1e6)
+    expect(view.getBigInt64(3, true)).toBe(99_500_000n); // opposing best bid
     expect(view.getBigUint64(11, true)).toBe(5_000_000n);
-    // instrument_id = 0
     expect(view.getUint16(19, true)).toBe(0);
-    // reduce_only = 1
     expect(view.getUint8(21)).toBe(1);
   });
 });

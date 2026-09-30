@@ -12,6 +12,7 @@ import {
   encodeSetFundingParams,
   encodeSetInstrumentFees,
   encodeSetInstrumentOracle,
+  encodeSettleBatch,
   encodeWithdraw,
 } from './core.js';
 import { InstructionReader, Side } from '../instruction.js';
@@ -39,6 +40,24 @@ describe('CORE_INSTRUCTION discriminator table', () => {
     expect(CORE_INSTRUCTION.SetFundingParams).toBe(24);
     expect(MATCHER_INSTRUCTION.DfbaClear).toBe(5);
     expect(MATCHER_INSTRUCTION.PlaceResting).toBe(6);
+  });
+});
+
+describe('encodeSettleBatch', () => {
+  it('emits disc 8 + counts + next_batch_bump (6 bytes)', () => {
+    const buf = encodeSettleBatch(3, 2, 255);
+    expect(buf.length).toBe(6);
+    expect(buf[0]).toBe(CORE_INSTRUCTION.SettleBatch);
+    const view = new DataView(buf.buffer);
+    expect(view.getUint16(1, true)).toBe(3);
+    expect(view.getUint16(3, true)).toBe(2);
+    expect(buf[5]).toBe(255);
+  });
+
+  it('defaults next_batch_bump to 0 when omitted (still 6-byte wire)', () => {
+    const buf = encodeSettleBatch(0, 1);
+    expect(buf.length).toBe(6);
+    expect(buf[5]).toBe(0);
   });
 });
 

@@ -4,8 +4,23 @@
 **Merge commit:** (to be filled after merge)
 **Render deploy IDs:** (to be filled after deploy)
 **Vercel deployment URL:** mgk-frontend.vercel.app
+**Vercel preview recovery:** T9.11.8b — `vercel.json` schema fixed; `engines`/`env` removed; `$schema` added; Node pinned via `package.json` `engines.node = "22.x"`.
 
 ## Deployment Checklist
+
+### Vercel Preview Recovery (T9.11.8b)
+
+- [x] Root `vercel.json` — removed `engines` and deprecated `env` (official schema `additionalProperties: false` rejects both)
+- [x] Root `vercel.json` — added `$schema` declaration
+- [x] Root `package.json` — added `engines.node = "22.x"`
+- [x] CI workflows retargeted to `master` (was `main`/`develop`)
+- [x] Schema test: `tools/vercel-json.test.js` (TDD red → green → regression → green)
+- [ ] Feature branch push → Git-linked Vercel preview READY
+- [ ] `gh pr checks` all pass or pending-then-pass
+- [ ] `mgk-solana` project PATCH: Root Directory empty, production branch `master`
+- [ ] `mgk-frontend` and `percolator` dashboard Node set to 22.x
+
+**Production promote is OUT OF SCOPE** for this recovery pass. Do not `vercel deploy --prod`. Live `mgkprotocol.vercel.app` serves the prior healthy deploy until a later promote after T9.11.12.
 
 ### Infrastructure
 - [ ] `render.yaml` committed to `origin/master`

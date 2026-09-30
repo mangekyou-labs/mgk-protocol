@@ -1,5 +1,5 @@
 use crate::state::Portfolio;
-use mgk_common::{MgkError, validate_owner, validate_writable};
+use mgk_common::{validate_matcher_program_id, validate_owner, validate_writable, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
@@ -48,6 +48,7 @@ pub fn process_cancel_all_resting_orders(
 
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
+    validate_matcher_program_id(matcher_program.key())?;
     for book in book_accounts {
         validate_writable(book)?;
     }

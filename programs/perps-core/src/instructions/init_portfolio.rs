@@ -9,12 +9,22 @@ use pinocchio::{
 use mgk_common::MgkError;
 
 pub fn process_init_portfolio(
+    program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     user: &Pubkey,
     _bump: u8,
 ) -> ProgramResult {
     // Portfolio size follows the actual repr(C) layout.
     const PORTFOLIO_SIZE: usize = core::mem::size_of::<Portfolio>();
+
+    if !super::init_portfolio_for_user::portfolio_pda_matches(
+        portfolio_account.key(),
+        user,
+        program_id,
+    ) {
+        msg!("Error: portfolio account is not the user PDA");
+        return Err(ProgramError::InvalidSeeds);
+    }
 
     // The portfolio account MUST already exist (created by the keeper via
     // InitPortfolioForUser disc 19). We do NOT create accounts here —

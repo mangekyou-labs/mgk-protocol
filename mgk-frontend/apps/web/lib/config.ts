@@ -1,4 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
+import { rpcUrlContainsCredential } from './rpcUrl';
 
 // Devnet defaults — M9 DFBA deploy (2026-08-06).
 // Program IDs match `programs/common/src/program_ids.rs`.
@@ -42,6 +43,11 @@ function parsePkOrThrow(raw: string, envName: string): PublicKey {
 // not statically analysable and fall through to a runtime polyfill that
 // returns undefined — causing the fallback to always win.
 const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || DEVNET_DEFAULTS.rpcUrl;
+if (rpcUrlContainsCredential(rpcUrl)) {
+  console.warn(
+    '[mgk config] NEXT_PUBLIC_RPC_URL embeds a billed credential in the client bundle. Proxy RPC through a server; this slice does not rotate keys.',
+  );
+}
 const coreProgramId = parsePkOrThrow(
   process.env.NEXT_PUBLIC_CORE_PROGRAM_ID || DEVNET_DEFAULTS.coreProgramId,
   'NEXT_PUBLIC_CORE_PROGRAM_ID',

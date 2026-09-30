@@ -24,16 +24,49 @@
 //! Data: user_pubkey(32) = 32 bytes total (disc 19 stripped by dispatcher)
 
 use crate::state::Portfolio;
+use mgk_common::MgkError;
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction, Signer},
     msg,
     program::invoke_signed,
     program_error::ProgramError,
-    pubkey::{find_program_address, Pubkey},
+    pubkey::{find_program_address, try_find_program_address, Pubkey},
     sysvars::{rent::Rent, Sysvar},
     ProgramResult,
 };
+
+/// Zero pubkey — the only user field that may be overwritten.
+fn zero_pubkey() -> Pubkey {
+    Pubkey::from([0u8; 32])
+}
+
+/// Existing portfolio data may be written only when the user field is unset.
+pub(crate) fn may_overwrite_portfolio_user(existing_user: &Pubkey) -> bool {
+    *existing_user == zero_pubkey()
+}
+
+/// Wallet-funded (2-account) path: payer must equal the requested user.
+/// Keeper-funded (3+ accounts) path: still allowed to *create* an empty PDA.
+pub(crate) fn payer_may_init_portfolio(
+    account_count: usize,
+    payer: &Pubkey,
+    user: &Pubkey,
+) -> bool {
+    if account_count <= 2 {
+        payer == user
+    } else {
+        true
+    }
+}
+
+/// Account key must be the portfolio PDA derived from `user`.
+pub(crate) fn portfolio_pda_matches(account: &Pubkey, user: &Pubkey, program_id: &Pubkey) -> bool {
+    match try_find_program_address(&[b"portfolio", user.as_ref()], program_id) {
+        Some((expected, _)) => account == &expected,
+        None => false,
+    }
+}
 
 /// Space for Portfolio struct (verified via size_of::<Portfolio>()).
 const PORTFOLIO_SPACE: usize = core::mem::size_of::<Portfolio>();
@@ -66,16 +99,34 @@ pub fn process_init_portfolio_for_user(
     let user_bytes = data.get(0..32).ok_or(ProgramError::InvalidInstructionData)?;
     let user = Pubkey::from(<[u8; 32]>::try_from(user_bytes).unwrap());
 
-    // T9.10 wallet-funded path: when only 2 accounts are provided, the
-    // payer IS the user — validate that the requested portfolio user
-    // equals the signer. A user can only create their own portfolio.
-    if accounts.len() == 2 && user != *payer_account.key() {
+    if !payer_may_init_portfolio(accounts.len(), payer_account.key(), &user) {
         msg!("Error: requested portfolio user must equal the signer");
         return Err(ProgramError::InvalidArgument);
     }
 
     // Derive user's portfolio PDA
     let (portfolio_pda, bump) = find_program_address(&[b"portfolio", user.as_ref()], program_id);
+    if !portfolio_pda_matches(portfolio_account.key(), &user, program_id) {
+        msg!("Error: portfolio account is not the user PDA");
+        return Err(ProgramError::InvalidSeeds);
+    }
+
+    // Idempotent: never wipe an already-initialized portfolio (including the
+    // 3-account keeper path, which previously skipped the signer==user check).
+    if portfolio_account.data_len() >= PORTFOLIO_SPACE {
+        let existing_bytes = unsafe { portfolio_account.borrow_data_unchecked() };
+        if existing_bytes.len() >= 32 {
+            let existing_user = Pubkey::from(<[u8; 32]>::try_from(&existing_bytes[0..32]).unwrap());
+            if existing_user == user {
+                msg!("InitPortfolioForUser: already initialized");
+                return Ok(());
+            }
+            if !may_overwrite_portfolio_user(&existing_user) {
+                msg!("Error: portfolio already initialized for a different user");
+                return Err(MgkError::AlreadyInitialized.into());
+            }
+        }
+    }
 
     // If portfolio account is not yet created (data_len == 0), use invoke_signed
     // + SystemProgram::CreateAccount to create it at the PDA address.
@@ -156,5 +207,48 @@ mod tests {
             u64::from_le_bytes(ix_data[12..20].try_into().unwrap()),
             PORTFOLIO_SPACE as u64,
         );
+    }
+
+    /// Regression: a 3-account keeper (or any extra-account) call must not
+    /// zero an already-initialized portfolio. T9.11.4 only gated the 2-account
+    /// wallet path.
+    #[test]
+    fn already_initialized_portfolio_must_not_be_overwritten() {
+        let existing = Pubkey::from([9u8; 32]);
+        assert!(
+            !may_overwrite_portfolio_user(&existing),
+            "initialized portfolios must be immutable via InitPortfolioForUser"
+        );
+    }
+
+    #[test]
+    fn uninitialized_portfolio_may_be_written() {
+        let existing = Pubkey::from([0u8; 32]);
+        assert!(may_overwrite_portfolio_user(&existing));
+    }
+
+    #[test]
+    fn two_account_path_rejects_mismatched_user() {
+        let payer = Pubkey::from([1u8; 32]);
+        let user = Pubkey::from([2u8; 32]);
+        assert!(!payer_may_init_portfolio(2, &payer, &user));
+    }
+
+    #[test]
+    fn two_account_path_allows_self() {
+        let payer = Pubkey::from([1u8; 32]);
+        assert!(payer_may_init_portfolio(2, &payer, &payer));
+    }
+
+    #[test]
+    fn portfolio_account_must_match_derived_pda() {
+        let program_id = Pubkey::from([3u8; 32]);
+        let user = Pubkey::from([4u8; 32]);
+        // Host PDA syscalls are stubs; an arbitrary account must not match.
+        assert!(!portfolio_pda_matches(
+            &Pubkey::from([5u8; 32]),
+            &user,
+            &program_id
+        ));
     }
 }

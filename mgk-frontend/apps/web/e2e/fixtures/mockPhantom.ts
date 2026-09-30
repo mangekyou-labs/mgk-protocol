@@ -14,6 +14,7 @@ const TEST_SLOT = 42;
 const REGISTRY_SIZE = 86;
 const PORTFOLIO_SIZE = 1_456;
 const BATCH_SIZE = 160;
+const BOOK_ACCOUNT_SIZE = 27_704;
 const COLLECTING_STATUS = 0;
 const CLEARING_STATUS = 2;
 const SETTLED_STATUS = 3;
@@ -86,12 +87,15 @@ function encodeRegistry(): Uint8Array {
   return data;
 }
 
-/** Portfolio layout: user(32) + equity(16) + principal(16) + pnl(16) + im(16) + mm(16) + free_collateral(16) + health(16) + positions_len(2) + positions(32*24) + ... */
+/** BPF Portfolio: positions_len at 144, Position[] at 152 (repr(C) 8-byte align).
+ *  Position = instrument_id u16 + 6 pad + qty i64 + entry_vwap i64 (24 bytes). */
 const PORTFOLIO_OFFSETS = {
   user: 0,
   equity: 32,
   positionsLen: 144,
-  positionsStart: 146,
+  positionsStart: 152,
+  positionQty: 8,
+  positionEntryVwap: 16,
 } as const;
 
 function encodePortfolio(): Uint8Array {
@@ -112,12 +116,23 @@ function encodePortfolioWithPosition(
 ): Uint8Array {
   const data = encodePortfolio();
   const view = new DataView(data.buffer);
-  // positions_len = 1
   view.setUint16(PORTFOLIO_OFFSETS.positionsLen, 1, true);
   const off = PORTFOLIO_OFFSETS.positionsStart;
   view.setUint16(off, instrumentId, true);
-  view.setBigInt64(off + 2, qty, true);
-  view.setBigInt64(off + 10, entryVwap, true);
+  view.setBigInt64(off + PORTFOLIO_OFFSETS.positionQty, qty, true);
+  view.setBigInt64(off + PORTFOLIO_OFFSETS.positionEntryVwap, entryVwap, true);
+  return data;
+}
+
+/** Matcher book header: instrument u16 @0, bestBid i64 @8, bestAsk i64 @16. */
+function encodeBook(): Uint8Array {
+  const data = new Uint8Array(BOOK_ACCOUNT_SIZE);
+  const view = new DataView(data.buffer);
+  view.setUint16(0, 0, true);
+  view.setBigInt64(8, 99_500_000n, true);
+  view.setBigInt64(16, 100_500_000n, true);
+  view.setUint32(24, 1, true);
+  view.setUint32(28, 1, true);
   return data;
 }
 
@@ -193,7 +208,7 @@ function createAccountFixtures(): {
       ],
       [
         config.bookAddress.toBase58(),
-        rpcAccount(new Uint8Array(27_704), config.matcherProgramId),
+        rpcAccount(encodeBook(), config.matcherProgramId),
       ],
       [
         batchAddress.toBase58(),

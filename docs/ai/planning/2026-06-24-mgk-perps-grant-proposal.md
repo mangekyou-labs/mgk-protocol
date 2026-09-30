@@ -1,10 +1,13 @@
 ---
 phase: grant-proposal
 title: mgk Perps DEX — Grant Application ($50,000)
-description: Fully on-chain perps DEX on Solana — commit-reveal CLOB, ~2-4s latency, MEV-mitigated, no sequencer. Live on devnet: 3 programs executable, resting orders placed via frontend, ClearBatch + SettleBatch verified on-chain.
+description: HISTORICAL 2026-06-24 grant draft. Matching is now DFBA (M9). Do not treat commit-reveal IDs or narrative as current.
+status: historical
 ---
 
 # mgk Perps DEX — Grant Application
+
+> **Historical document (2026-06-24).** This draft describes the retired commit-reveal CLOB and pre-M9 program IDs (`3jYQ4mp…` / `AU4EKQAQ…` / `6M9eEiDK…`). Active matching is Dual Flow Batch Auction (M9.0–M9.10), deployed on devnet 2026-08-24. Current architecture: `docs/ARCHITECTURE.md`. Current IDs: Core `C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx`, Matcher `7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC`, Oracle `CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ`. Keep this file for audit trail; do not implement commit-reveal from it.
 
 **$50,000 USDG | Solana DeFi Infrastructure**
 **Applicant:** mgk Protocol

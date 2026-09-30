@@ -14,7 +14,10 @@ use crate::instructions::{
     process_settle_batch, process_withdraw, CoreInstruction,
 };
 use crate::state::{Portfolio, Registry, Vault};
-use mgk_common::{borrow_account_data_mut, validate_owner, validate_writable, MgkError};
+use mgk_common::{
+    borrow_account_data_mut, validate_matcher_program_id, validate_owner, validate_system_program_id,
+    validate_writable, MgkError,
+};
 
 entrypoint!(process_instruction);
 
@@ -193,6 +196,7 @@ fn process_post_order_inner(
     let qty = u64::from_le_bytes(data[10..18].try_into().unwrap());
     let instrument_id = u16::from_le_bytes(data[18..20].try_into().unwrap());
     let reduce_only = data[20] != 0;
+    validate_matcher_program_id(accounts[5].key())?;
 
     process_post_order(
         program_id,
@@ -483,7 +487,7 @@ fn process_initialize_inner(
 ///
 /// Data: user_pubkey(32) + bump(1)
 fn process_init_portfolio_inner(
-    _program_id: &Pubkey,
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
@@ -506,7 +510,7 @@ fn process_init_portfolio_inner(
     let user = Pubkey::from(<[u8; 32]>::try_from(&data[0..32]).unwrap());
     let bump = data[32];
 
-    process_init_portfolio(portfolio_account, &user, bump)
+    process_init_portfolio(program_id, portfolio_account, &user, bump)
 }
 
 /// Deposit SOL collateral
@@ -540,6 +544,8 @@ fn process_deposit_inner(
     validate_writable(user_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    crate::pda::require_canonical_vault(vault_account.key(), program_id)?;
+    validate_system_program_id(system_program.key())?;
 
     let portfolio = unsafe { borrow_account_data_mut::<Portfolio>(portfolio_account)? };
     let vault = unsafe { borrow_account_data_mut::<Vault>(vault_account)? };
@@ -588,7 +594,9 @@ fn process_withdraw_inner(
     validate_writable(user_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    crate::pda::require_canonical_vault(vault_account.key(), program_id)?;
     validate_owner(registry_account, program_id)?;
+    crate::pda::require_canonical_registry(registry_account.key(), program_id)?;
 
     let portfolio = unsafe { borrow_account_data_mut::<Portfolio>(portfolio_account)? };
     let vault = unsafe { borrow_account_data_mut::<Vault>(vault_account)? };
@@ -860,6 +868,7 @@ fn process_clear_batch_inner(
     validate_owner(batch_account, program_id)?;
     validate_writable(batch_account)?;
     validate_writable(results_account)?;
+    validate_matcher_program_id(matcher_program.key())?;
 
     process_clear_batch(
         program_id,
@@ -927,6 +936,9 @@ fn process_settle_batch_inner(
     validate_writable(registry_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    crate::pda::require_canonical_vault(vault_account.key(), program_id)?;
+    crate::pda::require_canonical_registry(registry_account.key(), program_id)?;
+    validate_matcher_program_id(matcher_program.key())?;
     // M7 7.5: instrument is now writable so we can write mark_price.
     validate_owner(instrument_account, program_id)?;
     validate_writable(instrument_account)?;
@@ -1056,9 +1068,14 @@ fn process_liquidate_user_inner(
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
     validate_owner(registry_account, program_id)?;
+    crate::pda::require_canonical_registry(registry_account.key(), program_id)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    crate::pda::require_canonical_vault(vault_account.key(), program_id)?;
     validate_owner(batch_account, program_id)?;
+    for inst in instrument_accounts {
+        validate_owner(inst, program_id)?;
+    }
 
     process_liquidate_user(
         program_id,
@@ -1099,6 +1116,7 @@ fn process_cancel_resting_order_inner(
     let matcher_program = &accounts[3];
 
     let order_id = u64::from_le_bytes(data[0..8].try_into().unwrap());
+    validate_matcher_program_id(matcher_program.key())?;
 
     process_cancel_resting_order(
         program_id,
@@ -1138,6 +1156,7 @@ fn process_modify_resting_order_inner(
 
     let order_id = u64::from_le_bytes(data[0..8].try_into().unwrap());
     let new_qty = u64::from_le_bytes(data[8..16].try_into().unwrap());
+    validate_matcher_program_id(matcher_program.key())?;
 
     process_modify_resting_order(
         program_id,
@@ -1210,6 +1229,7 @@ fn process_init_vault_inner(
     let vault_account = &accounts[0];
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    crate::pda::require_canonical_vault(vault_account.key(), program_id)?;
 
     let bump = data[0];
     process_init_vault(vault_account, bump)
@@ -1293,6 +1313,7 @@ fn process_cancel_all_resting_orders_inner(
     }
 
     let book_accounts = &accounts[3..3 + num_books];
+    validate_matcher_program_id(matcher_program.key())?;
 
     process_cancel_all_resting_orders(
         program_id,

@@ -63,6 +63,10 @@ pub fn process_initialize(
     }
 
     let oracle = unsafe { &mut *(oracle_data.as_ptr() as *mut PriceOracle) };
+    if oracle_already_initialized(oracle) {
+        msg!("Error: Oracle already initialized");
+        return Err(ProgramError::InvalidAccountData);
+    }
     *oracle = PriceOracle::new(
         *authority_account.key(),
         *instrument_account.key(),
@@ -72,6 +76,11 @@ pub fn process_initialize(
 
     msg!("Oracle initialized");
     Ok(())
+}
+
+/// Oracle Initialize must not overwrite an account that already carries magic.
+pub(crate) fn oracle_already_initialized(oracle: &PriceOracle) -> bool {
+    oracle.validate()
 }
 
 /// Update oracle price
@@ -296,4 +305,25 @@ pub fn process_deactivate(
 
     msg!("Oracle deactivated");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::PriceOracle;
+
+    #[test]
+    fn zeroed_oracle_may_be_initialized() {
+        let oracle = unsafe { core::mem::zeroed::<PriceOracle>() };
+        assert!(!oracle_already_initialized(&oracle));
+    }
+
+    #[test]
+    fn magic_oracle_must_not_be_reinitialized() {
+        let oracle = PriceOracle::new(Pubkey::from([1u8; 32]), Pubkey::from([2u8; 32]), 1, 255);
+        assert!(
+            oracle_already_initialized(&oracle),
+            "Oracle Initialize must not overwrite authority on a live feed"
+        );
+    }
 }
