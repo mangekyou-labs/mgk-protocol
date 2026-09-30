@@ -92,7 +92,7 @@ function decodeRegistry(data) {
     governance: new PublicKey(data.slice(0, 32)),
     instrumentCount: data.readUInt16LE(32),
     nMin: data.readUInt32LE(36),
-    batchIdCounter: Number(data.readBigUInt64LE(40)),
+    batchIdCounter: data.readBigUInt64LE(40),
   };
 }
 
@@ -446,4 +446,14 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+}
+
+module.exports = {
+  main,
+  crankOnce,
+  decodeBatch,
+  decodeRegistry,
+  discoverSettlementPortfolios,
+};

@@ -188,6 +188,74 @@ async function postPrice(conn, oracleAuthority, priceOraclePda, price, confidenc
   throw lastErr;
 }
 
+const PRICE_ORACLE_SIZE = 128;
+const PRICE_ORACLE_MAGIC = 0x4f52434c453031n;
+
+function decodePriceOracleAccount(buf) {
+  return {
+    magic: buf.readBigUInt64LE(0),
+    version: buf.readUInt8(8),
+    bump: buf.readUInt8(9),
+    isActive: buf.readUInt8(10) === 1,
+    authority: new PublicKey(buf.slice(16, 48)),
+    instrument: new PublicKey(buf.slice(48, 80)),
+    price: buf.readBigInt64LE(80),
+    timestamp: buf.readBigInt64LE(88),
+    confidence: buf.readBigInt64LE(96),
+  };
+}
+
+function evaluateOracleHealth(opts = {}) {
+  const alerts = [];
+  let severity = 'healthy';
+  let stopLoop = false;
+  let ok = true;
+
+  if (opts.consecutiveFailures >= 10) {
+    severity = 'critical';
+    stopLoop = true;
+    ok = false;
+    alerts.push({ metric: 'oracle_post_failures', level: 'critical' });
+  } else if (opts.consecutiveFailures >= 3) {
+    severity = 'warning';
+    alerts.push({ metric: 'oracle_post_failures', level: 'warning' });
+  }
+
+  if (opts.onChainAgeSecs >= 600) {
+    severity = 'critical';
+    stopLoop = true;
+    ok = false;
+    alerts.push({ metric: 'oracle_staleness', level: 'critical' });
+  } else if (opts.onChainAgeSecs >= 60) {
+    if (severity !== 'critical') severity = 'warning';
+    alerts.push({ metric: 'oracle_staleness', level: 'warning' });
+  }
+
+  return { ok, severity, stopLoop, alerts };
+}
+
+const SECRET_KEYS = [
+  'rpcUrl',
+  'RPC_URL',
+  'NEXT_PUBLIC_RPC_URL',
+  'keypairPath',
+  'keeperKeypair',
+  'secretKey',
+  'privateKey',
+  'apiKey',
+];
+
+function sanitizeHealthPayload(payload) {
+  const out = {};
+  if (!payload || typeof payload !== 'object') return out;
+  for (const [k, v] of Object.entries(payload)) {
+    if (SECRET_KEYS.includes(k)) continue;
+    if (/rpcurl|api[-_]?key|apikey|keypair|secret|privatekey/i.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -202,8 +270,12 @@ async function main() {
   const conn = new Connection(rpc, 'confirmed');
   const oracleAuthority = loadOracleKeypair();
 
-  const priceOraclePda = new PublicKey(process.env.PRICE_ORACLE_ADDRESS);
-  const instrumentPda = new PublicKey(process.env.INSTRUMENT_ADDRESS);
+  const priceOraclePda = new PublicKey(
+    process.env.PRICE_ORACLE_ADDRESS || '5NSDGAaRqfxe6mkZG9fEAZdzK4r77nEBEobohZGYP6PN',
+  );
+  const instrumentPda = new PublicKey(
+    process.env.INSTRUMENT_ADDRESS || 'Hz9UtmSXyKFnp1pGvrhrAmizMsvEkYRh5Eih1r7Lf1hG',
+  );
 
   console.log('=== MGK Oracle Worker (standalone) ===');
   console.log('RPC:', new URL(rpc).host);
@@ -237,4 +309,17 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+}
+
+module.exports = {
+  PRICE_ORACLE_SIZE,
+  PRICE_ORACLE_MAGIC,
+  decodePriceOracleAccount,
+  evaluateOracleHealth,
+  sanitizeHealthPayload,
+  fetchQuorumPrice,
+  postPrice,
+  main,
+};
