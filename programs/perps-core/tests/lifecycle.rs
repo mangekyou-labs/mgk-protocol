@@ -915,7 +915,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
     );
 
     // Portfolio layout (repr C): user@0 (32), equity@32 (i128).
-    // Maker: buy+sell same size → flat cash; rebate 2×(1e6*-2/1e4)=+400
+    // Maker: buy+sell same size → flat cash; locked D3 maker fee is zero.
     // Taker: fee 2×(1e6*5/1e4)=-1000
     let maker_equity = i128::from_le_bytes(maker_portfolio_acct.data[32..48].try_into().unwrap());
     let taker_equity = i128::from_le_bytes(taker_portfolio_acct.data[32..48].try_into().unwrap());
@@ -927,7 +927,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
         .expect("vault");
     let vault_balance = u64::from_le_bytes(vault_acct.data[0..8].try_into().unwrap());
     assert_eq!(vault_balance, 2 * USER_DEPOSIT_LAMPORTS, "vault balance");
-    // Dual legs cancel notional; fees: maker rebate 2×200, taker fee 2×500.
+    // Dual legs cancel notional; fees: maker zero, taker fee 2×500.
     // (Instrument fee fields must match #[repr(C)] — fixed in initialize.rs.)
     let maker_principal =
         i128::from_le_bytes(maker_portfolio_acct.data[48..64].try_into().unwrap());
@@ -936,9 +936,8 @@ async fn test_e2e_full_lifecycle_with_fill() {
         "maker principal"
     );
     assert_eq!(
-        maker_equity,
-        USER_DEPOSIT_LAMPORTS as i128 + 400,
-        "maker equity after dual fill + rebate"
+        maker_equity, USER_DEPOSIT_LAMPORTS as i128,
+        "maker equity after dual fill with zero maker fee"
     );
     assert_eq!(
         taker_equity,
@@ -946,7 +945,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
         "taker equity after dual fill + fees"
     );
     let insurance = u128::from_le_bytes(vault_acct.data[8..24].try_into().unwrap());
-    assert_eq!(insurance, 600, "vault insurance net fees");
+    assert_eq!(insurance, 1_000, "vault insurance net fees");
     let _ = num_fills;
 
     let book_acct = ctx
@@ -3496,5 +3495,182 @@ async fn test_e2e_cancel_resting_between_batches() {
         u16::from_le_bytes(bk2.data[18..20].try_into().unwrap()),
         0,
         "book empty after cancel"
+    );
+}
+
+/// Exercise settlement directly through the SBF account adapter, independently
+/// of matcher compute limits. Check byte writes and transaction rollback.
+#[tokio::test]
+async fn test_settlement_transition_account_writes_and_late_error_rollback() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let batch_key = Pubkey::new_unique();
+    let next_key = Pubkey::new_unique();
+    let bad_next_key = Pubkey::new_unique();
+    let results_key = Pubkey::new_unique();
+    let portfolio_key = Pubkey::new_unique();
+    let oracle_key = Pubkey::new_unique();
+    let user = Pubkey::new_unique();
+    let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
+    batch.data[..8].copy_from_slice(&7u64.to_le_bytes());
+    batch.data[8] = 2; // Clearing
+    batch.data[48..56].copy_from_slice(&110i64.to_le_bytes());
+    batch.data[152] = 1; // valid mark
+    pt.add_account(batch_key, batch);
+    pt.add_account(next_key, Account::new(1_000_000, BATCH_SIZE, &CORE_ID));
+    let mut bad_next = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
+    bad_next.data[..8].copy_from_slice(&99u64.to_le_bytes());
+    pt.add_account(bad_next_key, bad_next);
+    let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
+    registry.data[36..44].copy_from_slice(&7u64.to_le_bytes());
+    registry.data[64..72].copy_from_slice(&20u64.to_le_bytes());
+    pt.add_account(pdas.registry, registry);
+    let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
+    // Same fee offsets as Initialize; funding disabled by zero interval.
+    instrument.data[52..54].copy_from_slice(&5u16.to_le_bytes());
+    pt.add_account(pdas.instrument, instrument);
+    let mut results = Account::new(1_000_000, 34 + 58, &MATCHER_ID);
+    results.data[32..34].copy_from_slice(&1u16.to_le_bytes());
+    results.data[34..66].copy_from_slice(user.as_ref());
+    results.data[74..82].copy_from_slice(&1u64.to_le_bytes());
+    results.data[82..90].copy_from_slice(&10000i64.to_le_bytes());
+    results.data[91] = 1; // ask taker buys
+    pt.add_account(results_key, results);
+    let mut portfolio = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
+    portfolio.data[..32].copy_from_slice(user.as_ref());
+    portfolio.data[32..48].copy_from_slice(&20000i128.to_le_bytes());
+    pt.add_account(portfolio_key, portfolio);
+    pt.add_account(
+        oracle_key,
+        Account::new(1_000_000, 0, &system_program::id()),
+    );
+    let mut ctx = pt.start_with_context().await;
+    let instruction = |next| Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(batch_key, false),
+            AccountMeta::new(pdas.registry, false),
+            AccountMeta::new(pdas.vault, false),
+            AccountMeta::new_readonly(results_key, false),
+            AccountMeta::new(pdas.instrument, false),
+            AccountMeta::new_readonly(pdas.book, false),
+            AccountMeta::new_readonly(oracle_key, false),
+            AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new(portfolio_key, false),
+            AccountMeta::new(next, false),
+        ],
+        data: with_disc(8, build_settle_batch_data(0, 1)),
+    };
+    let keys = [
+        batch_key,
+        pdas.registry,
+        pdas.vault,
+        pdas.instrument,
+        portfolio_key,
+        bad_next_key,
+    ];
+    let mut before = Vec::new();
+    for key in keys {
+        before.push(ctx.banks_client.get_account(key).await.unwrap().unwrap());
+    }
+    let error = submit(&mut ctx, instruction(bad_next_key), &[])
+        .await
+        .unwrap_err();
+    assert!(format!("{error:?}").contains(&format!(
+        "Custom({})",
+        u64::from(mgk_common::MgkError::AlreadyInitialized)
+    )));
+    for (key, account) in keys.into_iter().zip(before) {
+        assert_eq!(
+            ctx.banks_client.get_account(key).await.unwrap().unwrap(),
+            account,
+            "failed transaction must roll back {key}"
+        );
+    }
+    let clock = ctx
+        .banks_client
+        .get_sysvar::<solana_sdk::clock::Clock>()
+        .await
+        .unwrap();
+    submit(&mut ctx, instruction(next_key), &[]).await.unwrap();
+    let settled = ctx
+        .banks_client
+        .get_account(batch_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(settled.data[8], 3);
+    assert_eq!(
+        u32::from_le_bytes(settled.data[64..68].try_into().unwrap()),
+        1
+    );
+    assert_eq!(
+        u64::from_le_bytes(settled.data[72..80].try_into().unwrap()),
+        1
+    );
+    assert_eq!(
+        u128::from_le_bytes(settled.data[80..96].try_into().unwrap()),
+        10000
+    );
+    let portfolio = ctx
+        .banks_client
+        .get_account(portfolio_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        i128::from_le_bytes(portfolio.data[32..48].try_into().unwrap()),
+        9995
+    );
+    let registry = ctx
+        .banks_client
+        .get_account(pdas.registry)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        u64::from_le_bytes(registry.data[36..44].try_into().unwrap()),
+        8
+    );
+    assert_eq!(
+        u64::from_le_bytes(registry.data[64..72].try_into().unwrap()),
+        20
+    );
+    let vault = ctx
+        .banks_client
+        .get_account(pdas.vault)
+        .await
+        .unwrap()
+        .unwrap();
+    // SBF u128 alignment is 8; do not use the host Vault layout to decode it.
+    assert_eq!(
+        u128::from_le_bytes(vault.data[8..24].try_into().unwrap()),
+        5
+    );
+    let instrument = ctx
+        .banks_client
+        .get_account(pdas.instrument)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        i64::from_le_bytes(instrument.data[136..144].try_into().unwrap()),
+        110
+    );
+
+    let next = ctx
+        .banks_client
+        .get_account(next_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(u64::from_le_bytes(next.data[..8].try_into().unwrap()), 8);
+    assert_eq!(next.data[8], 0);
+    assert_eq!(
+        u64::from_le_bytes(next.data[16..24].try_into().unwrap()),
+        clock.slot + 20
     );
 }

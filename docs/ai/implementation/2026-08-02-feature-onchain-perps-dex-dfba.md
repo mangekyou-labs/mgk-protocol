@@ -752,3 +752,43 @@ User named `9.10.6-7`. Complete the final two M9.10 tasks.
 - `cargo +stable test --all-features`: 439 pass (267 core + 115 matcher + 46 common + 11 oracle), 5 ignored (CU harness).
 - `pnpm --filter web test -- --run`: 486 pass across 51 files.
 - Pre-existing issues (not from this session): indexer `syncer.ts` / `backfill.test.ts` type errors, `TradingViewWidget.tsx` lint error, `livePhantom.ts` generic type error.
+
+## Settlement transition refactor (2026-10-13)
+
+`perps-core/src/instructions/settle_batch/transition.rs` now owns the full
+settlement transition: result format inference, fill application, commitment
+resolution, portfolio lookup, totals, insurance fees and rebates, mark selection,
+funding, registry counter increment, and next-batch initialization. The runtime
+wrapper supplies in-place account access and runtime operations. Host tests
+supply typed references to the same transition; the separate test-only DFBA
+application loop has been removed.
+
+The internal `States<T>` adapter visits one portfolio or commitment at a time.
+`Environment` supplies the registry snapshot, vault access, book validation,
+oracle observation, clock reads, registry counter write, and next-batch access.
+There are no allocations or portfolio/fill-array copies in the production
+transition. The small packed registry snapshot is the only copied account state.
+The runtime adapter retains the volatile counter write at bytes 36–43.
+Entrypoint validation and next-batch allocation CPI remain in the entrypoint.
+Core custody and the one-way Core → Matcher relationship are unchanged.
+
+Compatibility includes instruction bytes, account layouts, DFBA/legacy format
+inference, first matching portfolio lookup, missing-user totals, fee truncation,
+commitment limits, saturation, and late-error order. Host errors leave mutations
+visible; Solana transaction rollback is tested through the loaded SBF program.
+The two clock reads remain distinct runtime operations.
+
+Existing behaviors requiring separate decisions, preserved by this refactor:
+
+- Revealed commitments scan legacy fill offsets even when DFBA format is selected.
+- Missing DFBA portfolios still contribute volume, notional, and protocol fees.
+- A full position table still permits cash-flow changes without adding a position.
+- Portfolio fees truncate per fill; vault fees truncate after aggregating notionals.
+- The zero-rate funding helper does not advance the funding cursor on skipped funding.
+- Book validation accepts the expected PDA **or** matcher ownership, then checks the instrument.
+- Runtime account casts retain the existing unchecked borrowing policy; account safety remains separate work.
+
+The existing SBF lifecycle test expected a maker rebate although its Initialize
+fixture sets the locked D3 maker fee to zero. The same failure was reproduced
+with the pre-refactor settlement source in an isolated temporary build. Its
+maker-equity and insurance assertions now reflect that existing fixture.

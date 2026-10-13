@@ -473,3 +473,38 @@ Web remainder (M9.8): T-WEB-ORIGIN-HYDRATION, T-WEB-CHART-STATE, T-WEB-DFBA-LIFE
 | 3 | Indexer polish (syncer.ts, backfill.test.ts) | P2 | Pre-existing type errors |
 | 4 | Batch latency p50/p99 measurement | P3 | Open (ops) |
 | 5 | Security review before mainnet | P1 | Not started |
+
+## Settlement transition verification (2026-10-13)
+
+The two-user auction tests now invoke the full production settlement transition,
+checking portfolio writes, batch totals, vault fees, mark, and rollover rather
+than a parallel test-only fill loop. Typed-reference transition tests additionally
+cover missing and duplicate users, zero fills, per-fill versus aggregate fee
+rounding, insurance rebate shortfall, legacy deposits/slashes and commitment
+limits, full position capacity, mixed DFBA/legacy commitment behavior, funding
+freshness/pause/checkpoints, malformed results, and late errors. The initial
+rollover test failed at the unimplemented transition before extraction, then passed.
+
+`test_settlement_transition_account_writes_and_late_error_rollback` loads the SBF
+program and seeds cleared results directly. It verifies portfolio equity, vault
+insurance, mark, batch totals/status, the packed registry counter and adjacent
+timing field, next-batch fields, and rollback of every touched account on a late
+AlreadyInitialized error. It decodes SBF bytes explicitly rather than casting
+using the host's different u128 alignment.
+
+Host commands use `+stable` because the installed custom `solana` toolchain has
+no Clippy component. `LC_ALL=C LANG=C` avoids the local Perl/OpenSSL locale error.
+Runtime validation requires an absolute `BPF_OUT_DIR` or `SBF_OUT_DIR`; without one, lifecycle
+tests return early and do not validate SBF behavior. Four existing matcher CU
+spike tests remain ignored; the matcher self-trade allocation test is also ignored.
+
+Fresh verification results (all commands exited 0):
+
+| Check | Command (with `NO_DNA=1 LC_ALL=C LANG=C`) | Result |
+|---|---|---|
+| CI lint | `cargo +stable clippy --all-targets --all-features -- -D warnings` | Clean |
+| Host suite | `cargo +stable test --all-features` | 442 unit tests passed; 5 existing ignored tests; 8 lifecycle tests return early without SBF env |
+| On-chain build | `cargo build-sbf` | All program artifacts built, no stack warnings |
+| Native libraries | `cargo +stable build --lib --all` | Passed |
+| Loaded SBF lifecycle | `BPF_OUT_DIR="$PWD/target/deploy" cargo +stable test -p mgk-perps-core --test lifecycle --features host-hash -- --test-threads=1` | 8 passed, 4 existing CU cases ignored; includes account-write/rollback test |
+| Documentation structure | `npx ai-devkit@latest lint` | 5 checks passed |
