@@ -90,3 +90,43 @@ CROPS-inspired dependency check: document RPC/indexer/keeper/oracle/admin depend
 2. Resolve payoff units and repair settlement, exposure reservation, execution-time reduction and withdrawal invariants; prove known-number tests before live demo funding.
 3. Prune the UI to the verified data/actions and validate warm/cold service behavior.
 4. Run the three-wallet lifecycle and P0 matrix with fresh signatures and snapshots. Report remaining failures explicitly; do not call the demo working on the basis of one posted order.
+
+## Follow-up: independently realized USD PnL converted to SOL
+
+This analysis follows the recovery decision to preserve a linear USD payoff and convert realized PnL at a fresh SOL/USD oracle. It is arithmetic derived here, not a claim from the DFBA paper. Neither matching nor a fresh oracle by itself makes this payoff self-financing in SOL.
+
+Consider no fees and 0.1 SOL base quantity:
+
+1. A buys from B at $100: A long, B short.
+2. A sells to C at $110, SOL/USD oracle $110. A realizes $1 / 110 = 0.009090909… SOL. C is now long with entry $110; B remains short from $100.
+3. Later B buys from C at $110 while the independent SOL/USD oracle is $120. B realizes −$1 / 120 = −0.008333333… SOL. C realizes zero. All positions are flat.
+4. Aggregate realized USD PnL is zero, but aggregate SOL PnL is **+0.000757575… SOL**. Rounding cannot explain the difference. Reversing conversion-price order can instead create a surplus.
+
+The use of a separate oracle is intentional: DFBA price need not equal the oracle. Differences also arise along ordinary multi-price position-transfer paths; artificially aligning one demo's closes does not establish a general invariant. A fixed conversion rate would conserve this example but would violate conversion at a fresh oracle and change the payoff.
+
+### Smallest honest boundary preserving that payoff
+
+A **funded protocol conversion reserve** must absorb net SOL PnL credits, and risk accounting must prevent remaining counterparties from withdrawing collateral needed for their losses. A conservative, understandable devnet design is to treat the reserve as counterparty to every realized SOL cashflow: positive realized PnL debits reserve and credits the user; negative realized PnL debits the user and credits reserve. This requires enough reserve for gross winners paid before losers close, not merely the eventual small exchange-rate difference. Insufficient collectible user collateral is additional bad debt, not reserve revenue.
+
+Invariant at cash-ledger level, excluding rent: actual vault SOL assets = user cash balances + funded reserve + separately tracked fees/dust, with no negative user balances counted as collectible assets. Unrealized PnL and order/position margin are tracked separately for risk. Every payout/fee/rebate/withdrawal uses checked arithmetic and proves the invariant. Initial reserve funding must be an actual SOL transfer with a segregated claim; setting `insurance_fund` to a number does not fund it. Reserve withdrawal is distinct from user withdrawal. If reusing the insurance field, explicitly combine conversion-risk and liquidation-risk budgets and prevent double counting.
+
+This preserves independent close-time conversion but introduces a capitalized protocol backstop. It is not a cosmetic unit fix. With insufficient reserve, the protocol needs a specified outcome: close while recording an unpaid claim (larger implementation), risk-off/reduce-only plus new reserve funding, or an explicit loss-resolution process. Simply rejecting every close that would pay profit can trap the user and does not meet the unrestricted-close demo claim. A private controlled demo can pre-fund enough for a bounded, predeclared scenario set, but cannot claim arbitrary profitable exits are guaranteed.
+
+A finite reserve is not a general proof against unbounded prices, leverage, manipulation or adverse conversion paths. Set conservative aggregate open-interest/position limits, validate oracle freshness and confidence, and reserve capacity before opening new exposure. Because liquidation can be disabled whenever both DFBA legs do not clear, low activity can remove the normal risk exit: this is another reason a public unrestricted leveraged demo is beyond a keeper-only recovery.
+
+### Coherent alternative requiring a product decision
+
+Synchronized SOL variation margin can be self-financing: at a shared valid mark M and conversion C, cash-settle every existing signed position Q by Q × (M − previous settlement basis) / C; the market-wide signed quantities sum to zero. For each matched new trade at price P, transfer Q × (M − P) / C to the buyer and the opposite amount to the seller, then carry the residual positions at M. All participants use the same epoch prices, balanced rounding and exactly-once application. Insolvent losers still require liquidation/insurance.
+
+This changes economic payoff timing: the sum of interval-by-interval converted variation is generally different from converting the whole entry-to-exit USD gain at close. It also requires coverage of all open accounts, not only this batch's fillers; staged settlement needs a checkpoint/finalization design and blocked withdrawal until a portfolio is current. Therefore do not introduce it silently as an implementation detail of the approved close-time model.
+
+Merely storing USD PnL internally and converting on withdrawal does not remove reserve/hedging requirements when actual custody contains only SOL. A switch to USDC collateral or an inverse contract changes the product and is outside this targeted recovery.
+
+### Added release gates
+
+- Repeat the three-wallet counterexample with conversion $110 then $120 and reversed order; exact SOL liability drift must be charged to a funded reserve or prevented by the chosen alternative model.
+- Withdraw A's profit before B closes; remaining liabilities remain fully backed, with B's risk collateral locked.
+- Attempt a payout larger than reserve, a losing close larger than collectible collateral, and reserve withdrawal during open exposure; each follows an explicit truthful outcome.
+- Do not advertise accurate profitable withdrawals or liquidation completeness until these cases pass against deployed code.
+
+Remote-branch inspection found the raw `saturating_sub(notional as i128)` cashflow and no oracle conversion in `apply_one_dfba_fill` on every fetched ref containing that helper (`origin/master`, `origin/feature-dfba-auction`, `origin/feature-vercel-schema-recovery` and their backup equivalents). Older refs lacking the helper are not evidence of a compatible accounting repair.
