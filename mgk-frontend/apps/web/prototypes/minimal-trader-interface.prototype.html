@@ -1,0 +1,492 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Ticket: "Choose the minimal trader interface" (mgk-protocol#7).
+  Click-through replica of the live /trade page with unsupported controls removed.
+  Fake data, in-memory only: no wallet, RPC, or transactions.
+  Click the real controls to move through the lifecycle. The violet "Simulate" dock fires
+  market events a trader cannot click (batch clear, settlement, oracle, pause). It is not part of the product.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · minimal trader interface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0a0a; --s1:#111; --s2:#161616; --s3:#1c1c1c; --line:#1f1f1f; --line2:#2a2a2a;
+    --text:#e5e5e5; --muted:#8a8a8a; --faint:#5a5a5a;
+    --bull:#22c55e; --bear:#dc2626; --warn:#f59e0b; --info:#3b82f6; --sim:#a78bfa;
+    --mono:'JetBrains Mono',ui-monospace,Menlo,monospace; --sans:Inter,ui-sans-serif,system-ui,sans-serif;
+    --ease-out:cubic-bezier(.23,1,.32,1);
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family:var(--sans); font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+  button { font:inherit; color:inherit; }
+  .muted { color:var(--muted); } .faint { color:var(--faint); } .warn { color:var(--warn); } .bull { color:var(--bull); } .bear { color:var(--bear); }
+
+  #app { display:flex; flex-direction:column; height:100vh; min-height:620px; }
+  .bar { display:flex; align-items:center; gap:16px; padding:0 16px; border-bottom:1px solid var(--line); background:var(--s1); flex-shrink:0; }
+  .hdr { height:52px; }
+  .logo { font:600 15px var(--mono); letter-spacing:.12em; }
+  .nav { font:500 13px var(--sans); color:var(--text); border-bottom:2px solid var(--bear); padding:16px 0 14px; }
+  .grow { flex:1; }
+  .pill { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 12px; border-radius:999px; border:1px solid var(--line2); background:var(--s2); font:500 11px var(--mono); letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
+  .pill.solid { background:var(--text); color:#0a0a0a; border-color:var(--text); }
+  .pill.static { cursor:default; text-transform:none; letter-spacing:0; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--faint); }
+  .dot.ok { background:var(--bull); } .dot.warn { background:var(--warn); } .dot.bad { background:var(--bear); }
+
+  .mkt { height:56px; gap:28px; }
+  .sym { font:600 15px var(--mono); }
+  .stat { display:flex; flex-direction:column; gap:3px; font-family:var(--mono); }
+  .stat .k { font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:.08em; }
+  .stat .v { font-size:13px; }
+
+  .body { flex:1; display:flex; min-height:0; }
+  .chart { flex:1; position:relative; overflow:hidden; border-right:1px solid var(--line); min-width:0; }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; }
+  .refnote { position:absolute; top:10px; left:12px; font:12px var(--mono); color:var(--muted); }
+  .refnote b { margin-left:8px; font-weight:500; font-size:10px; color:var(--warn); border:1px solid #f59e0b55; border-radius:3px; padding:1px 6px; letter-spacing:.06em; text-transform:uppercase; }
+
+  .book { width:220px; flex-shrink:0; display:flex; flex-direction:column; border-right:1px solid var(--line); font:12px var(--mono); overflow:hidden; }
+  .book .bh { padding:10px 12px 8px; border-bottom:1px solid var(--line); }
+  .book .bh .t { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+  .book .bh .s { font-size:10px; color:var(--faint); margin-top:3px; line-height:1.4; }
+  .book .cols, .book .lv { display:grid; grid-template-columns:1fr 1fr; padding:0 12px; }
+  .book .cols { padding-top:6px; padding-bottom:4px; font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:.08em; }
+  .book .cols span:last-child, .book .lv span:last-child { text-align:right; }
+  .book .lv { width:100%; padding-top:3px; padding-bottom:3px; background:none; border:0; color:var(--text); font:inherit; cursor:pointer; text-align:left; }
+  .book .lv:hover { background:var(--s2); }
+  .book .lv.ask span:first-child { color:var(--bear); } .book .lv.bid span:first-child { color:var(--bull); }
+  .book .lv .you { color:var(--info); margin-left:4px; font-size:10px; }
+  .book .mid { padding:6px 12px; border-block:1px solid var(--line); font-size:10px; color:var(--faint); }
+  .book .empty { padding:24px 12px; color:var(--muted); font-size:11px; line-height:1.5; }
+  .book.stale .lvs { opacity:.5; }
+  .form { width:320px; flex-shrink:0; padding:12px; display:flex; flex-direction:column; gap:10px; overflow:auto; background:var(--s1); }
+  .form > * { flex-shrink:0; }
+  .seg { display:flex; border:1px solid var(--line2); border-radius:3px; overflow:hidden; }
+  .seg button { flex:1; padding:9px; font:500 12px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); background:var(--s1); border:0; cursor:pointer; }
+  .seg .on.buy { background:var(--bull); color:#05210f; } .seg .on.sell { background:var(--bear); color:#fff; }
+  .cap { font:10px var(--mono); color:var(--faint); text-transform:uppercase; letter-spacing:.08em; }
+  .field { display:flex; flex-direction:column; gap:4px; font:10px var(--mono); color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+  .field .row { display:flex; justify-content:space-between; }
+  input[type=text] { width:100%; background:var(--s2); border:1px solid var(--line2); border-radius:3px; padding:8px 10px; color:var(--text); font:13px var(--mono); text-align:right; outline:none; }
+  input[type=text]:focus { border-color:var(--muted); }
+  input:disabled { color:var(--faint); }
+  .check { display:flex; align-items:center; gap:8px; font:11px var(--mono); color:var(--muted); text-transform:uppercase; letter-spacing:.08em; cursor:pointer; }
+  .kv { display:flex; justify-content:space-between; gap:12px; font:12px var(--mono); }
+  .kv .k { color:var(--muted); }
+  .cta { width:100%; padding:11px; border:0; border-radius:3px; font:600 13px var(--mono); letter-spacing:.08em; text-transform:uppercase; cursor:pointer; background:var(--text); color:#0a0a0a; }
+  .cta.buy { background:var(--bull); color:#05210f; } .cta.sell { background:var(--bear); color:#fff; }
+  .cta:disabled { background:var(--s2); color:var(--faint); cursor:not-allowed; outline:1px solid var(--line2); outline-offset:-1px; }
+  .reason { font:11px/1.45 var(--mono); color:var(--warn); }
+  .steps { display:flex; flex-direction:column; gap:5px; padding:10px; border:1px solid var(--line2); border-radius:3px; font:11px var(--mono); }
+  .steps .s { display:flex; justify-content:space-between; color:var(--muted); }
+  .steps .s.done { color:var(--text); }
+  .steps .s.done span:first-child::before { content:'✓  '; color:var(--bull); }
+  .steps .s.todo span:first-child::before { content:'○  '; color:var(--faint); }
+
+  .bottom { height:220px; flex-shrink:0; display:flex; flex-direction:column; border-top:1px solid var(--line); }
+  .tabs { display:flex; gap:28px; padding:0 16px; border-bottom:1px solid var(--line); background:var(--s1); flex-shrink:0; }
+  .tabs button { background:none; border:0; color:var(--muted); font:500 12px var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:12px 0 10px; border-bottom:2px solid transparent; cursor:pointer; }
+  .tabs button.on { color:var(--text); border-bottom-color:var(--bear); }
+  .tabs .n { color:var(--faint); margin-left:4px; }
+  .content { flex:1; overflow:auto; padding:8px 16px; }
+  table { width:100%; border-collapse:collapse; font:12px var(--mono); }
+  th { font-weight:400; font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:.08em; text-align:right; padding:6px 8px; }
+  td { padding:7px 8px; text-align:right; border-top:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; padding-left:0; }
+  th:last-child, td:last-child { padding-right:0; }
+  .empty { padding:18px 0; font:12px var(--mono); color:var(--muted); }
+  .tag { display:inline-block; font:500 10px var(--mono); padding:2px 7px; border-radius:3px; border:1px solid var(--line2); text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .tag.warn { color:var(--warn); border-color:#f59e0b55; } .tag.ok { color:var(--bull); border-color:#22c55e55; } .tag.info { color:var(--info); border-color:#3b82f655; }
+  .mini { padding:5px 10px; background:var(--s2); border:1px solid var(--line2); border-radius:3px; font:500 11px var(--mono); cursor:pointer; text-transform:uppercase; letter-spacing:.06em; }
+  .mini:disabled { color:var(--faint); cursor:not-allowed; }
+  .coll { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)) 260px; gap:24px; align-items:start; padding-top:8px; }
+  .coll .act { display:flex; flex-direction:column; gap:6px; }
+  .coll .act .btns { display:flex; gap:6px; } .coll .act .btns .mini { flex:1; }
+
+  .banner { padding:8px 16px; background:#1f1405; border-bottom:1px solid #f59e0b44; color:var(--warn); font:12px var(--mono); flex-shrink:0; }
+  .status { height:30px; gap:18px; font:11px var(--mono); color:var(--muted); border-top:1px solid var(--line); border-bottom:0; }
+
+  /* motion: press feedback + entry of new lifecycle rows/tags only. Never on ticks, tabs, or typing. */
+  .cta, .mini, .pill, .seg button, .dock button { transition:transform 140ms var(--ease-out); }
+  .cta:active:not(:disabled), .mini:active:not(:disabled), .pill:not(.static):active, .seg button:active, .dock button:active:not(:disabled) { transform:scale(.97); }
+  .new { transition:opacity 220ms var(--ease-out), transform 220ms var(--ease-out); }
+  @starting-style { .new { opacity:0; transform:translateY(4px); } .tag.new { transform:scale(.95); } }
+  @media (prefers-reduced-motion: reduce) { @starting-style { .new, .tag.new { transform:none; } } }
+
+  /* prototype-only: simulate dock + walkthrough hint (violet = not product) */
+  .hint { outline:1px dashed var(--sim) !important; outline-offset:2px; }
+  .dock { position:fixed; left:16px; bottom:268px; width:300px; display:flex; flex-direction:column; gap:8px; padding:10px; background:#0d0b14f2; border:1px solid #a78bfa66; border-radius:6px; font:11px var(--mono); color:#d4ccf5; z-index:9; }
+  .dock .t { display:flex; justify-content:space-between; color:var(--sim); text-transform:uppercase; letter-spacing:.08em; font-size:10px; }
+  .dock .next { color:#ece8ff; line-height:1.45; }
+  .dock .row { display:flex; flex-wrap:wrap; gap:6px; }
+  .dock button { padding:5px 9px; background:#1a1626; border:1px solid #a78bfa44; border-radius:3px; color:#ece8ff; font:11px var(--mono); cursor:pointer; }
+  .dock button:disabled { color:#6b6385; cursor:not-allowed; }
+  .dock button.on { border-color:var(--sim); background:#2a2342; }
+
+  @media (max-width: 900px) {
+    #app { height:auto; }
+    .body { flex-direction:column; }
+    .chart { height:240px; flex:none; border-right:0; border-bottom:1px solid var(--line); }
+    .form { width:auto; }
+    .book { width:auto; border-right:0; border-bottom:1px solid var(--line); }
+    .bottom { height:auto; min-height:220px; }
+    .mkt { overflow-x:auto; gap:20px; } .mkt > * { flex:none; white-space:nowrap; } .status { overflow-x:auto; } .status > * { flex:none; white-space:nowrap; }
+    .coll { grid-template-columns:1fr 1fr; }
+    .dock { position:static; width:auto; margin:12px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="bar hdr" id="hdr"></div>
+  <div id="banner"></div>
+  <div class="bar mkt" id="mkt"></div>
+  <div class="body">
+    <div class="chart" id="chart"></div>
+    <div class="book" id="book"></div>
+    <div class="form" id="form"></div>
+  </div>
+  <div class="bottom" id="bot"></div>
+  <div class="bar status" id="status"></div>
+</div>
+<div class="dock" id="dock"></div>
+<script>
+// ---------- state ----------
+const W = '7xKq…9fA2', IM = 0.20, MM = 0.10, TAKER = 0.0005, CAP = 10, LOT = 0.001;
+const fresh = () => ({
+  wallet:null, walletSol:0, portfolio:false, collateral:0,
+  oracle:'valid', oraclePx:105.21, mark:{ px:105.30, batch:4811 }, batchId:4812, paused:false,
+  side:'buy', price:'104.80', size:'2.000', ro:false, amt:'1.5',
+  busy:null, orders:[], fills:[], pos:null, realized:0, tab:'positions', seq:0, idx:'ok', slot:289114302,
+});
+let S = fresh();
+const seen = new Set();
+
+// ---------- formatting: unknown is never shown as zero ----------
+const U = '<span class="faint">unknown</span>';
+const sol = v => v == null ? U : v.toFixed(4) + ' SOL';
+const usd = v => v == null ? U : '$' + v.toFixed(2);
+const sgn = (v, f) => v == null ? U : `<span class="${v >= 0 ? 'bull' : 'bear'}">${v >= 0 ? '+' : '−'}${f(Math.abs(v))}</span>`;
+const dir = side => side === 'buy' ? 1 : -1;
+const sideTxt = side => side === 'buy' ? '<span class="bull">Long</span>' : '<span class="bear">Short</span>';
+
+// ---------- derived, honest rules ----------
+function D() {
+  const d = {};
+  d.oracleOk = S.oracle === 'valid';
+  d.ready = !!S.wallet && S.portfolio && S.collateral > 0;
+  d.locked = (S.pos ? IM * S.pos.qty : 0) + S.orders.filter(o => !o.ro).reduce((a, o) => a + IM * o.qty, 0);
+  d.avail = d.ready ? S.collateral - d.locked : null;
+  d.awaiting = S.fills.some(f => f.st === 'awaiting');
+  if (!S.wallet) d.wdWhy = 'Connect a wallet first.';
+  else if (!S.portfolio) d.wdWhy = 'No portfolio yet.';
+  else if (S.paused) d.wdWhy = 'Withdrawals paused (insurance exhausted).';
+  else if (d.awaiting) d.wdWhy = 'A batch cleared but is not settled yet. Withdrawals wait for settlement.';
+  else if (S.pos && !d.oracleOk) d.wdWhy = 'Open position needs a valid oracle to price margin.';
+  d.withdrawable = d.wdWhy ? null : Math.max(0, S.collateral - d.locked);
+  if (S.pos) {
+    const p = S.pos, u = p.qty * (S.mark.px - p.entry) * dir(p.side);
+    d.upnlUsd = u; d.upnlSol = d.oracleOk ? u / S.oraclePx : null;
+    if (d.oracleOk) {
+      const den = p.side === 'buy' ? S.collateral + (1 - MM) * p.qty : (1 + MM) * p.qty - S.collateral;
+      d.liq = den > 0 ? p.qty * p.entry / den : 'none';
+    } else d.liq = null;
+  }
+  d.closeWhy = !S.pos ? '' : !d.oracleOk ? 'Close needs a valid oracle.' : S.orders.some(o => o.ro) ? 'Close order already working.' : '';
+  // next onboarding step: connected wallet is not "ready to trade"
+  d.step = !S.wallet ? 'connect' : !S.portfolio && S.walletSol < 0.01 ? 'airdrop' : !S.portfolio || S.collateral <= 0 ? 'deposit' : null;
+  // order validation
+  const px = +S.price, qty = +S.size;
+  d.px = px; d.qty = qty; d.value = px > 0 && qty > 0 ? px * qty : null;
+  d.need = S.ro ? 0 : qty > 0 ? IM * qty : null;
+  let why = '';
+  if (d.step) why = '';
+  else if (S.ro && !S.pos) why = 'Reduce-only needs an open position.';
+  else if (S.ro && S.pos.side === S.side) why = `Reduce-only must be ${S.pos.side === 'buy' ? 'Sell' : 'Buy'} against your ${S.pos.side === 'buy' ? 'long' : 'short'}.`;
+  else if (!S.ro && S.paused) why = 'New exposure paused (insurance exhausted). Cancel and reduce-only still work.';
+  else if (!S.ro && S.oracle === 'stale') why = 'Oracle stale (74 s > 60 s). New exposure blocked.';
+  else if (!S.ro && S.oracle === 'down') why = 'Oracle unavailable. New exposure blocked.';
+  else if (!(px > 0)) why = 'Enter a price.';
+  else if (!(qty > 0) || Math.abs(Math.round(qty / LOT) * LOT - qty) > 1e-9) why = 'Size must be a multiple of 0.001 SOL.';
+  else if (!S.ro && (S.pos ? S.pos.qty : 0) + qty > CAP) why = `Max ${CAP} SOL per portfolio.`;
+  else if (!S.ro && d.need > d.avail + 1e-9) why = `Needs ${d.need.toFixed(4)} SOL margin, ${d.avail.toFixed(4)} available.`;
+  else if (S.ro && qty > S.pos.qty) why = `Reduce-only can close at most ${S.pos.qty.toFixed(3)} SOL.`;
+  d.why = why;
+  return d;
+}
+
+// ---------- actions (each is a real control on the page) ----------
+function wait(label, ms, fn) { S.busy = label; render(); setTimeout(() => { S.busy = null; fn(); render(); }, ms); }
+function walletTx(fn) { wait('Approve in wallet…', 450, () => wait('Confirming…', 750, fn)); }
+const A = {
+  connect: () => wait('Connecting…', 400, () => { S.wallet = W; }),
+  airdrop: () => wait('Requesting airdrop…', 900, () => { S.walletSol += 2; }),
+  deposit: () => {
+    const a = +S.amt; if (!(a > 0) || a > S.walletSol - 0.01) return;
+    walletTx(() => { S.portfolio = true; S.collateral += a; S.walletSol -= a; S.tab = 'collateral'; });
+  },
+  withdraw: () => {
+    const d = D(), a = +S.amt; if (d.withdrawable == null || !(a > 0) || a > d.withdrawable + 1e-9) return;
+    walletTx(() => { S.collateral -= a; S.walletSol += a; });
+  },
+  place: () => {
+    if (D().why) return;
+    walletTx(() => {
+      const o = { id: ++S.seq, side:S.side, qty:+S.size, px:+S.price, ro:S.ro, st:'accepted', batch:S.batchId };
+      S.orders.push(o); S.tab = 'orders'; S.ro = false;
+    });
+  },
+  close: () => {
+    const p = S.pos; if (!p || D().closeWhy) return;
+    walletTx(() => {
+      S.orders.push({ id: ++S.seq, side: p.side === 'buy' ? 'sell' : 'buy', qty:p.qty, px:S.mark.px, ro:true, st:'accepted', batch:S.batchId });
+      S.tab = 'orders';
+    });
+  },
+  cancel: id => {
+    const o = S.orders.find(o => o.id === id); if (!o) return;
+    o.st = 'cancelling'; render();
+    walletTx(() => { S.orders = S.orders.filter(x => x.id !== id); });
+  },
+};
+// ---------- simulated market events (not trader-clickable in the product) ----------
+const SIM = {
+  clear: () => {
+    const go = S.orders.filter(o => o.st === 'accepted' && o.batch === S.batchId);
+    for (const o of go) S.fills.unshift({ id:o.id, side:o.side, qty:o.qty, px:o.px, ro:o.ro, batch:S.batchId, st:'awaiting',
+      fee: o.qty * o.px * TAKER / (S.oracle === 'valid' ? S.oraclePx : o.px) });
+    S.orders = S.orders.filter(o => !go.includes(o));
+    S.mark = { px: go.length ? go[0].px : +(S.mark.px + 0.4).toFixed(2), batch:S.batchId };
+    if (!go.length) S.oraclePx = +(S.oraclePx + 0.35).toFixed(2);
+    S.orders.forEach(o => { if (o.st === 'accepted') o.batch = S.batchId + 1; });
+    S.batchId++; S.slot += 3;
+    if (go.length) S.tab = 'fills';
+  },
+  settle: () => {
+    if (S.oracle !== 'valid') return;
+    for (const f of S.fills.filter(f => f.st === 'awaiting')) {
+      f.st = 'settled'; S.collateral -= f.fee;
+      const p = S.pos;
+      if (!p) S.pos = { side:f.side, qty:f.qty, entry:f.px };
+      else if (p.side === f.side) { const q = p.qty + f.qty; p.entry = (p.entry * p.qty + f.px * f.qty) / q; p.qty = q; }
+      else {
+        const q = Math.min(p.qty, f.qty), pnl = q * (f.px - p.entry) * dir(p.side) / S.oraclePx;
+        S.collateral += pnl; S.realized += pnl; p.qty = +(p.qty - q).toFixed(3);
+        if (p.qty <= 0) S.pos = null;
+      }
+    }
+    S.tab = 'positions';
+  },
+  oracle: () => { S.oracle = { valid:'stale', stale:'down', down:'valid' }[S.oracle]; },
+  pause: () => { S.paused = !S.paused; },
+  idx: () => { S.idx = { ok:'delayed', delayed:'down', down:'ok' }[S.idx]; },
+  reset: () => { S = fresh(); seen.clear(); },
+};
+
+// walkthrough hint: which control to click next
+function hint(d) {
+  if (S.busy) return [null, `${S.busy} Nothing is shown as done until the transaction confirms.`];
+  if (d.step === 'connect') return ['[data-a=connect]', 'Click <b>Select Wallet</b>.'];
+  if (d.step === 'airdrop') return ['[data-a=airdrop]', 'Connected, but not ready to trade. Click <b>Get devnet SOL</b>.'];
+  if (d.step === 'deposit') return ['[data-a=deposit]', 'Click <b>Create portfolio &amp; deposit</b>.'];
+  if (S.orders.some(o => o.st === 'accepted')) return ['[data-s=clear]', 'Order accepted and resting. Nothing is filled yet. Simulate <b>Clear batch</b>.'];
+  if (d.awaiting) return S.oracle === 'valid' ? ['[data-s=settle]', 'Filled but not settled: no position or PnL yet. Simulate <b>Settle</b>.'] : ['[data-s=oracle]', 'Settlement waits for a valid oracle. Cycle <b>Oracle</b> back to valid.'];
+  if (S.pos && S.mark.batch < S.fills[0]?.batch + 1) return ['[data-s=clear]', 'Position settled. PnL uses the DFBA mark from that batch. Simulate <b>Clear batch</b> to move the mark.'];
+  if (S.pos) return ['[data-a=close]', 'Try <b>Close</b> (reduce-only), or toggle <b>Oracle</b> or <b>Pause</b> to see what stays usable.'];
+  if (S.realized !== 0 && S.tab !== 'collateral') return ['[data-tab=collateral]', 'Flat again. Open <b>Collateral</b> to withdraw.'];
+  if (S.realized !== 0) return ['[data-a=withdraw]', 'Flat: you can withdraw without a price. Click <b>Withdraw</b>.'];
+  return ['[data-a=place]', 'Ready to trade. Click a level in <b>Resting orders</b> to use its price, set size, then click <b>Buy / Long</b>.'];
+}
+
+// ---------- views ----------
+function vHdr(d) {
+  const w = S.wallet
+    ? `<span class="pill static"><span class="dot ${d.ready ? 'ok' : 'warn'}"></span>${W} · ${S.walletSol.toFixed(2)} SOL</span>`
+    : `<button class="pill solid" data-a="connect" ${S.busy ? 'disabled' : ''}>Select Wallet</button>`;
+  const air = S.wallet && !S.portfolio ? `<button class="pill" data-a="airdrop" ${S.busy ? 'disabled' : ''}>Get devnet SOL</button>` : '';
+  return `<span class="logo">MGK</span><span class="nav">Trade</span><span class="grow"></span>${air}${w}`;
+}
+function vMkt() {
+  const o = S.oracle === 'valid' ? `${usd(S.oraclePx)} <span class="faint">3s</span>`
+    : S.oracle === 'stale' ? `<span class="warn">${usd(S.oraclePx)} · stale 74s</span>` : `<span class="bear">unavailable</span>`;
+  return `<span class="sym">SOL-USD PERP</span>
+    <div class="stat"><span class="k">Oracle · risk</span><span class="v">${o}</span></div>
+    <div class="stat"><span class="k">Mark · PnL</span><span class="v">${usd(S.mark.px)} <span class="faint">batch ${S.mark.batch}</span></span></div>
+    <div class="stat"><span class="k">Collecting</span><span class="v">batch ${S.batchId}</span></div>
+    <div class="stat"><span class="k">Funding</span><span class="v faint">off</span></div>`;
+}
+function vChart() {
+  let r = 7, p = 104, out = '';
+  const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 90; i++) {
+    const o = p, c = o + (rnd() - 0.48) * 0.9, h = Math.max(o, c) + rnd() * 0.4, l = Math.min(o, c) - rnd() * 0.4; p = c;
+    const y = v => 300 - (v - 100) * 30, x = 10 + i * 11, col = c >= o ? '#22c55e' : '#dc2626';
+    out += `<line x1="${x + 3}" x2="${x + 3}" y1="${y(h)}" y2="${y(l)}" stroke="${col}" stroke-width="1"/><rect x="${x}" y="${Math.min(y(o), y(c))}" width="6" height="${Math.max(1, Math.abs(y(o) - y(c)))}" fill="${col}"/>`;
+  }
+  return `<svg viewBox="0 0 1000 420" preserveAspectRatio="none">${out}</svg>
+    <div class="refnote">Binance SOLUSDT · 15m<b>external reference · not executable</b></div>`;
+}
+function vForm(d) {
+  if (d.step) {
+    const st = (ok, a, b) => `<div class="s ${ok ? 'done' : 'todo'}"><span>${a}</span><span>${b}</span></div>`;
+    const cta = { connect:['connect', 'Select wallet'], airdrop:['airdrop', 'Get devnet SOL'], deposit:['deposit', 'Create portfolio & deposit'] }[d.step];
+    const amtOk = +S.amt > 0 && +S.amt <= S.walletSol - 0.01;
+    return `<div class="cap">Before you can trade</div>
+      <div class="steps">
+        ${st(!!S.wallet, 'Wallet connected', S.wallet ? W : '—')}
+        ${st(S.walletSol > 0 || S.portfolio, 'Devnet SOL for fees', S.wallet ? S.walletSol.toFixed(2) + ' SOL' : '—')}
+        ${st(S.collateral > 0, 'Collateral deposited', S.portfolio ? sol(S.collateral) : '—')}
+      </div>
+      ${d.step === 'deposit' ? `<label class="field"><span class="row"><span>Deposit (SOL)</span><span class="faint">wallet ${S.walletSol.toFixed(2)}</span></span><input type="text" data-f="amt" value="${S.amt}"></label>` : ''}
+      <button class="cta" data-a="${cta[0]}" ${S.busy || (d.step === 'deposit' && !amtOk) ? 'disabled' : ''}>${S.busy || cta[1]}</button>
+      ${d.step === 'deposit' && !amtOk ? `<div class="reason">Keep ≥ 0.01 SOL in the wallet for fees.</div>` : ''}
+      <div class="faint" style="font:11px/1.5 var(--mono)">Order entry unlocks after collateral is deposited. A connected wallet alone is not ready to trade.</div>`;
+  }
+  return `<div class="seg"><button data-side="buy" class="buy ${S.side === 'buy' ? 'on' : ''}">Buy / Long</button><button data-side="sell" class="sell ${S.side === 'sell' ? 'on' : ''}">Sell / Short</button></div>
+    <div class="cap">Limit · good-till-cancelled</div>
+    <label class="field"><span>Price (USD)</span><input type="text" data-f="price" value="${S.price}"></label>
+    <label class="field"><span class="row"><span>Size (SOL)</span><span class="faint">lots of 0.001</span></span><input type="text" data-f="size" value="${S.size}"></label>
+    <label class="check"><input type="checkbox" data-f="ro" ${S.ro ? 'checked' : ''}> Reduce only</label>
+    <div id="sum" style="display:flex;flex-direction:column;gap:8px">${vSum(d)}</div>`;
+}
+function vSum(d) {
+  const label = S.busy || `${S.side === 'buy' ? 'Buy / Long' : 'Sell / Short'}${d.qty > 0 ? ' ' + d.qty.toFixed(3) + ' SOL' : ''}`;
+  return `<div class="kv"><span class="k">Order value</span><span>${usd(d.value)}</span></div>
+    <div class="kv"><span class="k">Margin (20% IM)</span><span>${S.ro ? '0.0000 SOL' : sol(d.need)}</span></div>
+    <div class="kv"><span class="k">Available</span><span>${sol(d.avail)}</span></div>
+    <div class="kv"><span class="k">Fee</span><span class="muted">≤ 5 bps</span></div>
+    <button class="cta ${S.side}" data-a="place" ${S.busy || d.why ? 'disabled' : ''}>${label}</button>
+    ${d.why ? `<div class="reason">${d.why}</div>` : ''}`;
+}
+const row = (k, html) => `<tr data-k="${k}">${html}</tr>`;
+const tag = (k, cls, t) => `<span class="tag ${cls}" data-k="${k}">${t}</span>`;
+function vBot(d) {
+  const tabs = [['positions', 'Positions', S.pos ? 1 : 0], ['orders', 'Open orders', S.orders.length], ['fills', 'Fills', S.fills.length], ['collateral', 'Collateral', null]];
+  const head = `<div class="tabs">${tabs.map(([k, l, n]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${l}${n ? `<span class="n">${n}</span>` : ''}</button>`).join('')}</div>`;
+  let c = '';
+  const noWallet = `<div class="empty">Connect a wallet to see your ${S.tab === 'orders' ? 'open orders' : S.tab}.</div>`;
+  if (S.tab === 'positions') {
+    c = !S.wallet ? noWallet : !S.pos ? `<div class="empty">No open position.</div>` : (() => {
+      const p = S.pos, liq = d.liq == null ? `<span class="faint">unavailable</span>` : d.liq === 'none' ? '<span class="muted">none</span>' : usd(d.liq);
+      return `<table><tr><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>Unrealized PnL</th><th>Liq. (at oracle)</th><th></th></tr>
+        ${row('pos' + p.entry + p.qty, `<td>${sideTxt(p.side)}</td><td>${p.qty.toFixed(3)} SOL</td><td>${usd(p.entry)}</td><td>${usd(S.mark.px)} <span class="faint">b${S.mark.batch}</span></td>
+          <td>${sgn(d.upnlUsd, v => '$' + v.toFixed(2))} <span class="faint">≈</span> ${d.upnlSol == null ? '<span class="faint">SOL unavailable</span>' : sgn(d.upnlSol, v => v.toFixed(4) + ' SOL')}</td>
+          <td>${liq}</td><td><button class="mini" data-a="close" ${S.busy || d.closeWhy ? 'disabled' : ''} title="${d.closeWhy}">Close (reduce-only)</button></td>`)}
+        </table>${d.closeWhy ? `<div class="reason" style="padding-top:8px">${d.closeWhy}</div>` : ''}`;
+    })();
+  } else if (S.tab === 'orders') {
+    c = !S.wallet ? noWallet : !S.orders.length ? `<div class="empty">No open orders.</div>` :
+      `<table><tr><th>Side</th><th>Size</th><th>Limit</th><th>Type</th><th>Status</th><th></th></tr>
+      ${S.orders.map(o => row('o' + o.id, `<td>${sideTxt(o.side)}</td><td>${o.qty.toFixed(3)} SOL</td><td>${usd(o.px)}</td><td class="muted">${o.ro ? 'Reduce-only' : 'GTC'}</td>
+        <td>${o.st === 'cancelling' ? tag('o' + o.id + 'c', 'warn', 'Cancel confirming') : tag('o' + o.id + 'a', 'info', 'Accepted · resting in batch ' + o.batch)}</td>
+        <td><button class="mini" data-a="cancel" data-id="${o.id}" ${S.busy || o.st !== 'accepted' ? 'disabled' : ''}>Cancel</button></td>`)).join('')}</table>`;
+  } else if (S.tab === 'fills') {
+    c = !S.wallet ? noWallet : !S.fills.length ? `<div class="empty">No fills yet. Accepted orders fill when their batch clears.</div>` :
+      `<table><tr><th>Batch</th><th>Side</th><th>Size</th><th>Price</th><th>Fee</th><th>Status</th></tr>
+      ${S.fills.map(f => row('f' + f.id, `<td>${f.batch}</td><td>${sideTxt(f.side)}${f.ro ? ' <span class="faint">RO</span>' : ''}</td><td>${f.qty.toFixed(3)} SOL</td><td>${usd(f.px)}</td><td>${f.fee.toFixed(4)} SOL</td>
+        <td>${f.st === 'awaiting' ? tag('f' + f.id + 'w', 'warn', 'Filled · awaiting settlement') : tag('f' + f.id + 's', 'ok', 'Settled')}</td>`)).join('')}</table>`;
+  } else {
+    const a = +S.amt, wdOk = d.withdrawable != null && a > 0 && a <= d.withdrawable + 1e-9, depOk = S.portfolio && a > 0 && a <= S.walletSol - 0.01;
+    c = !S.wallet ? noWallet : !S.portfolio ? `<div class="empty">No portfolio yet. Use <b>Create portfolio &amp; deposit</b> in the order panel.</div>` :
+      `<div class="coll">
+        <div class="stat"><span class="k">Deposited</span><span class="v">${sol(S.collateral)}</span></div>
+        <div class="stat"><span class="k">Locked margin</span><span class="v">${sol(d.locked)}</span></div>
+        <div class="stat"><span class="k">Withdrawable</span><span class="v">${d.withdrawable == null ? '<span class="faint">unavailable</span>' : sol(d.withdrawable)}</span></div>
+        <div class="stat"><span class="k">Realized PnL</span><span class="v">${sgn(S.realized, v => v.toFixed(4) + ' SOL')}</span></div>
+        <div class="act"><input type="text" data-f="amt" value="${S.amt}">
+          <div class="btns"><button class="mini" data-a="deposit" ${S.busy || !depOk ? 'disabled' : ''}>Deposit</button><button class="mini" data-a="withdraw" ${S.busy || !wdOk ? 'disabled' : ''}>Withdraw</button></div>
+          ${d.wdWhy ? `<div class="reason">${d.wdWhy}</div>` : S.busy ? `<div class="reason">${S.busy}</div>` : ''}</div>
+      </div>`;
+  }
+  return head + `<div class="content">${c}</div>`;
+}
+// Resting orders in the collecting batch. Others' levels are fake, offset from the last mark;
+// your accepted orders are merged in. Crossed levels are normal: nothing executes until the batch clears.
+function vBook() {
+  if (S.idx === 'down') return `<div class="bh"><div class="t">Resting orders</div></div>
+    <div class="empty">Order book unavailable: indexer not responding.<br><span class="faint">Your orders still submit; prices here are unknown, not empty.</span></div>`;
+  const m = S.mark.px, lv = (o, q) => ({ px:+(m + o).toFixed(2), qty:q, you:0 });
+  const asks = [lv(1.10,3.2), lv(0.70,1.5), lv(0.35,4.0), lv(0.10,0.8), lv(-0.55,1.2)];
+  const bids = [lv(-0.70,2.1), lv(-0.95,5.0), lv(-1.20,0.9), lv(-1.50,3.3), lv(-1.90,6.0)];
+  for (const o of S.orders.filter(o => o.st === 'accepted' && o.batch === S.batchId)) {
+    const side = o.side === 'buy' ? bids : asks, l = side.find(l => l.px === o.px);
+    if (l) { l.qty += o.qty; l.you += o.qty; } else side.push({ px:o.px, qty:o.qty, you:o.qty });
+  }
+  asks.sort((a, b) => b.px - a.px); bids.sort((a, b) => b.px - a.px);
+  const row = (l, c) => `<button class="lv ${c}" data-px="${l.px.toFixed(2)}"><span>${l.px.toFixed(2)}${l.you ? '<span class="you">● you</span>' : ''}</span><span>${l.qty.toFixed(3)}</span></button>`;
+  const fresh = S.idx === 'ok' ? `as of slot ${S.slot.toLocaleString()}` : `<span class="warn">as of slot ${S.slot.toLocaleString()} · 4 behind</span>`;
+  return `<div class="bh"><div class="t">Resting orders · batch ${S.batchId}</div>
+      <div class="s">Batch clears at one price. Levels are not fills. ${fresh}</div></div>
+    <div class="cols"><span>Price</span><span>Size (SOL)</span></div>
+    <div class="lvs">${asks.map(l => row(l, 'ask')).join('')}
+      <div class="mid">Last clear ${usd(m)} · b${S.mark.batch}</div>
+      ${bids.map(l => row(l, 'bid')).join('')}</div>`;
+}
+function vStatus(d) {
+  const ws = !S.wallet ? 'Wallet: not connected' : d.ready ? '<span class="bull">Ready to trade</span>' : '<span class="warn">Wallet connected · not ready</span>';
+  return `<span><span class="dot ok" style="display:inline-block;margin-right:6px"></span>RPC ok</span>${S.idx === 'ok' ? '<span>Indexer ok</span>' : S.idx === 'delayed' ? '<span class="warn">Indexer delayed · 4 slots</span>' : '<span class="bear">Indexer down</span>'}<span>Devnet</span><span class="grow"></span><span>${ws}</span>`;
+}
+function vDock(d, h) {
+  const accepted = S.orders.some(o => o.st === 'accepted');
+  return `<div class="t"><span>Simulate · not in product</span><button data-s="reset" style="padding:1px 7px">Reset</button></div>
+    <div class="next">${h[1]}</div>
+    <div class="row">
+      <button data-s="clear" ${S.busy ? 'disabled' : ''}>Clear batch ${S.batchId}${accepted ? '' : ' (empty)'}</button>
+      <button data-s="settle" ${S.busy || !d.awaiting || S.oracle !== 'valid' ? 'disabled' : ''}>Settle</button>
+    </div>
+    <div class="row">
+      <button data-s="oracle" class="${S.oracle !== 'valid' ? 'on' : ''}">Oracle: ${S.oracle}</button>
+      <button data-s="pause" class="${S.paused ? 'on' : ''}">Insurance pause: ${S.paused ? 'on' : 'off'}</button>
+      <button data-s="idx" class="${S.idx !== 'ok' ? 'on' : ''}">Indexer: ${S.idx}</button>
+    </div>`;
+}
+
+// ---------- render (only new rows/tags animate in) ----------
+const $ = id => document.getElementById(id);
+function mark(root) {
+  root.querySelectorAll('[data-k]').forEach(el => { if (!seen.has(el.dataset.k)) { el.classList.add('new'); seen.add(el.dataset.k); } });
+}
+function render() {
+  const d = D(), h = hint(d);
+  $('hdr').innerHTML = vHdr(d);
+  $('banner').innerHTML = S.paused ? `<div class="banner">Insurance exhausted: new exposure and withdrawals are paused. Cancels and reduce-only closes still work.</div>` : '';
+  $('mkt').innerHTML = vMkt();
+  $('book').innerHTML = vBook(); $('book').classList.toggle('stale', S.idx === 'delayed');
+  $('form').innerHTML = vForm(d);
+  $('bot').innerHTML = vBot(d); mark($('bot'));
+  $('status').innerHTML = vStatus(d);
+  $('dock').innerHTML = vDock(d, h);
+  if (h[0]) document.querySelector(h[0])?.classList.add('hint');
+}
+function renderSum() { const s = $('sum'); if (s) s.innerHTML = vSum(D()); }
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('button,[data-f=ro]'); if (!t || t.disabled) return;
+  if (t.dataset.a) { A[t.dataset.a](+t.dataset.id); render(); }
+  else if (t.dataset.s) { SIM[t.dataset.s](); render(); }
+  else if (t.dataset.tab) { S.tab = t.dataset.tab; render(); }
+  else if (t.dataset.px) { S.price = t.dataset.px; render(); }
+  else if (t.dataset.side) { S.side = t.dataset.side; render(); }
+});
+document.addEventListener('input', e => {
+  const f = e.target.dataset.f; if (!f) return;
+  if (f === 'ro') { S.ro = e.target.checked; if (S.ro && S.pos) { S.side = S.pos.side === 'buy' ? 'sell' : 'buy'; S.size = S.pos.qty.toFixed(3); } render(); return; }
+  S[f] = e.target.value;
+  if (f === 'amt') { // keep focus: patch only the dependent buttons
+    const d = D(), a = +S.amt;
+    const dep = document.querySelector('[data-a=deposit]'), wd = document.querySelector('[data-a=withdraw]');
+    if (dep) dep.disabled = !!S.busy || !(a > 0 && a <= S.walletSol - 0.01);
+    if (wd) wd.disabled = !!S.busy || !(d.withdrawable != null && a > 0 && a <= d.withdrawable + 1e-9);
+  } else renderSum();
+});
+
+$('chart').innerHTML = vChart();
+render();
+</script>
+</body>
+</html>
