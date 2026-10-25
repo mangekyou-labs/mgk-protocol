@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mangekyou-labs/mgk-protocol/deployments/manifest.schema.json",
+  "title": "MGK deployment manifest",
+  "description": "Single source of every on-chain address for one MGK market. Authoritative validation (base58 length, uniqueness across all addresses, status/field coherence) lives in the mgk-deployment crate; this schema documents the shape for non-Rust consumers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "cluster", "programs", "accounts", "start_slot"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "cluster": { "enum": ["localnet", "devnet", "testnet", "mainnet-beta"] },
+    "programs": {
+      "description": "Program IDs are generated up front and are never placeholders.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["perps_core", "perps_matcher", "oracle"],
+      "properties": {
+        "perps_core": { "$ref": "#/$defs/pubkey" },
+        "perps_matcher": { "$ref": "#/$defs/pubkey" },
+        "oracle": { "$ref": "#/$defs/pubkey" }
+      }
+    },
+    "accounts": {
+      "description": "Addresses created at market creation. Not-yet-deployed entries must be explicit placeholders. The current batch is derived, never configured.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry", "instrument", "oracle", "insurance", "maker"],
+      "properties": {
+        "registry": { "$ref": "#/$defs/account_ref" },
+        "instrument": { "$ref": "#/$defs/account_ref" },
+        "oracle": { "$ref": "#/$defs/account_ref" },
+        "insurance": { "$ref": "#/$defs/account_ref" },
+        "maker": { "$ref": "#/$defs/account_ref" }
+      }
+    },
+    "start_slot": {
+      "description": "First slot the indexer backfills from.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": { "status": { "const": "pending" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "slot"],
+          "properties": {
+            "status": { "const": "set" },
+            "slot": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "pubkey": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+    },
+    "account_ref": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": { "status": { "const": "pending" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "address"],
+          "properties": {
+            "status": { "const": "deployed" },
+            "address": { "$ref": "#/$defs/pubkey" }
+          }
+        }
+      ]
+    }
+  }
+}
