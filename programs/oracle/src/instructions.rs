@@ -1,7 +1,10 @@
 //! Oracle instruction handlers
 
 use crate::state::{PriceOracle, PRICE_ORACLE_SIZE};
-use mgk_common::layout::{init_mut, load_mut};
+use mgk_common::{
+    layout::{discriminator, init_mut, load_mut},
+    MgkError,
+};
 use pinocchio::{
     account_info::AccountInfo,
     msg,
@@ -61,6 +64,14 @@ pub fn process_initialize(
     if oracle_data.len() < PRICE_ORACLE_SIZE {
         msg!("Error: Oracle account too small");
         return Err(ProgramError::AccountDataTooSmall);
+    }
+
+    // Only a never-initialised (zeroed) account may be initialised. Without
+    // this, any signer could re-run Initialize on a live oracle and take over
+    // its authority.
+    if oracle_data[0] != discriminator::UNINITIALIZED {
+        msg!("Error: Oracle account already initialized");
+        return Err(MgkError::AlreadyInitialized.into());
     }
 
     // Stamps the PRICE_ORACLE discriminator and layout version, then the
@@ -291,4 +302,91 @@ pub fn process_deactivate(
 
     msg!("Oracle deactivated");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mgk_common::{layout::load, MgkError};
+
+    /// Size of pinocchio's private `Account` runtime header that precedes
+    /// account data in the input buffer.
+    const RAW_HEADER: usize = 88;
+
+    /// A runtime-shaped account buffer: `Account` header followed by data.
+    struct FakeAccount {
+        buf: std::vec::Vec<u64>,
+    }
+
+    impl FakeAccount {
+        fn new(key: [u8; 32], is_signer: bool, is_writable: bool, data_len: usize) -> Self {
+            let words = (RAW_HEADER + data_len).div_ceil(8);
+            let mut buf = std::vec![0u64; words];
+            let bytes = unsafe {
+                core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, words * 8)
+            };
+            bytes[0] = 0xFF; // borrow_state: nothing borrowed
+            bytes[1] = is_signer as u8;
+            bytes[2] = is_writable as u8;
+            bytes[8..40].copy_from_slice(&key);
+            bytes[80..88].copy_from_slice(&(data_len as u64).to_le_bytes());
+            Self { buf }
+        }
+
+        fn info(&mut self) -> AccountInfo {
+            // `AccountInfo` is `repr(C) { raw: *mut Account }`.
+            unsafe { core::mem::transmute::<*mut u8, AccountInfo>(self.buf.as_mut_ptr() as *mut u8) }
+        }
+    }
+
+    fn init_data(price: i64, bump: u8) -> [u8; 9] {
+        let mut d = [0u8; 9];
+        d[..8].copy_from_slice(&price.to_le_bytes());
+        d[8] = bump;
+        d
+    }
+
+    #[test]
+    fn initialize_stamps_a_fresh_oracle() {
+        let mut oracle = FakeAccount::new([1; 32], false, true, PRICE_ORACLE_SIZE);
+        let mut auth = FakeAccount::new([2; 32], true, false, 0);
+        let mut instr = FakeAccount::new([3; 32], false, false, 0);
+        let accounts = [oracle.info(), auth.info(), instr.info()];
+
+        process_initialize(&[0; 32], &accounts, &init_data(100, 7)).unwrap();
+
+        let data = accounts[0].try_borrow_data().unwrap();
+        let o = load::<PriceOracle>(&data).unwrap();
+        assert_eq!(o.authority, [2; 32]);
+        assert_eq!(o.price, 100);
+    }
+
+    #[test]
+    fn initialize_rejects_an_already_initialized_oracle_and_keeps_its_authority() {
+        let mut oracle = FakeAccount::new([1; 32], false, true, PRICE_ORACLE_SIZE);
+        let mut owner = FakeAccount::new([2; 32], true, false, 0);
+        let mut attacker = FakeAccount::new([9; 32], true, false, 0);
+        let mut instr = FakeAccount::new([3; 32], false, false, 0);
+        let oracle_info = oracle.info();
+
+        process_initialize(
+            &[0; 32],
+            &[oracle_info, owner.info(), instr.info()],
+            &init_data(100, 7),
+        )
+        .unwrap();
+
+        let err = process_initialize(
+            &[0; 32],
+            &[oracle_info, attacker.info(), instr.info()],
+            &init_data(1, 8),
+        )
+        .unwrap_err();
+        assert_eq!(err, ProgramError::from(MgkError::AlreadyInitialized));
+
+        let data = oracle_info.try_borrow_data().unwrap();
+        let o = load::<PriceOracle>(&data).unwrap();
+        assert_eq!(o.authority, [2; 32], "authority must not change");
+        assert_eq!(o.price, 100);
+    }
 }
