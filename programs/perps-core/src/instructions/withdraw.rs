@@ -1,3 +1,4 @@
+use mgk_common::layout::{load_account};
 use crate::state::{Portfolio, Registry, Vault};
 use mgk_common::MgkError;
 use pinocchio::{
@@ -19,7 +20,7 @@ pub fn process_withdraw(
     // (e.g. oracle outage, suspected bug). Deposits stay open so users
     // can still fund defensive positions during a paused-but-recovering
     // state.
-    let registry = unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_withdrawals_paused() {
         msg!("Error: Withdrawals are paused");
         return Err(MgkError::OperationPaused.into());

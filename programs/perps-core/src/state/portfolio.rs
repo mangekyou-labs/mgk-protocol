@@ -1,3 +1,4 @@
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
 
 pub const MAX_POSITIONS: usize = 32;
@@ -6,6 +7,8 @@ pub const MAX_INSTRUMENTS: usize = 32;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Portfolio {
+    /// Account discriminator + layout version (spec 13 / issue 16).
+    pub header: AccountHeader,
     pub user: Pubkey,
     pub equity: i128,
     pub principal: i128,
@@ -31,8 +34,15 @@ pub struct Position {
     pub entry_vwap: i64,
 }
 
+// SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Portfolio {
+    const DISCRIMINATOR: u8 = discriminator::PORTFOLIO;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
 impl Portfolio {
     pub fn initialize_in_place(&mut self, user: Pubkey, bump: u8) {
+        self.header = AccountHeader::of::<Self>();
         self.user = user;
         self.equity = 0;
         self.principal = 0;
@@ -85,6 +95,7 @@ impl Portfolio {
     #[cfg(test)]
     pub fn new(user: Pubkey) -> Self {
         let mut p = Self {
+            header: AccountHeader::of::<Self>(),
             user,
             equity: 0,
             principal: 0,
@@ -109,6 +120,43 @@ impl Portfolio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_portfolio_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let p = Portfolio::new(Pubkey::from([4u8; 32]));
+        assert_eq!(p.header.discriminator, discriminator::PORTFOLIO);
+        assert_eq!(p.header.layout_version, LAYOUT_VERSION_1);
+
+        let words = core::mem::size_of::<Portfolio>().div_ceil(16);
+        let mut buf = std::vec![0u128; words];
+        let bytes: &mut [u8] = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, core::mem::size_of::<Portfolio>())
+        };
+        mgk_common::layout::init_mut::<Portfolio>(bytes).unwrap();
+        assert!(load::<Portfolio>(bytes).is_ok());
+        bytes[0] = discriminator::VAULT;
+        assert_eq!(
+            load::<Portfolio>(bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::PORTFOLIO;
+        bytes[1] = 7;
+        assert_eq!(
+            load::<Portfolio>(bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
+    #[test]
+    fn test_portfolio_initialize_in_place_restamps_header() {
+        let mut p = Portfolio::new(Pubkey::default());
+        p.header.discriminator = 0;
+        p.header.layout_version = 0;
+        p.initialize_in_place(Pubkey::from([1u8; 32]), 3);
+        assert_eq!(p.header, mgk_common::layout::AccountHeader::of::<Portfolio>());
+    }
 
     #[test]
     fn test_portfolio_new() {

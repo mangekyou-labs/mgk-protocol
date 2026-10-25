@@ -162,6 +162,18 @@ pub fn load_mut<T: AccountLayout>(data: &mut [u8]) -> Result<&mut T, MgkError> {
     Ok(unsafe { &mut *(data.as_mut_ptr() as *mut T) })
 }
 
+/// Stamp the header of a new account and borrow it as `&mut T`, for `init`
+/// paths. The body is left as-is (callers run `initialize_in_place`).
+#[inline]
+pub fn init_mut<T: AccountLayout>(data: &mut [u8]) -> Result<&mut T, MgkError> {
+    if data.len() < core::mem::size_of::<T>() {
+        return Err(MgkError::InvalidAccount);
+    }
+    write_header(data, T::DISCRIMINATOR, T::LAYOUT_VERSION)?;
+    // SAFETY: as in `load`; size checked and header just written.
+    Ok(unsafe { &mut *(data.as_mut_ptr() as *mut T) })
+}
+
 /// Load from a pinocchio `AccountInfo` without runtime borrow tracking.
 ///
 /// # Safety
@@ -172,6 +184,18 @@ pub unsafe fn load_account<T: AccountLayout>(
     account: &pinocchio::account_info::AccountInfo,
 ) -> Result<&T, MgkError> {
     load::<T>(account.borrow_data_unchecked())
+}
+
+/// [`init_mut`] on a pinocchio `AccountInfo`.
+///
+/// # Safety
+/// Same contract as `AccountInfo::borrow_mut_data_unchecked`.
+#[inline]
+#[allow(clippy::mut_from_ref)]
+pub unsafe fn init_account_mut<T: AccountLayout>(
+    account: &pinocchio::account_info::AccountInfo,
+) -> Result<&mut T, MgkError> {
+    init_mut::<T>(account.borrow_mut_data_unchecked())
 }
 
 /// Mutable counterpart of [`load_account`].
@@ -346,6 +370,21 @@ mod tests {
         assert_eq!(b[8], 9);
         assert_eq!(
             stamp_body_mut(&mut [0u8; 4], 200, 3).err(),
+            Some(MgkError::InvalidAccount)
+        );
+    }
+
+    #[test]
+    fn init_mut_stamps_header_and_returns_typed_body() {
+        let mut b = [0xFFu8; 16];
+        {
+            let p = init_mut::<Probe>(&mut b).unwrap();
+            p.value = 5;
+        }
+        assert_eq!(&b[..8], &[200, 3, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(load::<Probe>(&b).unwrap().value, 5);
+        assert_eq!(
+            init_mut::<Probe>(&mut [0u8; 12]).err(),
             Some(MgkError::InvalidAccount)
         );
     }

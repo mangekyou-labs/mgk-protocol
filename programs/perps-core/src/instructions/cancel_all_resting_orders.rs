@@ -1,3 +1,4 @@
+use mgk_common::layout::{load_account};
 use crate::state::Portfolio;
 use mgk_common::{MgkError, validate_owner, validate_writable};
 use pinocchio::{
@@ -53,7 +54,7 @@ pub fn process_cancel_all_resting_orders(
     }
 
     let portfolio = unsafe {
-        &*(portfolio_account.borrow_data_unchecked().as_ptr() as *const Portfolio)
+        load_account::<Portfolio>(portfolio_account)?
     };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");

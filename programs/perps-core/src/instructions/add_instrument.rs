@@ -1,3 +1,4 @@
+use mgk_common::layout::init_account_mut;
 use crate::state::{Instrument, Registry};
 use mgk_common::MgkError;
 use pinocchio::{
@@ -45,7 +46,7 @@ pub fn process_add_instrument(
     sym[3] = b'T';
 
     let inst_data = unsafe {
-        &mut *(instrument_account.borrow_mut_data_unchecked().as_ptr() as *mut Instrument)
+        init_account_mut::<Instrument>(instrument_account)?
     };
     inst_data.initialize_in_place(
         instrument_id,

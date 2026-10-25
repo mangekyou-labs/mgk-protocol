@@ -1,3 +1,5 @@
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
+
 /// M7 7.7: insurance + ADL stub ledger.
 ///
 /// Fields:
@@ -9,8 +11,11 @@
 ///   via `clear_adl_pending`)
 /// - `adl_pending` — keeper-readable flag: true while `adl_debt > 0`
 ///
-/// Memory layout (pinned by `test_vault_size`):
-///   balance: u64      @ 0
+/// Memory layout (pinned by `test_vault_size`; the 8-byte account header
+/// fits into what used to be alignment padding before `insurance_fund`, so
+/// the size is unchanged):
+///   header: 8 bytes   @ 0
+///   balance: u64      @ 8
 ///   insurance: u128   @ 16
 ///   uncovered: u128   @ 32
 ///   adl_debt: u128    @ 48
@@ -22,6 +27,7 @@
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Vault {
+    pub header: AccountHeader,
     pub balance: u64,
     pub insurance_fund: u128,
     pub uncovered_bad_debt: u128,
@@ -31,8 +37,15 @@ pub struct Vault {
     pub _padding: [u8; 6],
 }
 
+// SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Vault {
+    const DISCRIMINATOR: u8 = discriminator::VAULT;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
 impl Vault {
     pub fn initialize_in_place(&mut self, bump: u8) {
+        self.header = AccountHeader::of::<Self>();
         self.balance = 0;
         self.insurance_fund = 0;
         self.uncovered_bad_debt = 0;
@@ -45,6 +58,7 @@ impl Vault {
     #[cfg(test)]
     pub fn new() -> Self {
         let mut v = Self {
+            header: AccountHeader::of::<Self>(),
             balance: 0,
             insurance_fund: 0,
             uncovered_bad_debt: 0,
@@ -94,6 +108,7 @@ mod tests {
     #[test]
     fn test_vault_initialize() {
         let mut v = Vault {
+            header: AccountHeader::default(),
             balance: u64::MAX,
             insurance_fund: u128::MAX,
             uncovered_bad_debt: u128::MAX,
@@ -152,6 +167,41 @@ mod tests {
         assert!(!v.adl_pending);
         assert_eq!(v.adl_debt, 0);
         assert_eq!(v.bump, 7);
+    }
+
+    #[test]
+    fn test_vault_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let v = Vault::new();
+        assert_eq!(v.header.discriminator, discriminator::VAULT);
+        assert_eq!(v.header.layout_version, LAYOUT_VERSION_1);
+
+        let mut buf = [0u128; 8];
+        let bytes: &mut [u8] = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, core::mem::size_of::<Vault>())
+        };
+        mgk_common::layout::init_mut::<Vault>(bytes).unwrap();
+        assert!(load::<Vault>(bytes).is_ok());
+        bytes[0] = discriminator::REGISTRY;
+        assert_eq!(
+            load::<Vault>(bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::VAULT;
+        bytes[1] = 9;
+        assert_eq!(
+            load::<Vault>(bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
+    /// The header fills the old 8 bytes of padding in front of the u128s, so
+    /// balance moves 0 -> 8 and the u128 offsets are unchanged.
+    #[test]
+    fn test_vault_header_fits_in_existing_padding() {
+        assert_eq!(core::mem::offset_of!(Vault, balance), 8);
+        assert_eq!(core::mem::offset_of!(Vault, insurance_fund), 16);
     }
 
     #[test]

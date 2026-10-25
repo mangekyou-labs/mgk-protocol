@@ -1,5 +1,6 @@
 //! SetInstrumentOracle (disc 23) — governance-only instrument oracle binding.
 
+use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Instrument, Registry};
 use mgk_common::{
     program_ids::mgk_oracle_program_id,
@@ -41,7 +42,7 @@ pub fn process_set_instrument_oracle(
     validate_owner(registry_account, program_id)?;
 
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
 
     if registry.governance != *governance_account.key() {
         msg!("Error: Invalid governance");
@@ -98,7 +99,7 @@ pub fn process_set_instrument_oracle(
 
     // 4. Update instrument.oracle_addr
     let instrument = unsafe {
-        &mut *(instrument_account.borrow_mut_data_unchecked().as_ptr() as *mut Instrument)
+        load_account_mut::<Instrument>(instrument_account)?
     };
     apply_set_instrument_oracle(instrument, *oracle_account.key());
 

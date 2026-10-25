@@ -10,6 +10,7 @@
 //! to an already-created account (created by the wallet, not via CPI).
 
 use crate::state::Portfolio;
+use mgk_common::layout::init_account_mut;
 use pinocchio::{
     account_info::AccountInfo,
     msg,
@@ -36,14 +37,13 @@ pub fn process_create_portfolio(
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    let data_slice = unsafe { portfolio_account.borrow_mut_data_unchecked() };
-    if data_slice.is_empty() || data_slice.len() < core::mem::size_of::<Portfolio>() {
+    if portfolio_account.data_len() < core::mem::size_of::<Portfolio>() {
         return Err(ProgramError::InvalidAccountData);
     }
 
     let bump = data.first().copied().unwrap_or(0);
 
-    let portfolio = unsafe { &mut *(data_slice.as_ptr() as *mut Portfolio) };
+    let portfolio = unsafe { init_account_mut::<Portfolio>(portfolio_account)? };
     portfolio.initialize_in_place(*user_account.key(), bump);
 
     msg!("CreatePortfolio: initialized portfolio for user");

@@ -1,3 +1,4 @@
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
 
 use super::order::{OrderType, Side};
@@ -21,6 +22,8 @@ pub type Collecting = BatchStatus;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Batch {
+    /// Account discriminator + layout version (spec 13 / issue 16).
+    pub header: AccountHeader,
     pub batch_id: u64,
     pub status: BatchStatus,
     pub _pad_status: [u8; 7],
@@ -63,6 +66,8 @@ pub enum CommitmentStatus {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Commitment {
+    /// Account discriminator + layout version (spec 13 / issue 16).
+    pub header: AccountHeader,
     pub batch_id: u64,
     pub user: Pubkey,
     pub order_hash: [u8; 32],
@@ -109,8 +114,21 @@ impl Default for RevealedOrder {
     }
 }
 
+// SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Batch {
+    const DISCRIMINATOR: u8 = discriminator::BATCH;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
+// SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Commitment {
+    const DISCRIMINATOR: u8 = discriminator::COMMITMENT;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
 impl Batch {
     pub fn initialize_in_place(&mut self, batch_id: u64, commit_deadline_slot: u64, reveal_deadline_slot: u64, bump: u8) {
+        self.header = AccountHeader::of::<Self>();
         self.batch_id = batch_id;
         self.status = BatchStatus::Committing;
         self._pad_status = [0; 7];
@@ -163,6 +181,7 @@ impl Batch {
 
 impl Commitment {
     pub fn initialize_in_place(&mut self, batch_id: u64, user: Pubkey, order_hash: [u8; 32], deposit_lamports: u64, nonce: u64) {
+        self.header = AccountHeader::of::<Self>();
         self.batch_id = batch_id;
         self.user = user;
         self.order_hash = order_hash;
@@ -176,6 +195,7 @@ impl Commitment {
     #[cfg(test)]
     pub fn new(batch_id: u64, user: Pubkey) -> Self {
         let mut c = Self {
+            header: AccountHeader::of::<Self>(),
             batch_id,
             user,
             order_hash: [0; 32],
@@ -246,6 +266,69 @@ mod tests {
     use super::*;
     use pinocchio::pubkey::Pubkey;
 
+    /// Copy a `T` into a 16-aligned byte buffer so `load` sees a realistic,
+    /// aligned account body (Batch holds u128s).
+    fn aligned_bytes_of<T: Copy>(v: T) -> std::vec::Vec<u128> {
+        let words = core::mem::size_of::<T>().div_ceil(16);
+        let mut buf = std::vec![0u128; words];
+        unsafe { core::ptr::write(buf.as_mut_ptr() as *mut T, v) };
+        buf
+    }
+
+    fn as_bytes<T>(buf: &mut [u128]) -> &mut [u8] {
+        unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, core::mem::size_of::<T>())
+        }
+    }
+
+    #[test]
+    fn test_batch_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let b = Batch::new(7);
+        assert_eq!(b.header.discriminator, discriminator::BATCH);
+        assert_eq!(b.header.layout_version, LAYOUT_VERSION_1);
+
+        let mut buf = aligned_bytes_of(b);
+        let bytes = as_bytes::<Batch>(&mut buf);
+        assert_eq!(load::<Batch>(bytes).unwrap().batch_id, 7);
+        bytes[0] = discriminator::COMMITMENT;
+        assert_eq!(
+            load::<Batch>(bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::BATCH;
+        bytes[1] = 0;
+        assert_eq!(
+            load::<Batch>(bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
+    #[test]
+    fn test_commitment_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let c = Commitment::new(3, Pubkey::from([2u8; 32]));
+        assert_eq!(c.header.discriminator, discriminator::COMMITMENT);
+        assert_eq!(c.header.layout_version, LAYOUT_VERSION_1);
+
+        let mut buf = aligned_bytes_of(c);
+        let bytes = as_bytes::<Commitment>(&mut buf);
+        assert_eq!(load::<Commitment>(bytes).unwrap().batch_id, 3);
+        bytes[0] = discriminator::BATCH;
+        assert_eq!(
+            load::<Commitment>(bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::COMMITMENT;
+        bytes[1] = 2;
+        assert_eq!(
+            load::<Commitment>(bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
     #[test]
     fn test_batch_new() {
         let b = Batch::new(1);
@@ -262,8 +345,10 @@ mod tests {
 
     #[test]
     fn test_batch_size_matches_sdk() {
-        // mgk-frontend packages/sdk BATCH_SIZE = 160 after DFBA fields.
-        assert_eq!(core::mem::size_of::<Batch>(), 160);
+        // mgk-frontend packages/sdk BATCH_SIZE was 160 after DFBA fields;
+        // the 8-byte account header (spec 13 / issue 16) pushes the u128
+        // alignment to 176. The SDK constant must follow.
+        assert_eq!(core::mem::size_of::<Batch>(), 176);
     }
 
     #[test]

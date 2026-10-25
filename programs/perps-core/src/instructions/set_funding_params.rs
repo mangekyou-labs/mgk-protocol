@@ -1,3 +1,4 @@
+use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::instrument::Instrument;
 use crate::state::registry::Registry;
 use mgk_common::MgkError;
@@ -48,7 +49,7 @@ pub fn process_set_funding_params(
 
     // Validate governance signer
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
     if !governance_account.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
@@ -73,7 +74,7 @@ pub fn process_set_funding_params(
 
     // Apply to instrument
     let instrument =
-        unsafe { &mut *(instrument_account.borrow_mut_data_unchecked().as_ptr() as *mut Instrument) };
+        unsafe { load_account_mut::<Instrument>(instrument_account)? };
 
     instrument.funding_coefficient_bps = coefficient_bps;
     instrument.max_funding_rate_bps = max_rate_bps;
