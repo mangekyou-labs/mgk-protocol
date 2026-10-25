@@ -35,9 +35,13 @@ Account validation helpers live in `programs/common/src/`: `validate_owner`, `va
 Instruction dispatch uses `instruction_data[0]` as a u8 discriminator — **not** Anchor's 8-byte SHA256 digest. Add new instructions by appending to the match in `entrypoint.rs`.
 
 ### Hardcoded program IDs
-- Matcher: `PERPMatcher111111111111111111111111111` (placeholder, see `programs/common/src/program_ids.rs`)
-- Oracle: declared in `programs/oracle/src/lib.rs`
-- Perps core: `PRPSCore11111111111111111111111111111111` (placeholder)
+Fresh IDs per ADR 0004, byte arrays in `programs/common/src/program_ids.rs`, base58 mirrored in `deployments/devnet.json` (a test keeps the two in sync). Only public keys are committed; the keypairs live outside the repo.
+- Perps core: `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT`
+- Matcher: `68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK`
+- Oracle: `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm`
+
+### Deployment manifest
+`deployments/devnet.json` is the single source of cluster, program IDs, registry/instrument/oracle/insurance/maker addresses and start slot. Not-yet-deployed entries are explicit `{"status":"pending"}` placeholders. Schema: `deployments/manifest.schema.json`; validator and tests: `cargo test -p mgk-deployment`.
 
 ### no_std
 All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std)]` so they can compile for both BPF and native test.

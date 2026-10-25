@@ -30,10 +30,11 @@ const RESULTS_ACCOUNT_SIZE: usize = 34 + 128 * 58;
 /// Matcher `BookState` on-disk size (pinned in matcher book tests).
 const BOOK_ACCOUNT_SIZE: usize = 27_704;
 
-/// Program IDs matching the keypairs in `target/deploy/`.
-/// (2026-06-24: perps-core re-deployed to CThnLgZ... —CzWqtmcrm... stale)
-const CORE_ID: Pubkey = solana_sdk::pubkey!("C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx");
-const MATCHER_ID: Pubkey = solana_sdk::pubkey!("7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC");
+/// Program IDs are the fresh IDs compiled into the programs
+/// (`programs/common/src/program_ids.rs`, mirrored in `deployments/devnet.json`).
+/// Reading them from `mgk_common` means this test cannot drift from the binaries.
+const CORE_ID: Pubkey = Pubkey::new_from_array(mgk_common::program_ids::PERPS_CORE_ID);
+const MATCHER_ID: Pubkey = Pubkey::new_from_array(mgk_common::program_ids::PERPS_MATCHER_ID);
 
 /// PDA seeds (must match `programs/perps-core/src/pda.rs`).
 const REGISTRY_SEED: &[u8] = b"registry";

@@ -2398,6 +2398,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mgk-deployment"
+version = "0.1.0"
+dependencies = [
+ "bs58",
+ "mgk-common",
+ "serde_json",
+]
+
+[[package]]
 name = "mgk-oracle"
 version = "0.1.0"
 dependencies = [

@@ -8,9 +8,13 @@ import { PublicKey } from '@solana/web3.js';
 
 const DEVNET_DEFAULTS = {
   rpcUrl: 'https://api.devnet.solana.com',
-  coreProgramId: 'C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx',
-  matcherProgramId: '7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC',
-  oracleProgramId: 'CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ',
+  coreProgramId: '9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT',
+  matcherProgramId: '68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK',
+  oracleProgramId: 'GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm',
+  // NOTE (ADR 0004): the program IDs above are the fresh IDs. The book, vault and
+  // registry addresses below belong to the abandoned deployment under the old IDs
+  // and are replaced by `deployments/devnet.json` once the frontend manifest
+  // loader lands (separate spec-13 ticket).
   // Matcher-owned keypair book (persisted at ~/.config/solana/mgk-book-keypair.json)
   bookAddress: 'J33Y6yo6AZM6JKLEw89tN1kPmyEADqWWjGxb1aAW915j',
   // Core PDAs (["vault"], ["registry"])

@@ -24,8 +24,8 @@ const { readFileSync, writeFileSync, mkdirSync, existsSync } = require('fs');
 const { homedir } = require('os');
 const { join } = require('path');
 
-const CORE_ID = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
-const MATCHER_ID = new PublicKey('7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC');
+const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
+const MATCHER_ID = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
 const PORTFOLIO_SIZE = 1456; // BPF layout
 const RESULTS_SIZE = 34 + 128 * 58;
 const BOOK_ACCOUNT_SIZE = 27_704;

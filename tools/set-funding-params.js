@@ -25,7 +25,7 @@ const { homedir } = require('os');
 const { join } = require('path');
 const { loadEnvLocal } = require('./inject-persona');
 
-const CORE_ID = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
+const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 
 // Instrument struct offsets (from programs/perps-core/src/state/instrument.rs)
 // After oracle_addr (@60, 32 bytes → ends @92), i128 cum_funding needs

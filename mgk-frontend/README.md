@@ -30,9 +30,9 @@ mgk-frontend/
 | Variable | Default | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_RPC_URL` | `https://api.devnet.solana.com` | Solana RPC endpoint |
-| `NEXT_PUBLIC_CORE_PROGRAM_ID` | `CzWqtmcrm6sivjNHfNWhoMJfxP7ibm8KqXXjZpkswXy5` | mgk-perps-core on devnet |
-| `NEXT_PUBLIC_MATCHER_PROGRAM_ID` | `AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF` | mgk-perps-matcher on devnet |
-| `NEXT_PUBLIC_ORACLE_PROGRAM_ID` | `6M9eEiDKy8imbDi44ZqquyfknNbveRjD4j9VnvYaHtmA` | mgk-oracle on devnet |
+| `NEXT_PUBLIC_CORE_PROGRAM_ID` | `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` | mgk-perps-core on devnet |
+| `NEXT_PUBLIC_MATCHER_PROGRAM_ID` | `68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK` | mgk-perps-matcher on devnet |
+| `NEXT_PUBLIC_ORACLE_PROGRAM_ID` | `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm` | mgk-oracle on devnet |
 | `NEXT_PUBLIC_INDEXER_URL` | `http://localhost:4000` | Indexer REST + WS base URL |
 | `NEXT_PUBLIC_HERMES_URL` | `https://hermes.pyth.network` | Pyth Hermes API |
 
@@ -89,9 +89,9 @@ Browser (Next.js 16 SPA)
 
 | Program | ID |
 |---|---|
-| mgk-perps-core | `CzWqtmcrm6sivjNHfNWhoMJfxP7ibm8KqXXjZpkswXy5` |
-| mgk-perps-matcher | `AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF` |
-| mgk-oracle | `6M9eEiDKy8imbDi44ZqquyfknNbveRjD4j9VnvYaHtmA` |
+| mgk-perps-core | `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` |
+| mgk-perps-matcher | `68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK` |
+| mgk-oracle | `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm` |
 
 ## Relationship to the on-chain protocol
 

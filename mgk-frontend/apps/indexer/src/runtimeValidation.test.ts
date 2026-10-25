@@ -3,7 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 
 import { isOwnedAccountWithMinimumSize } from './runtimeValidation.js';
 
-const CURRENT_PROGRAM = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
+const CURRENT_PROGRAM = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 const OTHER_PROGRAM = new PublicKey('3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja');
 
 describe('runtime account validation', () => {
