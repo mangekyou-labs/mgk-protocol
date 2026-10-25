@@ -72,6 +72,10 @@ impl Registry {
     /// Initialize in place. Struct field order: governance, instrument_count,
     /// volatility_multiplier, batch_id_counter, base_deposit, n_min, t_min_slots,
     /// t_max_slots, t_reveal_slots, bump.
+    ///
+    /// Also sets `max_orders_per_batch` and `marginal_size_cap` to 64. The
+    /// pre-header `Initialize` wrote fields by raw offset and left both at 0,
+    /// so a fresh registry now starts with these defaults.
     #[allow(clippy::too_many_arguments)]
     pub fn initialize_in_place(
         &mut self,

@@ -59,7 +59,7 @@ Tests are inline in `#[cfg(test)] mod tests` blocks within instruction/state sou
 ```sh
 cargo test -p mgk-perps-matcher      # 126 tests
 cargo test -p mgk-perps-core         # 286 lib tests + 13 lifecycle (9 run, 4 ignored for CU)
-cargo test -p mgk-oracle           # 7 tests
+cargo test -p mgk-oracle           # 9 tests
 cargo test -p mgk-common           # 65 tests
 cargo test -p mgk-deployment       # 20 tests
 ```
@@ -79,5 +79,12 @@ the Solana toolchain behind `cargo build-sbf` is older.
 
 Shared `MgkError` enum in `programs/common/src/error.rs` with ranges:
 - 0–99: common (8 = `InvalidAccountDiscriminator`, 9 = `UnsupportedLayoutVersion`)
+
+Registry defaults: `Initialize` now writes `max_orders_per_batch = 64` and `marginal_size_cap = 64`
+(via `Registry::initialize_in_place`). Before the account-header change it wrote fields by raw offset
+and left both at 0, so this is a behaviour change; adjust later with `SetBatchParams`.
+
+Re-initialization: the oracle `Initialize` rejects an account whose discriminator is not
+`UNINITIALIZED` (`MgkError::AlreadyInitialized`).
 
 Errors are cast to `u64` via `From<MgkError> for u64` and returned by entrypoints.
