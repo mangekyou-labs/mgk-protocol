@@ -7,6 +7,7 @@ use crate::state::{
     PartitionedOrders, Side, DFBA_MAX_ORDERS, MAX_FILLS_PER_BATCH, MAX_ORDERS,
 };
 use core::alloc::Layout;
+use mgk_common::layout::{discriminator, stamp_body_mut, LAYOUT_VERSION_1};
 use pinocchio::{
     account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
@@ -259,8 +260,17 @@ pub fn process_compute_clearing(
     Ok(())
 }
 
+/// Stamp the `BATCH_RESULTS` account header (spec 13 / issue 16) and return the
+/// bytes after it. Every results wire offset in this file is relative to the
+/// returned body, so the 8-byte header never leaks into the layouts below.
+fn results_body(raw: &mut [u8]) -> Result<&mut [u8], ProgramError> {
+    stamp_body_mut(raw, discriminator::BATCH_RESULTS, LAYOUT_VERSION_1)
+        .map_err(|_| ProgramError::AccountDataTooSmall)
+}
+
 fn write_empty_result(account: &AccountInfo) -> ProgramResult {
-    let mut data = account.try_borrow_mut_data()?;
+    let mut raw = account.try_borrow_mut_data()?;
+    let data = results_body(&mut raw)?;
     if data.len() < 10 {
         msg!("Error: Results account too small");
         return Err(ProgramError::AccountDataTooSmall);
@@ -278,7 +288,8 @@ fn write_results(
     num_fills: usize,
     fills: &[FillReceipt; MAX_ORDERS],
 ) -> ProgramResult {
-    let mut data = account.try_borrow_mut_data()?;
+    let mut raw = account.try_borrow_mut_data()?;
+    let data = results_body(&mut raw)?;
     let needed = 10 + num_fills * 48;
     if data.len() < needed {
         msg!("Error: Results account too small");
@@ -533,7 +544,8 @@ pub fn process_dfba_clear(
 
     // Zero results header; fills written as we go.
     {
-        let mut rd = results_account.try_borrow_mut_data()?;
+        let mut raw = results_account.try_borrow_mut_data()?;
+        let rd = results_body(&mut raw)?;
         if rd.len() < DFBA_RESULT_HEADER_BYTES {
             return Err(ProgramError::AccountDataTooSmall);
         }
@@ -604,7 +616,8 @@ pub fn process_dfba_clear(
 
     // Write dual header.
     {
-        let mut rd = results_account.try_borrow_mut_data()?;
+        let mut raw = results_account.try_borrow_mut_data()?;
+        let rd = results_body(&mut raw)?;
         rd[0..8].copy_from_slice(&bid_price.to_le_bytes());
         rd[8..16].copy_from_slice(&ask_price.to_le_bytes());
         rd[16..24].copy_from_slice(&matched_bid.to_le_bytes());
@@ -633,7 +646,8 @@ fn append_alloc_fills(
                 return Ok(());
             }
             {
-                let mut data = results_account.try_borrow_mut_data()?;
+                let mut raw = results_account.try_borrow_mut_data()?;
+                let data = results_body(&mut raw)?;
                 let need = DFBA_RESULT_HEADER_BYTES
                     .checked_add(
                         (w + 1)
@@ -645,9 +659,7 @@ fn append_alloc_fills(
                     return Err(ProgramError::AccountDataTooSmall);
                 }
                 let price = alloc.clearing_price;
-                encode_dfba_fill(
-                    &mut data, w, user, order_id, fill_qty, price, is_maker, auction,
-                );
+                encode_dfba_fill(data, w, user, order_id, fill_qty, price, is_maker, auction);
             }
             // Apply to book outside results borrow.
             if accounts.len() >= 2 {
@@ -726,7 +738,8 @@ fn apply_dfba_fills_to_book(
 }
 
 fn write_dfba_empty_result(account: &AccountInfo) -> ProgramResult {
-    let mut data = account.try_borrow_mut_data()?;
+    let mut raw = account.try_borrow_mut_data()?;
+    let data = results_body(&mut raw)?;
     if data.len() < DFBA_RESULT_HEADER_BYTES {
         return Err(ProgramError::AccountDataTooSmall);
     }
@@ -751,7 +764,8 @@ fn write_dfba_results(
         )
         .ok_or(ProgramError::InvalidInstructionData)?;
 
-    let mut data = account.try_borrow_mut_data()?;
+    let mut raw = account.try_borrow_mut_data()?;
+    let data = results_body(&mut raw)?;
     if data.len() < needed {
         msg!("Error: DfbaClear results account too small");
         return Err(ProgramError::AccountDataTooSmall);
@@ -767,14 +781,14 @@ fn write_dfba_results(
     for i in 0..dual.bid_alloc.maker_fill_count {
         let f = &dual.bid_alloc.maker_fills[i];
         if f.fill_qty > 0 {
-            encode_dfba_fill(&mut data, w, &f.user, f.order_id, f.fill_qty, bp, true, 0);
+            encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, bp, true, 0);
             w += 1;
         }
     }
     for i in 0..dual.bid_alloc.taker_fill_count {
         let f = &dual.bid_alloc.taker_fills[i];
         if f.fill_qty > 0 {
-            encode_dfba_fill(&mut data, w, &f.user, f.order_id, f.fill_qty, bp, false, 0);
+            encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, bp, false, 0);
             w += 1;
         }
     }
@@ -782,14 +796,14 @@ fn write_dfba_results(
     for i in 0..dual.ask_alloc.maker_fill_count {
         let f = &dual.ask_alloc.maker_fills[i];
         if f.fill_qty > 0 {
-            encode_dfba_fill(&mut data, w, &f.user, f.order_id, f.fill_qty, ap, true, 1);
+            encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, ap, true, 1);
             w += 1;
         }
     }
     for i in 0..dual.ask_alloc.taker_fill_count {
         let f = &dual.ask_alloc.taker_fills[i];
         if f.fill_qty > 0 {
-            encode_dfba_fill(&mut data, w, &f.user, f.order_id, f.fill_qty, ap, false, 1);
+            encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, ap, false, 1);
             w += 1;
         }
     }
@@ -866,8 +880,17 @@ pub fn process_initialize_book(
     let bump = data[2];
     let book_space = crate::state::book_account_size();
 
-    // Already initialized — nothing to do.
+    let id_le = instrument_id.to_le_bytes();
+    let (expected_pda, _) = pinocchio::pubkey::find_program_address(&[b"book", &id_le], program_id);
+    if book_account.key() != &expected_pda {
+        msg!("Error: book PDA mismatch");
+        return Err(ProgramError::InvalidSeeds);
+    }
+
+    // Already allocated (idempotent). A pre-allocated, still-zeroed account
+    // has no discriminator yet, so stamp it; a stamped book is left alone.
     if book_account.data_len() >= book_space && book_account.owner() == program_id {
+        stamp_new_book(book_account, instrument_id)?;
         msg!("InitializeBook: already exists");
         return Ok(());
     }
@@ -883,12 +906,6 @@ pub fn process_initialize_book(
 
     let rent = Rent::get()?;
     let lamports = rent.minimum_balance(book_space);
-    let id_le = instrument_id.to_le_bytes();
-    let (expected_pda, _) = pinocchio::pubkey::find_program_address(&[b"book", &id_le], program_id);
-    if book_account.key() != &expected_pda {
-        msg!("Error: book PDA mismatch");
-        return Err(ProgramError::InvalidSeeds);
-    }
 
     let mut ix_data = [0u8; 52];
     ix_data[0..4].copy_from_slice(&0u32.to_le_bytes()); // CreateAccount
@@ -910,8 +927,25 @@ pub fn process_initialize_book(
     let signer_seeds = pinocchio::seeds!(b"book", id_le.as_slice(), &bump_seed);
     let signer = Signer::from(&signer_seeds);
     invoke_signed::<2>(&ix, &[payer, book_account], &[signer])?;
-    // createAccount zeros account data → empty BookState (resting_count=0).
+    // createAccount zeros account data → empty BookState (resting_count=0),
+    // which still lacks the discriminator + layout version: stamp them.
+    stamp_new_book(book_account, instrument_id)?;
     msg!("InitializeBook: book PDA created");
+    Ok(())
+}
+
+/// Give a zeroed (discriminator 0) book account its `OrderBook` header and
+/// instrument id. Accounts that already carry any discriminator are left
+/// untouched, so re-running `InitializeBook` never clobbers a live book.
+fn stamp_new_book(book_account: &AccountInfo, instrument_id: u16) -> ProgramResult {
+    let mut data = book_account.try_borrow_mut_data()?;
+    if data.first().copied() != Some(discriminator::UNINITIALIZED) {
+        return Ok(());
+    }
+    stamp_body_mut(&mut data, discriminator::ORDER_BOOK, LAYOUT_VERSION_1)
+        .map_err(|_| ProgramError::AccountDataTooSmall)?;
+    let state = book_state_from_bytes_mut(&mut data)?;
+    state.book.instrument_id = instrument_id;
     Ok(())
 }
 
@@ -1183,7 +1217,8 @@ const CANCEL_ALL_DATA_LEN: usize = 32;
 /// user(32) + filled_qty(8) + notional(8) + is_maker(1) = 49.
 pub const BYTES_PER_FILL: usize = 49;
 /// Maximum size the results account must be allocated to for ClearAndMatch.
-pub const MAX_RESULTS_SIZE: usize = 2 + MAX_FILLS_PER_BATCH * BYTES_PER_FILL;
+pub const MAX_RESULTS_SIZE: usize =
+    mgk_common::layout::ACCOUNT_HEADER_LEN + 2 + MAX_FILLS_PER_BATCH * BYTES_PER_FILL;
 
 /// Per-order wire size for ClearAndMatch (same as ComputeClearing in 6g).
 const CLEAR_ORDER_BYTES: usize = 53;
@@ -1303,12 +1338,12 @@ pub fn process_clear_and_match(
 
         if order.order_type == OrderType::LimitGTC {
             let mut book_data = book_account.try_borrow_mut_data()?;
-            let state = book_state_from_bytes_mut(&mut book_data)
-                .map_err(|_| ProgramError::InvalidAccountData)?;
+            let state = book_state_from_bytes_mut(&mut book_data)?;
             place_resting(state, &order).map_err(|_| ProgramError::InvalidAccountData)?;
         }
 
-        let mut results = results_account.try_borrow_mut_data()?;
+        let mut raw = results_account.try_borrow_mut_data()?;
+        let results = results_body(&mut raw)?;
         if results.len() < 2 {
             msg!("Error: Results account too small for CLOB fills");
             return Err(ProgramError::AccountDataTooSmall);
@@ -1415,7 +1450,8 @@ pub fn process_clear_and_match(
 
 /// Write `MatchResult` fills into the results account in CLOB wire format.
 fn write_clob_results(account: &AccountInfo, result: &crate::state::MatchResult) -> ProgramResult {
-    let mut data = account.try_borrow_mut_data()?;
+    let mut raw = account.try_borrow_mut_data()?;
+    let data = results_body(&mut raw)?;
     let needed = 2 + result.fill_count * BYTES_PER_FILL;
     if data.len() < needed {
         msg!("Error: Results account too small for CLOB fills");
@@ -1434,6 +1470,54 @@ fn write_clob_results(account: &AccountInfo, result: &crate::state::MatchResult)
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod results_header_tests {
+    //! Spec 13 / issue 16: the results account is a `BATCH_RESULTS` account.
+    //! The matcher stamps the header whenever it (re)writes results and all
+    //! wire offsets are relative to the 8-byte header.
+    use super::*;
+    use mgk_common::layout::{discriminator, ACCOUNT_HEADER_LEN, LAYOUT_VERSION_1};
+
+    #[test]
+    fn results_body_stamps_batch_results_header_and_skips_it() {
+        let mut raw = [0xAAu8; 64];
+        let body = results_body(&mut raw).unwrap();
+        assert_eq!(body.len(), 64 - ACCOUNT_HEADER_LEN);
+        assert_eq!(&raw[..8], &[discriminator::BATCH_RESULTS, LAYOUT_VERSION_1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(raw[8], 0xAA, "body bytes are left untouched");
+    }
+
+    #[test]
+    fn results_body_rejects_account_smaller_than_header() {
+        let mut raw = [0u8; 4];
+        assert_eq!(
+            results_body(&mut raw).err(),
+            Some(ProgramError::AccountDataTooSmall)
+        );
+    }
+
+    #[test]
+    fn dfba_fill_is_encoded_after_header_and_dfba_prefix() {
+        let mut raw = [0u8; ACCOUNT_HEADER_LEN + DFBA_RESULT_HEADER_BYTES + DFBA_FILL_WIRE_BYTES];
+        let body = results_body(&mut raw).unwrap();
+        let user = Pubkey::from([7u8; 32]);
+        encode_dfba_fill(body, 0, &user, 5, 11, 100, true, 1);
+        let start = ACCOUNT_HEADER_LEN + DFBA_RESULT_HEADER_BYTES;
+        assert_eq!(&raw[start..start + 32], &[7u8; 32]);
+        assert_eq!(raw[start + 56], 1);
+        assert_eq!(raw[start + 57], 1);
+        assert_eq!(raw[0], discriminator::BATCH_RESULTS);
+    }
+
+    #[test]
+    fn max_results_size_includes_account_header() {
+        assert_eq!(
+            MAX_RESULTS_SIZE,
+            ACCOUNT_HEADER_LEN + 2 + MAX_FILLS_PER_BATCH * BYTES_PER_FILL
+        );
+    }
 }
 
 #[cfg(test)]
