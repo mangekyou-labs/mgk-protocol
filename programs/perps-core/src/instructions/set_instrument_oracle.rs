@@ -1,6 +1,8 @@
 //! SetInstrumentOracle (disc 23) — governance-only instrument oracle binding.
 
-use mgk_common::layout::{load_account, load_account_mut};
+use mgk_common::layout::{
+    check_header, discriminator, load_account, load_account_mut, LAYOUT_VERSION_1,
+};
 use crate::state::{Instrument, Registry};
 use mgk_common::{
     program_ids::mgk_oracle_program_id,
@@ -71,19 +73,11 @@ pub fn process_set_instrument_oracle(
         return Err(MgkError::InvalidAccount.into());
     }
 
-    // Magic bytes LE for b"PRCLORCL" = 0x4c43524f4c435250
-    const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
-    let magic = u64::from_le_bytes(oracle_data[0..8].try_into().unwrap());
-    if magic != ORACLE_MAGIC {
-        msg!("Error: Invalid oracle magic");
-        return Err(MgkError::InvalidAccount.into());
-    }
-
-    let version = oracle_data[8];
-    if version != 0 {
-        msg!("Error: Invalid oracle version");
-        return Err(MgkError::InvalidAccount.into());
-    }
+    // Account type + layout version (distinct errors 8 / 9).
+    check_header(&oracle_data, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1).map_err(|e| {
+        msg!("Error: Invalid oracle account header");
+        ProgramError::from(e)
+    })?;
 
     let is_active = oracle_data[10] != 0;
     if !is_active {
@@ -135,8 +129,10 @@ mod tests {
     #[test]
     fn test_oracle_account_layout_offsets() {
         // Layout:
-        //   0..8    magic: u64 LE
-        //   8       version: u8
+        //   0       header.discriminator: u8 (PRICE_ORACLE)
+        //   1       header.layout_version: u8
+        //   2..8    header._reserved
+        //   8       unused: u8
         //   9       bump: u8
         //   10      is_active: u8
         //   11..16  _padding: [u8; 5]
@@ -147,18 +143,31 @@ mod tests {
         //   96..104 confidence: i64 LE
         //   104..128 _reserved: [u8; 24]
         let mut data = [0u8; 128];
-        const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
-        data[0..8].copy_from_slice(&ORACLE_MAGIC.to_le_bytes());
-        data[8] = 0; // version
+        data[0] = discriminator::PRICE_ORACLE;
+        data[1] = LAYOUT_VERSION_1;
         data[10] = 1; // is_active
 
         let inst_pk = Pubkey::from([0x55u8; 32]);
         data[48..80].copy_from_slice(inst_pk.as_ref());
 
-        let magic = u64::from_le_bytes(data[0..8].try_into().unwrap());
-        assert_eq!(magic, ORACLE_MAGIC);
-        assert_eq!(data[8], 0);
+        assert_eq!(
+            check_header(&data, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1),
+            Ok(())
+        );
         assert_ne!(data[10], 0);
+
+        let mut wrong_disc = data;
+        wrong_disc[0] = discriminator::VAULT;
+        assert_eq!(
+            check_header(&wrong_disc, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1),
+            Err(MgkError::InvalidAccountDiscriminator)
+        );
+        let mut wrong_ver = data;
+        wrong_ver[1] = LAYOUT_VERSION_1 + 1;
+        assert_eq!(
+            check_header(&wrong_ver, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1),
+            Err(MgkError::UnsupportedLayoutVersion)
+        );
         assert_eq!(Pubkey::from(<[u8; 32]>::try_from(&data[48..80]).unwrap()), inst_pk);
     }
 }

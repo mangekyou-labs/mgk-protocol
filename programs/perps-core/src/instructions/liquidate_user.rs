@@ -1,4 +1,6 @@
-use mgk_common::layout::{load_account, load_account_mut};
+use mgk_common::layout::{
+    check_header, discriminator, load_account, load_account_mut, LAYOUT_VERSION_1,
+};
 use crate::state::batch::{Batch, BatchStatus};
 use crate::state::instrument::Instrument;
 use crate::state::liquidation::{
@@ -19,7 +21,6 @@ use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 /// rather than imported to keep `liquidate_user` self-contained.
 const ORACLE_PRICE_OFFSET: usize = 80;
 const ORACLE_PRICE_LEN: usize = 8;
-const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
 
 /// Liquidate an underwater portfolio (M7 7.7).
 ///
@@ -258,16 +259,14 @@ pub fn process_liquidate_user(
 }
 
 /// Read the fallback oracle's price via raw byte access. Returns `None`
-/// if the account is missing, too small, or fails magic validation.
+/// if the account is missing, too small, or fails the account-header check
+/// (`PRICE_ORACLE` discriminator, layout version 1).
 fn read_oracle_price(oracle_account: &AccountInfo) -> Option<i64> {
     let data = oracle_account.try_borrow_data().ok()?;
     if data.len() < ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN {
         return None;
     }
-    let magic_bytes: [u8; 8] = data[0..8].try_into().ok()?;
-    if u64::from_le_bytes(magic_bytes) != ORACLE_MAGIC {
-        return None;
-    }
+    check_header(&data, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1).ok()?;
     let price_bytes: [u8; 8] = data[ORACLE_PRICE_OFFSET..ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN]
         .try_into()
         .ok()?;
@@ -347,8 +346,9 @@ mod tests {
     }
 
     #[test]
-    fn test_oracle_magic_is_pinned() {
-        assert_eq!(ORACLE_MAGIC, 0x4C43_524F_4C43_5250);
+    fn test_oracle_price_offset_matches_oracle_layout() {
+        assert_eq!(ORACLE_PRICE_OFFSET, 80);
+        assert_eq!(discriminator::PRICE_ORACLE, 9);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Oracle instruction handlers
 
 use crate::state::{PriceOracle, PRICE_ORACLE_SIZE};
+use mgk_common::layout::{init_mut, load_mut};
 use pinocchio::{
     account_info::AccountInfo,
     msg,
@@ -56,13 +57,15 @@ pub fn process_initialize(
     let bump = data[8];
 
     // Initialize oracle
-    let oracle_data = oracle_account.try_borrow_mut_data()?;
+    let mut oracle_data = oracle_account.try_borrow_mut_data()?;
     if oracle_data.len() < PRICE_ORACLE_SIZE {
         msg!("Error: Oracle account too small");
         return Err(ProgramError::AccountDataTooSmall);
     }
 
-    let oracle = unsafe { &mut *(oracle_data.as_ptr() as *mut PriceOracle) };
+    // Stamps the PRICE_ORACLE discriminator and layout version, then the
+    // whole struct (header included) is written.
+    let oracle = init_mut::<PriceOracle>(&mut oracle_data).map_err(ProgramError::from)?;
     *oracle = PriceOracle::new(
         *authority_account.key(),
         *instrument_account.key(),
@@ -125,13 +128,11 @@ pub fn process_update_price(
     let timestamp = clock.unix_timestamp;
 
     // Update oracle
-    let oracle_data = oracle_account.try_borrow_mut_data()?;
-    let oracle = unsafe { &mut *(oracle_data.as_ptr() as *mut PriceOracle) };
-
-    if !oracle.validate() {
-        msg!("Error: Invalid oracle account");
-        return Err(ProgramError::InvalidAccountData);
-    }
+    let mut oracle_data = oracle_account.try_borrow_mut_data()?;
+    let oracle = load_mut::<PriceOracle>(&mut oracle_data).map_err(|e| {
+        msg!("Error: Invalid oracle account (header)");
+        ProgramError::from(e)
+    })?;
 
     if oracle.authority != *authority_account.key() {
         msg!("Error: Invalid authority");
@@ -185,13 +186,11 @@ pub fn process_set_authority(
         .map_err(|_| ProgramError::InvalidInstructionData)?;
     let new_authority = Pubkey::from(new_authority_bytes);
 
-    let oracle_data = oracle_account.try_borrow_mut_data()?;
-    let oracle = unsafe { &mut *(oracle_data.as_ptr() as *mut PriceOracle) };
-
-    if !oracle.validate() {
-        msg!("Error: Invalid oracle account");
-        return Err(ProgramError::InvalidAccountData);
-    }
+    let mut oracle_data = oracle_account.try_borrow_mut_data()?;
+    let oracle = load_mut::<PriceOracle>(&mut oracle_data).map_err(|e| {
+        msg!("Error: Invalid oracle account (header)");
+        ProgramError::from(e)
+    })?;
 
     if oracle.authority != *authority_account.key() {
         msg!("Error: Invalid authority");
@@ -232,13 +231,11 @@ pub fn process_activate(
         return Err(ProgramError::InvalidAccountData);
     }
 
-    let oracle_data = oracle_account.try_borrow_mut_data()?;
-    let oracle = unsafe { &mut *(oracle_data.as_ptr() as *mut PriceOracle) };
-
-    if !oracle.validate() {
-        msg!("Error: Invalid oracle account");
-        return Err(ProgramError::InvalidAccountData);
-    }
+    let mut oracle_data = oracle_account.try_borrow_mut_data()?;
+    let oracle = load_mut::<PriceOracle>(&mut oracle_data).map_err(|e| {
+        msg!("Error: Invalid oracle account (header)");
+        ProgramError::from(e)
+    })?;
 
     if oracle.authority != *authority_account.key() {
         msg!("Error: Invalid authority");
@@ -279,13 +276,11 @@ pub fn process_deactivate(
         return Err(ProgramError::InvalidAccountData);
     }
 
-    let oracle_data = oracle_account.try_borrow_mut_data()?;
-    let oracle = unsafe { &mut *(oracle_data.as_ptr() as *mut PriceOracle) };
-
-    if !oracle.validate() {
-        msg!("Error: Invalid oracle account");
-        return Err(ProgramError::InvalidAccountData);
-    }
+    let mut oracle_data = oracle_account.try_borrow_mut_data()?;
+    let oracle = load_mut::<PriceOracle>(&mut oracle_data).map_err(|e| {
+        msg!("Error: Invalid oracle account (header)");
+        ProgramError::from(e)
+    })?;
 
     if oracle.authority != *authority_account.key() {
         msg!("Error: Invalid authority");

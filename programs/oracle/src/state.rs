@@ -2,6 +2,7 @@
 //!
 //! Minimal price oracle for Surfpool testing. Stores price data for instruments.
 
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
 
 /// Size of PriceOracle account: 128 bytes
@@ -13,11 +14,12 @@ pub const PRICE_ORACLE_SIZE: usize = 128;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PriceOracle {
-    /// Magic bytes: "PRCL" + "ORCL" = 0x4C43525044444C52
-    pub magic: u64,
+    /// Account discriminator + layout version (replaces the old 8-byte magic).
+    pub header: AccountHeader,
 
-    /// Version (currently 0)
-    pub version: u8,
+    /// Unused (was `version`; the layout version now lives in the header).
+    /// Kept so later fields retain their offsets.
+    pub _unused: u8,
 
     /// Bump seed for PDA
     pub bump: u8,
@@ -47,18 +49,19 @@ pub struct PriceOracle {
     pub _reserved: [u8; 24],
 }
 
+// SAFETY: `#[repr(C)]` POD with `AccountHeader` at offset 0. As before the
+// header, `is_active` is a `bool` that only this program's handlers write (0/1).
+unsafe impl AccountLayout for PriceOracle {
+    const DISCRIMINATOR: u8 = discriminator::PRICE_ORACLE;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
 impl PriceOracle {
-    /// Magic bytes for validation
-    pub const MAGIC: &'static [u8; 8] = b"PRCLORCL";
-
-    /// Current version
-    pub const VERSION: u8 = 0;
-
     /// Create a new price oracle
     pub fn new(authority: Pubkey, instrument: Pubkey, price: i64, bump: u8) -> Self {
         Self {
-            magic: u64::from_le_bytes(*Self::MAGIC),
-            version: Self::VERSION,
+            header: AccountHeader::of::<Self>(),
+            _unused: 0,
             bump,
             is_active: false,
             _padding: [0; 5],
@@ -69,11 +72,6 @@ impl PriceOracle {
             confidence: 0,
             _reserved: [0; 24],
         }
-    }
-
-    /// Validate the oracle account
-    pub fn validate(&self) -> bool {
-        self.magic == u64::from_le_bytes(*Self::MAGIC) && self.version == Self::VERSION
     }
 
     /// Update the price
@@ -110,12 +108,67 @@ mod tests {
     }
 
     #[test]
+    fn test_price_oracle_header_and_offsets() {
+        use core::mem::offset_of;
+        use mgk_common::layout::{discriminator, AccountHeader, LAYOUT_VERSION_1};
+
+        let oracle = PriceOracle::new(Pubkey::default(), Pubkey::default(), 1, 7);
+        assert_eq!(
+            oracle.header,
+            AccountHeader::new(discriminator::PRICE_ORACLE, LAYOUT_VERSION_1)
+        );
+        // Fields after the header keep their pre-header offsets.
+        assert_eq!(offset_of!(PriceOracle, header), 0);
+        assert_eq!(offset_of!(PriceOracle, bump), 9);
+        assert_eq!(offset_of!(PriceOracle, is_active), 10);
+        assert_eq!(offset_of!(PriceOracle, authority), 16);
+        assert_eq!(offset_of!(PriceOracle, instrument), 48);
+        assert_eq!(offset_of!(PriceOracle, price), 80);
+        assert_eq!(offset_of!(PriceOracle, timestamp), 88);
+        assert_eq!(offset_of!(PriceOracle, confidence), 96);
+    }
+
+    #[test]
+    fn test_load_rejects_wrong_discriminator_and_version() {
+        use mgk_common::error::MgkError;
+        use mgk_common::layout::{discriminator, load, load_mut};
+
+        let oracle = PriceOracle::new(Pubkey::default(), Pubkey::default(), 5, 1);
+        let mut buf = [0u8; PRICE_ORACLE_SIZE];
+        unsafe { *(buf.as_mut_ptr() as *mut PriceOracle) = oracle };
+        assert_eq!(load::<PriceOracle>(&buf).unwrap().price, 5);
+
+        // Zeroed (uninitialised) account.
+        let zeroed = [0u8; PRICE_ORACLE_SIZE];
+        assert_eq!(
+            load::<PriceOracle>(&zeroed).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+
+        // Another account type's discriminator.
+        let mut wrong_disc = buf;
+        wrong_disc[0] = discriminator::REGISTRY;
+        assert_eq!(
+            load_mut::<PriceOracle>(&mut wrong_disc).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+
+        // Unsupported layout version.
+        let mut wrong_ver = buf;
+        wrong_ver[1] = 2;
+        assert_eq!(
+            load::<PriceOracle>(&wrong_ver).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
+    #[test]
     fn test_price_oracle_creation() {
         let authority = Pubkey::default();
         let instrument = Pubkey::default();
         let oracle = PriceOracle::new(authority, instrument, 60_000_000_000, 0);
 
-        assert!(oracle.validate());
+        assert_eq!(oracle.header, AccountHeader::of::<PriceOracle>());
         assert_eq!(oracle.price, 60_000_000_000);
         assert_eq!(oracle.authority, authority);
         assert_eq!(oracle.instrument, instrument);

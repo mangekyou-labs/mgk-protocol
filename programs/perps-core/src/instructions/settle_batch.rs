@@ -25,16 +25,13 @@ use pinocchio::{
 
 /// M7 7.5: PriceOracle field offset for the `price` field (raw bytes
 /// read). The full struct is defined in `programs/oracle/src/state.rs`.
-/// At offset 80: magic(8) + version(1) + bump(1) + is_active(1) +
+/// At offset 80: header(8) + unused(1) + bump(1) + is_active(1) +
 /// _padding(5) + authority(32) + instrument(32) + price(8). This avoids
-/// pulling mgk-oracle as a dep just to read 8 bytes.
+/// pulling mgk-oracle as a dep just to read 8 bytes. The account header
+/// (discriminator `PRICE_ORACLE`, layout version 1) is checked with
+/// `layout::check_header`.
 const ORACLE_PRICE_OFFSET: usize = 80;
 const ORACLE_PRICE_LEN: usize = 8;
-/// Magic bytes stored as a u64 LE at offset 0 of `PriceOracle`. The
-/// `PriceOracle::MAGIC` constant in `programs/oracle/src/state.rs` is
-/// `b"PRCLORCL"`, which when stored LE on-chain becomes
-/// `0x4C43524F4C435250` (P=0x50, R=0x52, C=0x43, L=0x4C, O=0x4F, ...).
-const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
 
 /// M7 7.5 / T9.10.3: Read and validate the fallback oracle's price via raw byte access.
 ///
@@ -42,8 +39,8 @@ const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
 ///   1. `oracle_account.key() == expected_oracle_addr` (matches `instrument.oracle_addr`)
 ///   2. `oracle_account.owner() == &mgk_common::program_ids::mgk_oracle_program_id()`
 ///   3. `oracle_account.data_len() >= 128` (PRICE_ORACLE_SIZE)
-///   4. `magic == ORACLE_MAGIC` (`0x4C43_524F_4C43_5250`)
-///   5. `version == 0`
+///   4. header discriminator == `PRICE_ORACLE`
+///   5. header layout version == `LAYOUT_VERSION_1`
 ///   6. `oracle.instrument == *instrument_account.key()`
 ///   7. `price > 0`
 ///
@@ -63,17 +60,8 @@ fn read_oracle_price(
     if data.len() < 128 {
         return None;
     }
-    // Validate magic.
-    let magic_bytes: [u8; 8] = data[0..8].try_into().ok()?;
-    let magic = u64::from_le_bytes(magic_bytes);
-    if magic != ORACLE_MAGIC {
-        return None;
-    }
-    // Validate version.
-    let version = data[8];
-    if version != 0 {
-        return None;
-    }
+    // Validate account type + layout version.
+    layout::check_header(&data, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1).ok()?;
     let is_active = data[10] != 0;
     // Validate instrument binding.
     let oracle_inst_bytes: [u8; 32] = data[48..80].try_into().ok()?;
@@ -1442,7 +1430,7 @@ mod tests {
 
     #[test]
     fn test_oracle_validation_price_and_metadata_rules() {
-        let make_oracle_data = |magic: u64,
+        let make_oracle_data = |disc: u8,
                                 version: u8,
                                 is_active: bool,
                                 inst: &Pubkey,
@@ -1450,8 +1438,8 @@ mod tests {
                                 ts: i64|
          -> [u8; 128] {
             let mut data = [0u8; 128];
-            data[0..8].copy_from_slice(&magic.to_le_bytes());
-            data[8] = version;
+            data[0] = disc;
+            data[1] = version;
             data[10] = if is_active { 1 } else { 0 };
             data[48..80].copy_from_slice(inst.as_ref());
             data[80..88].copy_from_slice(&price.to_le_bytes());
@@ -1462,38 +1450,56 @@ mod tests {
         let inst_pk = Pubkey::from([0x11u8; 32]);
         let other_inst_pk = Pubkey::from([0x22u8; 32]);
 
+        const DISC: u8 = discriminator::PRICE_ORACLE;
+        const VER: u8 = LAYOUT_VERSION_1;
+
         // Valid data
-        let valid = make_oracle_data(ORACLE_MAGIC, 0, true, &inst_pk, 87_000_000, 1_700_000_000);
+        let valid = make_oracle_data(DISC, VER, true, &inst_pk, 87_000_000, 1_700_000_000);
         assert_eq!(valid.len(), 128);
+        assert_eq!(layout::check_header(&valid, DISC, VER), Ok(()));
 
         // Price <= 0 must be rejected
-        let zero_price = make_oracle_data(ORACLE_MAGIC, 0, true, &inst_pk, 0, 1_700_000_000);
-        let neg_price = make_oracle_data(ORACLE_MAGIC, 0, true, &inst_pk, -500, 1_700_000_000);
+        let zero_price = make_oracle_data(DISC, VER, true, &inst_pk, 0, 1_700_000_000);
+        let neg_price = make_oracle_data(DISC, VER, true, &inst_pk, -500, 1_700_000_000);
         let price_0 = i64::from_le_bytes(zero_price[80..88].try_into().unwrap());
         let price_neg = i64::from_le_bytes(neg_price[80..88].try_into().unwrap());
         assert!(price_0 <= 0);
         assert!(price_neg <= 0);
 
-        // Wrong magic
-        let bad_magic = make_oracle_data(0xDEADBEEF, 0, true, &inst_pk, 87_000_000, 1_700_000_000);
-        assert_ne!(
-            u64::from_le_bytes(bad_magic[0..8].try_into().unwrap()),
-            ORACLE_MAGIC
+        // Wrong discriminator (zeroed / another account type)
+        let bad_disc = make_oracle_data(0, VER, true, &inst_pk, 87_000_000, 1_700_000_000);
+        assert_eq!(
+            layout::check_header(&bad_disc, DISC, VER),
+            Err(MgkError::InvalidAccountDiscriminator)
+        );
+        let other_type = make_oracle_data(
+            discriminator::VAULT,
+            VER,
+            true,
+            &inst_pk,
+            87_000_000,
+            1_700_000_000,
+        );
+        assert_eq!(
+            layout::check_header(&other_type, DISC, VER),
+            Err(MgkError::InvalidAccountDiscriminator)
         );
 
-        // Version != 0
-        let bad_ver = make_oracle_data(ORACLE_MAGIC, 1, true, &inst_pk, 87_000_000, 1_700_000_000);
-        assert_ne!(bad_ver[8], 0);
+        // Unsupported layout version
+        let bad_ver = make_oracle_data(DISC, VER + 1, true, &inst_pk, 87_000_000, 1_700_000_000);
+        assert_eq!(
+            layout::check_header(&bad_ver, DISC, VER),
+            Err(MgkError::UnsupportedLayoutVersion)
+        );
 
         // Inactive
-        let inactive =
-            make_oracle_data(ORACLE_MAGIC, 0, false, &inst_pk, 87_000_000, 1_700_000_000);
+        let inactive = make_oracle_data(DISC, VER, false, &inst_pk, 87_000_000, 1_700_000_000);
         assert_eq!(inactive[10], 0);
 
         // Instrument mismatch
         let mismatch = make_oracle_data(
-            ORACLE_MAGIC,
-            0,
+            DISC,
+            VER,
             true,
             &other_inst_pk,
             87_000_000,
