@@ -4,6 +4,7 @@ Inputs are observed signed fills (lots of 0.001 SOL), micro-USD prices and
 validated conversion prices. This module deliberately imports no program or SDK
 code. One event is applied at a time in observed settlement order.
 """
+from copy import deepcopy
 from dataclasses import dataclass, field
 from fractions import Fraction
 
@@ -90,6 +91,13 @@ class Ledger:
             self._outflow(amount - collected)
 
     def apply_fill(self, fill: Fill) -> None:
+        # A rejected event must have the same all-or-nothing effect as a
+        # transaction. Work on a copy and publish only after every check passes.
+        next_state = deepcopy(self)
+        next_state._apply_fill(fill)
+        self.__dict__.update(next_state.__dict__)
+
+    def _apply_fill(self, fill: Fill) -> None:
         if not fill.account or fill.quantity_lots == 0 or fill.fill_price <= 0 or fill.conversion_price <= 0:
             raise ValueError("invalid fill")
         old = self.positions.get(fill.account)
@@ -143,10 +151,12 @@ class Ledger:
         available = self.collateral.get(account, 0)
         paid = min(available, penalty * 2)
         self.collateral[account] = available - paid
-        to_liquidator = min(paid, penalty)
-        self.collateral[liquidator] = self.collateral.get(liquidator, 0) + to_liquidator
-        self._inflow(paid - to_liquidator)
-        self._outflow(2 * penalty - paid)
+        self.collateral[liquidator] = self.collateral.get(liquidator, 0) + penalty
+        # Collected collateral repays any debt first. The fund covers the
+        # liquidator's guaranteed 1%; an uncovered remainder becomes debt.
+        # The fund's own 1% share is credited only when actually collected.
+        self._inflow(paid)
+        self._outflow(penalty)
 
     def top_up(self, amount: int) -> None:
         if amount <= 0:
@@ -182,8 +192,13 @@ class Ledger:
             raise ValueError("negative open interest")
         return _ceil(Fraction(larger_side_open_interest_lots * LAMPORTS_PER_SOL * 2, LOTS_PER_SOL * 5))
 
-    def withdraw(self, account: str, amount: int) -> int:
-        if self.withdrawals_paused or amount < 0 or amount > self.collateral.get(account, 0):
+    def withdraw(self, account: str, amount: int, conversion_price: int | None = None,
+                 reservations: int = 0) -> int:
+        if account in self.positions and (conversion_price is None or conversion_price <= 0):
+            raise ValueError("valid conversion price required for non-flat withdrawal")
+        available = (self.withdrawable(account, conversion_price, reservations)
+                     if conversion_price is not None else self.collateral.get(account, 0) - reservations)
+        if self.withdrawals_paused or reservations < 0 or amount < 0 or amount > available:
             raise ValueError("withdrawal blocked")
         self.collateral[account] -= amount
         return amount

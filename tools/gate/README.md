@@ -12,7 +12,7 @@ print(ledger.collateral, ledger.fund_lamports, ledger.uncovered_bad_debt)
 print(ledger.vault_liability_lamports())
 ```
 
-`collateral` holds expected lamports for each trader. `fund_lamports` and `uncovered_bad_debt` complete the vault liability equation. The model also tracks positions, realized micro-USD, realized lamports, fees, pause flags, and computes initial/maintenance margin, withdrawable collateral, and required reserve. It does not infer fills, authenticate an oracle, or replace the gate's on-chain invariant checker.
+`collateral` holds expected lamports for each trader. `fund_lamports` and `uncovered_bad_debt` complete the vault liability equation. Call `withdraw(account, lamports, conversion_price, reservations=0)` for a position-bearing account; the model checks unrealized loss, initial margin and reservations. A flat account may omit the conversion price so a stale oracle does not trap idle collateral. The model also tracks positions, realized micro-USD, realized lamports, fees, pause flags, and computes initial/maintenance margin, withdrawable collateral, and required reserve. It does not infer fills, authenticate an oracle, or replace the gate's on-chain invariant checker.
 
 The issue #8 stress vectors quote SOL to six decimal places. Exact protocol-favoring integer conversion yields **−757,575 lamports** for $110 then $120 and **+757,577 lamports** for the reverse; each rounds to the quoted **∓0.000758 SOL** at that display precision. The zero-fee exhaustion vector yields 4,090,909 lamports of uncovered debt and then 4,242,425 lamports in the fund after recovery. The self-tests assert the exact lamports, while the issue's decimal figures are presentation values.
 
