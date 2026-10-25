@@ -42,6 +42,9 @@ class ReferenceModelTests(unittest.TestCase):
         self.assertEqual(ledger.withdraw("A", 9_090_909), 9_090_909)
         self.assertEqual(ledger.collateral["A"], 0)
         self.assertEqual(ledger.positions["B"].quantity_lots, -100)
+        with self.assertRaises(ValueError):
+            ledger.withdraw("B", 70_909_091, 110_000_000)
+        self.assertEqual(ledger.collateral["B"], 100_000_000)
 
     def test_exhaustion_and_debt_first_recovery(self):
         ledger = Ledger(fund_lamports=5_000_000, collateral={"A": 0, "B": 100_000_000})
@@ -71,6 +74,34 @@ class ReferenceModelTests(unittest.TestCase):
         self.assertEqual(ledger.fees_lamports["A"], 491)
         ledger.apply_fill(Fill("A", -1, 102_000_000, 103_000_000, True))
         self.assertEqual(ledger.realized_lamports["A"], 9_708)
+
+    def test_losing_trader_cannot_withdraw_locked_unrealized_loss(self):
+        ledger = Ledger(fund_lamports=20_000_000_000, collateral={"B": 100_000_000})
+        ledger.apply_fill(Fill("B", -100, 100_000_000, 110_000_000, True))
+        self.assertEqual(ledger.withdrawable("B", 110_000_000), 70_909_090)
+        with self.assertRaises(ValueError):
+            ledger.withdraw("B", 70_909_091, 110_000_000)
+        self.assertEqual(ledger.collateral["B"], 100_000_000)
+
+    def test_fee_rejection_preserves_entire_ledger(self):
+        ledger = Ledger(fund_lamports=1_000_000, collateral={"A": 0})
+        before = ledger.vault_liability_lamports()
+        with self.assertRaises(ValueError):
+            ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, False))
+        self.assertNotIn("A", ledger.positions)
+        self.assertEqual(ledger.fund_lamports, 1_000_000)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+
+    def test_liquidator_receives_full_penalty_when_trader_is_short(self):
+        ledger = Ledger(fund_lamports=100_000, collateral={"A": 100_000, "L": 1_000_000_000})
+        ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, True))
+        before = ledger.vault_liability_lamports()
+        ledger.liquidate("A", "L", 25, 100_000_000)
+        self.assertEqual(ledger.collateral["L"], 1_000_250_000)
+        self.assertEqual(ledger.fund_lamports, 0)
+        self.assertEqual(ledger.uncovered_bad_debt, 50_000)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+        self.assertTrue(ledger.trading_paused and ledger.withdrawals_paused)
 
     def test_liquidation_penalty_goes_to_liquidator_and_fund(self):
         ledger = Ledger(fund_lamports=20_000_000_000, collateral={"A": 1_000_000_000, "L": 1_000_000_000})
