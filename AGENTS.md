@@ -43,6 +43,12 @@ Fresh IDs per ADR 0004, byte arrays in `programs/common/src/program_ids.rs`, bas
 ### Deployment manifest
 `deployments/devnet.json` is the single source of cluster, program IDs, registry/instrument/oracle/insurance/maker addresses and start slot. Not-yet-deployed entries are explicit `{"status":"pending"}` placeholders. Schema: `deployments/manifest.schema.json`; validator and tests: `cargo test -p mgk-deployment`.
 
+### Versioned accounts
+Every account type starts with an 8-byte `AccountHeader` (`programs/common/src/layout.rs`): discriminator, layout version, 6 reserved bytes. Loaders (`load_account`, `load_account_mut`, `init_account_mut`) check it: a wrong discriminator (including zeroed accounts) is `MgkError::InvalidAccountDiscriminator` (8), a wrong version is `MgkError::UnsupportedLayoutVersion` (9). New account types need a discriminator in `layout::discriminator` and an `AccountLayout` impl.
+
+### Host vs SBF layout
+SBF aligns `u128`/`i128` to 8, the host to 16. Account structs with 128-bit fields therefore carry explicit padding so every such field sits at its 16-aligned offset and the size is identical on both. Compile-time `const _: () = { assert!(offset_of!(..) ..) }` blocks pin this and are evaluated by both `cargo build` and `cargo build-sbf`. Keep them updated when changing a struct.
+
 ### no_std
 All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std)]` so they can compile for both BPF and native test.
 
@@ -51,11 +57,17 @@ All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std
 Tests are inline in `#[cfg(test)] mod tests` blocks within instruction/state source files. Run per-crate:
 
 ```sh
-cargo test -p mgk-perps-matcher      # 59 tests
-cargo test -p mgk-perps-core         # 19 tests
-cargo test -p mgk-oracle           # 5 tests
-cargo test -p mgk-common           # 42 tests
+cargo test -p mgk-perps-matcher      # 126 tests
+cargo test -p mgk-perps-core         # 286 lib tests + 13 lifecycle (9 run, 4 ignored for CU)
+cargo test -p mgk-oracle           # 7 tests
+cargo test -p mgk-common           # 65 tests
+cargo test -p mgk-deployment       # 20 tests
 ```
+
+Lifecycle tests load the SBF programs: run `cargo build-sbf` first, then
+`BPF_OUT_DIR=$PWD/target/deploy cargo test -p mgk-perps-core --test lifecycle --features host-hash`.
+Without `BPF_OUT_DIR` they skip. Tests and clippy need a recent stable toolchain (`cargo +stable ...`);
+the Solana toolchain behind `cargo build-sbf` is older.
 
 ## SBF build quirks
 
@@ -66,6 +78,6 @@ cargo test -p mgk-common           # 42 tests
 ## Error codes
 
 Shared `MgkError` enum in `programs/common/src/error.rs` with ranges:
-- 0–99: common
+- 0–99: common (8 = `InvalidAccountDiscriminator`, 9 = `UnsupportedLayoutVersion`)
 
 Errors are cast to `u64` via `From<MgkError> for u64` and returned by entrypoints.
