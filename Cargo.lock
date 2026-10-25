@@ -2410,6 +2410,7 @@ dependencies = [
 name = "mgk-oracle"
 version = "0.1.0"
 dependencies = [
+ "mgk-common",
  "pinocchio",
  "solana-program-test",
  "solana-sdk",

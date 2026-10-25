@@ -38,6 +38,9 @@ pub struct Batch {
     pub total_revealed: u32,
     pub total_settled: u32,
     pub total_volume: u64,
+    /// Explicit padding so `total_notional` is 16-aligned on every target
+    /// (SBF aligns u128 to 8, the host to 16).
+    pub _pad_u128: u64,
     pub total_notional: u128,
     pub slashed_deposits: u128,
     pub bump: u8,
@@ -53,6 +56,18 @@ pub struct Batch {
     pub liq_paused: u8,
     pub _dfba_pad: [u8; 6],
 }
+
+// The host (u128 align 16) and the SBF target (u128 align 8) must agree on the
+// account layout. Both u128 fields must therefore sit at 16-aligned offsets
+// *explicitly*, never by accident of the surrounding fields. This is checked
+// at compile time for whichever target is being built (`cargo build-sbf`
+// included).
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(offset_of!(Batch, total_notional) == 96);
+    assert!(offset_of!(Batch, slashed_deposits) == 112);
+    assert!(size_of::<Batch>() == 176);
+};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +156,7 @@ impl Batch {
         self.total_revealed = 0;
         self.total_settled = 0;
         self.total_volume = 0;
+        self._pad_u128 = 0;
         self.total_notional = 0;
         self.slashed_deposits = 0;
         self.bump = bump;

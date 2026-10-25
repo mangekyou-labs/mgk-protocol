@@ -415,6 +415,7 @@ mod tests {
             total_revealed: 22,
             total_settled: 33,
             total_volume: 44,
+            _pad_u128: 1,
             total_notional: 55,
             slashed_deposits: 66,
             bump: 77,
@@ -441,6 +442,7 @@ mod tests {
         assert_eq!(b.total_revealed, 0);
         assert_eq!(b.total_settled, 0);
         assert_eq!(b.total_volume, 0);
+        assert_eq!(b._pad_u128, 0);
         assert_eq!(b.total_notional, 0);
         assert_eq!(b.slashed_deposits, 0);
         assert_eq!(b.bump, 254);

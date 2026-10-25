@@ -1,6 +1,14 @@
 use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
 
+// Host (u128 align 16) and SBF (u128 align 8) must agree on this layout; checked
+// at compile time for whichever target is being built (see state/batch.rs).
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(offset_of!(Instrument, cum_funding) & 15 == 0);
+    assert!(size_of::<Instrument>() == 352);
+};
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Instrument {
@@ -19,6 +27,8 @@ pub struct Instrument {
     pub max_leverage: u16,
     pub _pad_ml: [u8; 2],
     pub oracle_addr: Pubkey,
+    /// Explicit padding so `cum_funding` is 16-aligned on every target.
+    pub _pad_u128: [u8; 12],
     pub cum_funding: i128,
     /// Last slot at which `cum_funding` was accrued (u64 slot — fixed
     /// from i64 in M7 7.4 to match `Clock.slot`). 0 = uninitialized /
@@ -68,6 +78,8 @@ pub struct Instrument {
     /// Legacy field — unused by D7. Retained as inert reserved bytes.
     /// Was `premium_samples` (16-entry ring buffer).
     pub _reserved_premium_samples: [i64; 16],
+    /// Explicit tail padding so the size is a multiple of 16 on every target.
+    pub _pad_tail: [u8; 8],
 }
 
 // SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
@@ -115,6 +127,7 @@ impl Instrument {
         self.max_leverage = max_leverage;
         self._pad_ml = [0; 2];
         self.oracle_addr = oracle_addr;
+        self._pad_u128 = [0; 12];
         self.cum_funding = 0;
         self.last_funding_slot = 0;
         self.funding_interval_slots = funding_interval_slots;
@@ -132,6 +145,7 @@ impl Instrument {
         self._reserved_sample_count = 0;
         self._pad_funding = [0; 6];
         self._reserved_premium_samples = [0; 16];
+        self._pad_tail = [0; 8];
     }
 
     #[cfg(test)]
@@ -155,6 +169,7 @@ impl Instrument {
             max_leverage: 10,
             _pad_ml: [0; 2],
             oracle_addr: Pubkey::default(),
+            _pad_u128: [0; 12],
             cum_funding: 0,
             last_funding_slot: 0,
             funding_interval_slots: 100,
@@ -172,6 +187,7 @@ impl Instrument {
             _reserved_sample_count: 0,
             _pad_funding: [0; 6],
             _reserved_premium_samples: [0; 16],
+            _pad_tail: [0; 8],
         };
         inst.initialize_in_place(
             instrument_id,

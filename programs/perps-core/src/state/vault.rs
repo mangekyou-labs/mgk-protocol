@@ -11,7 +11,8 @@ use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VER
 ///   via `clear_adl_pending`)
 /// - `adl_pending` — keeper-readable flag: true while `adl_debt > 0`
 ///
-/// Memory layout (pinned by `test_vault_size`; the 8-byte account header
+/// Memory layout (pinned by `test_vault_size` on the host and by the
+/// compile-time asserts below on every target; the 8-byte account header
 /// fits into what used to be alignment padding before `insurance_fund`, so
 /// the size is unchanged):
 ///   header: 8 bytes   @ 0
@@ -22,8 +23,9 @@ use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VER
 ///   adl_pending: bool @ 64
 ///   bump: u8          @ 65
 ///   _padding: [u8;6]  @ 66
-///   struct size: 80   (u128 has 16-byte alignment on x86_64 host;
-///   also 8-byte aligned on SBF — the trailing padding is harmless).
+///   _pad_tail: [u8;8] @ 72
+///   struct size: 80   (u128 has 16-byte alignment on the host but only
+///   8 on SBF, so `_pad_tail` makes the SBF size match the host's 80).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Vault {
@@ -35,7 +37,19 @@ pub struct Vault {
     pub adl_pending: bool,
     pub bump: u8,
     pub _padding: [u8; 6],
+    /// Explicit tail padding so the size is 80 on every target (SBF would otherwise be 72).
+    pub _pad_tail: [u8; 8],
 }
+
+// Host (u128 align 16) and SBF (u128 align 8) must agree on this layout:
+// every 128-bit field is 16-aligned and the size is a multiple of 16.
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(offset_of!(Vault, insurance_fund) == 16);
+    assert!(offset_of!(Vault, uncovered_bad_debt) == 32);
+    assert!(offset_of!(Vault, adl_debt) == 48);
+    assert!(size_of::<Vault>() == 80);
+};
 
 // SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
 unsafe impl AccountLayout for Vault {
@@ -53,6 +67,7 @@ impl Vault {
         self.adl_pending = false;
         self.bump = bump;
         self._padding = [0; 6];
+        self._pad_tail = [0; 8];
     }
 
     #[cfg(test)]
@@ -66,6 +81,7 @@ impl Vault {
             adl_pending: false,
             bump: 0,
             _padding: [0; 6],
+            _pad_tail: [0; 8],
         };
         v.initialize_in_place(0);
         v
@@ -116,6 +132,7 @@ mod tests {
             adl_pending: true,
             bump: 255,
             _padding: [0; 6],
+            _pad_tail: [0; 8],
         };
         v.initialize_in_place(42);
         assert_eq!(v.balance, 0);
@@ -207,8 +224,8 @@ mod tests {
     #[test]
     fn test_vault_size() {
         // Pinned to 80 on host (u128 16-byte alignment). On SBF, u128
-        // alignment is 8, but the struct layout offsets stay the same and
-        // the on-chain size is also 80 (trailing padding is harmless).
+        // alignment is 8; the explicit `_pad_tail` keeps the on-chain size
+        // at 80 too (enforced by the compile-time assert above).
         assert_eq!(core::mem::size_of::<Vault>(), 80);
     }
 }

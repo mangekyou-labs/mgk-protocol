@@ -10,6 +10,8 @@ pub struct Portfolio {
     /// Account discriminator + layout version (spec 13 / issue 16).
     pub header: AccountHeader,
     pub user: Pubkey,
+    /// Explicit padding so `equity` is 16-aligned on every target.
+    pub _pad_u128: [u8; 8],
     pub equity: i128,
     pub principal: i128,
     pub pnl: i128,
@@ -19,12 +21,32 @@ pub struct Portfolio {
     pub health: i128,
     pub positions_len: u16,
     pub positions: [Position; MAX_POSITIONS],
+    /// Explicit padding so `last_funding_checkpoint` is 16-aligned on every target.
+    pub _pad_u128_b: [u8; 8],
     pub last_funding_checkpoint: [i128; MAX_INSTRUMENTS],
     pub last_batch_id: u64,
     pub last_slot: u64,
     pub bump: u8,
     pub _padding: [u8; 7],
+    /// Explicit tail padding so the size is a multiple of 16 on every target.
+    pub _pad_tail: [u8; 8],
 }
+
+// Host (u128 align 16) and SBF (u128 align 8) must agree on this layout: every
+// 128-bit field sits at a 16-aligned offset by construction, and the struct
+// size is a multiple of 16. Checked at compile time for the target being built.
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(offset_of!(Portfolio, equity) & 15 == 0);
+    assert!(offset_of!(Portfolio, principal) & 15 == 0);
+    assert!(offset_of!(Portfolio, pnl) & 15 == 0);
+    assert!(offset_of!(Portfolio, im) & 15 == 0);
+    assert!(offset_of!(Portfolio, mm) & 15 == 0);
+    assert!(offset_of!(Portfolio, free_collateral) & 15 == 0);
+    assert!(offset_of!(Portfolio, health) & 15 == 0);
+    assert!(offset_of!(Portfolio, last_funding_checkpoint) & 15 == 0);
+    assert!(size_of::<Portfolio>() & 15 == 0);
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -44,6 +66,7 @@ impl Portfolio {
     pub fn initialize_in_place(&mut self, user: Pubkey, bump: u8) {
         self.header = AccountHeader::of::<Self>();
         self.user = user;
+        self._pad_u128 = [0; 8];
         self.equity = 0;
         self.principal = 0;
         self.pnl = 0;
@@ -53,11 +76,13 @@ impl Portfolio {
         self.health = 0;
         self.positions_len = 0;
         self.positions = [Position::default(); MAX_POSITIONS];
+        self._pad_u128_b = [0; 8];
         self.last_funding_checkpoint = [0; MAX_INSTRUMENTS];
         self.last_batch_id = 0;
         self.last_slot = 0;
         self.bump = bump;
         self._padding = [0; 7];
+        self._pad_tail = [0; 8];
     }
 
     pub fn recalc_margin(&mut self) {
@@ -97,6 +122,7 @@ impl Portfolio {
         let mut p = Self {
             header: AccountHeader::of::<Self>(),
             user,
+            _pad_u128: [0; 8],
             equity: 0,
             principal: 0,
             pnl: 0,
@@ -106,11 +132,13 @@ impl Portfolio {
             health: 0,
             positions_len: 0,
             positions: [Position::default(); MAX_POSITIONS],
+            _pad_u128_b: [0; 8],
             last_funding_checkpoint: [0; MAX_INSTRUMENTS],
             last_batch_id: 0,
             last_slot: 0,
             bump: 0,
             _padding: [0; 7],
+            _pad_tail: [0; 8],
         };
         p.recalc_margin();
         p
