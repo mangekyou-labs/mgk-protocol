@@ -28,3 +28,48 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-features
+
+  runtime:
+    name: Candidate SBF runtime smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NO_DNA: 1
+      MGK_CANDIDATE_MANIFEST: ${{ github.workspace }}/candidate.json
+      MGK_RUNTIME_REPORT: ${{ github.workspace }}/runtime-report.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install existing tools SDK
+        run: npm install --prefix tools --ignore-scripts --no-audit --no-fund
+      - name: Install pinned local runtime and SBF builder
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 -o /tmp/surfpool.tar.gz https://github.com/solana-foundation/surfpool/releases/download/v1.6.0/surfpool-linux-x64.tar.gz
+          echo 'cb471b00aa3b7d603338eb74ebfec1d23959ecba005b5f1be42ba8d174107fc2  /tmp/surfpool.tar.gz' | sha256sum --check
+          mkdir -p /tmp/surfpool-bin /tmp/runtime-bin
+          tar -xzf /tmp/surfpool.tar.gz -C /tmp/surfpool-bin
+          find /tmp/surfpool-bin -type f -name surfpool -exec chmod +x {} \; -exec cp {} /tmp/runtime-bin/surfpool \;
+          echo /tmp/runtime-bin >> "$GITHUB_PATH"
+          curl --fail --location --retry 3 -o /tmp/agave.tar.bz2 https://github.com/anza-xyz/agave/releases/download/v3.1.13/solana-release-x86_64-unknown-linux-gnu.tar.bz2
+          echo '88df00f7c23f84aa627f9181f8231d2aa10ada7caa9ff5a7f7287b7ef7d0bbe8  /tmp/agave.tar.bz2' | sha256sum --check
+          tar -xjf /tmp/agave.tar.bz2 -C /tmp
+          echo /tmp/solana-release/bin >> "$GITHUB_PATH"
+      - name: Build and record candidate artifacts
+        run: |
+          cargo build-sbf --tools-version v1.52
+          node tools/runtime/candidate.js target/deploy "$MGK_CANDIDATE_MANIFEST"
+      - name: Harness contract tests
+        run: node --test tools/runtime/harness.test.js
+      - name: Signed runtime lifecycle and independent model assertions
+        run: node --test tools/runtime/smoke.test.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-runtime-evidence
+          path: |
+            candidate.json
+            runtime-report.json
+          if-no-files-found: error
