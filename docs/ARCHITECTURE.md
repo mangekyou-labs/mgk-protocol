@@ -139,11 +139,11 @@ FIFO creates time-based advantages for colocated participants who submit faster.
 
 Three on-chain programs + one shared library crate, all Pinocchio (`pinocchio::entrypoint!()`), no Anchor:
 
-| Program | Role | Devnet ID |
+| Program | Role | Devnet ID (fresh, ADR 0004; see `deployments/devnet.json`) |
 |---|---|---|
-| `mgk-perps-core` | Portfolio mgmt, batch lifecycle, custody, mark price | `3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja` |
-| `mgk-perps-matcher` | Price-time priority CLOB matching, shuffle, priority queues | `AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF` |
-| `mgk-oracle` | Fallback price feed (admin-pushed, auto-activate) | `6M9eEiDKy8imbDi44ZqquyfknNbveRjD4j9VnvYaHtmA` |
+| `mgk-perps-core` | Portfolio mgmt, batch lifecycle, custody, mark price | `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` |
+| `mgk-perps-matcher` | Price-time priority CLOB matching, shuffle, priority queues | `68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK` |
+| `mgk-oracle` | Fallback price feed (admin-pushed, auto-activate) | `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm` |
 | `mgk-common` | Shared account validation, errors, math (library crate) | — |
 
 ### Program Descriptions
@@ -703,6 +703,8 @@ See `docs/ai/requirements/2026-06-18-feature-onchain-perps-dex.md` § Short-Batc
 ---
 
 ## How to Verify
+
+> The links below point at the abandoned pre-ADR-0004 devnet deployment (old program IDs); they are kept as history only.
 
 - **Devnet explorer (core):** https://explorer.solana.com/address/3jYQ4mpWBBtwrzYQ4zzKhgqVcWWsG2HpXi9oXTBpekja?cluster=devnet
 - **Devnet explorer (matcher):** https://explorer.solana.com/address/AU4EKQAQupEbMWPK9fuJA7CZqfcjM5Bpgf6Ew9Y7o2FF?cluster=devnet

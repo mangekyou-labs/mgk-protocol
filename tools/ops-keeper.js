@@ -35,9 +35,9 @@ const { join } = require('path');
 // ---------------------------------------------------------------------------
 // Canonical program IDs
 // ---------------------------------------------------------------------------
-const CORE_ID = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
-const MATCHER_ID = new PublicKey('7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC');
-const ORACLE_PID = new PublicKey('CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ');
+const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
+const MATCHER_ID = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
+const ORACLE_PID = new PublicKey('GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm');
 
 // Batch statuses
 const BATCH_COLLECTING = 0;

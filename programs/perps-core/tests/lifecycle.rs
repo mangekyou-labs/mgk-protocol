@@ -8,10 +8,18 @@
 //! ```
 //!
 //! `BPF_OUT_DIR` is required so solana-program-test can find the loaded .so.
+//! Rebuild the .so files after any program source change. Every account
+//! fixture carries the 8-byte header (discriminator + layout version); the
+//! harness stamps seeded accounts that the programs load, and leaves
+//! registry / instrument / vault zeroed for `Initialize` to stamp.
 //! DFBA path uses PostOrder (disc 20) → CloseCommitting → ClearBatch (DfbaClear)
 //! → SettleBatch. Commit/Reveal are retired.
 
-use mgk_perps_core::state::{Batch, Commitment, Portfolio, Vault};
+use core::mem::offset_of;
+use core::ops::Range;
+use mgk_common::book::OrderBook;
+use mgk_common::layout::{discriminator, ACCOUNT_HEADER_LEN, LAYOUT_VERSION_1};
+use mgk_perps_core::state::{Batch, Commitment, Instrument, Portfolio, Position, Registry, Vault};
 #[allow(deprecated)]
 use solana_program_test::ProgramTest;
 #[allow(deprecated)]
@@ -25,15 +33,22 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
-/// DFBA results: header 34 + 58 bytes/fill (cap 128 fills).
-const RESULTS_ACCOUNT_SIZE: usize = 34 + 128 * 58;
-/// Matcher `BookState` on-disk size (pinned in matcher book tests).
-const BOOK_ACCOUNT_SIZE: usize = 27_704;
+/// Spec 13 / issue 16: every account starts with an 8-byte header
+/// (discriminator + layout version + reserved). The BATCH_RESULTS payload
+/// follows it, so every raw results offset below is `RES + body_offset`.
+const RES: usize = ACCOUNT_HEADER_LEN;
+/// DFBA results: header 8 + payload header 34 + 58 bytes/fill (cap 128 fills).
+const RESULTS_ACCOUNT_SIZE: usize = RES + 34 + 128 * 58;
+/// Matcher `BookState` on-disk size (header included).
+fn book_account_size() -> usize {
+    mgk_perps_matcher::book_account_size()
+}
 
-/// Program IDs matching the keypairs in `target/deploy/`.
-/// (2026-06-24: perps-core re-deployed to CThnLgZ... —CzWqtmcrm... stale)
-const CORE_ID: Pubkey = solana_sdk::pubkey!("C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx");
-const MATCHER_ID: Pubkey = solana_sdk::pubkey!("7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC");
+/// Program IDs are the fresh IDs compiled into the programs
+/// (`programs/common/src/program_ids.rs`, mirrored in `deployments/devnet.json`).
+/// Reading them from `mgk_common` means this test cannot drift from the binaries.
+const CORE_ID: Pubkey = Pubkey::new_from_array(mgk_common::program_ids::PERPS_CORE_ID);
+const MATCHER_ID: Pubkey = Pubkey::new_from_array(mgk_common::program_ids::PERPS_MATCHER_ID);
 
 /// PDA seeds (must match `programs/perps-core/src/pda.rs`).
 const REGISTRY_SEED: &[u8] = b"registry";
@@ -49,15 +64,70 @@ const PORTFOLIO_SEED: &[u8] = b"portfolio";
 #[allow(dead_code)]
 const BOOK_SEED: &[u8] = b"book";
 
-/// Account sizes from `std::mem::size_of` (run `cargo run --example sizes`
-/// to verify).  Registry: 96 bytes, align 8.  Instrument: 160 bytes, align 16
-/// (M7 7.5: +24 bytes for mark_price, mark_reference_qty, mark_decay_window_slots).
-const REGISTRY_SIZE: usize = 96;
-const INSTRUMENT_SIZE: usize = 336;
+/// Account sizes from `size_of` (run `cargo run --example sizes` to print them).
+/// Each includes the 8-byte account header. Host and SBF layouts are identical
+/// (explicit padding + compile-time asserts in `state/*.rs`), so host
+/// `size_of` / `offset_of!` are valid for the on-chain programs.
+const REGISTRY_SIZE: usize = core::mem::size_of::<Registry>();
+const INSTRUMENT_SIZE: usize = core::mem::size_of::<Instrument>();
 const VAULT_SIZE: usize = core::mem::size_of::<Vault>();
 const BATCH_SIZE: usize = core::mem::size_of::<Batch>();
 const COMMITMENT_SIZE: usize = core::mem::size_of::<Commitment>();
 const PORTFOLIO_SIZE: usize = core::mem::size_of::<Portfolio>();
+
+// -----------------------------------------------------------------------------
+// Raw byte ranges used when asserting on account data fetched from the bank.
+// Every one is derived with `offset_of!`, so they follow the struct layouts
+// (including the 8-byte account header) instead of being hardcoded.
+// -----------------------------------------------------------------------------
+const fn rng(off: usize, len: usize) -> Range<usize> {
+    off..off + len
+}
+// Batch
+const B_ID: Range<usize> = rng(offset_of!(Batch, batch_id), 8);
+const B_STATUS: usize = offset_of!(Batch, status);
+const B_COMMIT_DEADLINE: Range<usize> = rng(offset_of!(Batch, commit_deadline_slot), 8);
+const B_CLEARING_PRICE: Range<usize> = rng(offset_of!(Batch, clearing_price), 8);
+const B_TOTAL_SETTLED: Range<usize> = rng(offset_of!(Batch, total_settled), 4);
+const B_TOTAL_VOLUME: Range<usize> = rng(offset_of!(Batch, total_volume), 8);
+const B_TOTAL_NOTIONAL: Range<usize> = rng(offset_of!(Batch, total_notional), 16);
+const B_MATCHED_BID: Range<usize> = rng(offset_of!(Batch, matched_bid_qty), 8);
+const B_MATCHED_ASK: Range<usize> = rng(offset_of!(Batch, matched_ask_qty), 8);
+const B_MARK_VALID: usize = offset_of!(Batch, mark_valid);
+const B_LIQ_PAUSED: usize = offset_of!(Batch, liq_paused);
+// Portfolio
+const P_USER: Range<usize> = rng(offset_of!(Portfolio, user), 32);
+const P_EQUITY: Range<usize> = rng(offset_of!(Portfolio, equity), 16);
+const P_PRINCIPAL: Range<usize> = rng(offset_of!(Portfolio, principal), 16);
+const P_POSITIONS_LEN: Range<usize> = rng(offset_of!(Portfolio, positions_len), 2);
+// Vault
+const V_BALANCE: Range<usize> = rng(offset_of!(Vault, balance), 8);
+const V_INSURANCE: Range<usize> = rng(offset_of!(Vault, insurance_fund), 16);
+const V_UNCOVERED: Range<usize> = rng(offset_of!(Vault, uncovered_bad_debt), 16);
+// Registry (packed)
+const R_GOVERNANCE: Range<usize> = rng(offset_of!(Registry, governance), 32);
+const R_INSTRUMENT_COUNT: Range<usize> = rng(offset_of!(Registry, instrument_count), 2);
+const R_BATCH_ID_COUNTER: Range<usize> = rng(offset_of!(Registry, batch_id_counter), 8);
+const R_T_MAX: Range<usize> = rng(offset_of!(Registry, t_max_slots), 8);
+// Instrument
+const I_ID: Range<usize> = rng(offset_of!(Instrument, instrument_id), 2);
+const I_BASE_SYMBOL: Range<usize> = rng(offset_of!(Instrument, base_symbol), 4);
+const I_TAKER_FEE: Range<usize> = rng(offset_of!(Instrument, taker_fee_bps), 2);
+const I_MARK_PRICE: Range<usize> = rng(offset_of!(Instrument, mark_price), 8);
+// DFBA results (header + payload: num_fills@32, fills@34 with 58 bytes each)
+const RES_NUM_FILLS: Range<usize> = rng(RES + 32, 2);
+const RES_FILL0_USER: Range<usize> = rng(RES + 34, 32);
+const RES_FILL0_QTY: Range<usize> = rng(RES + 34 + 40, 8);
+const RES_FILL0_PRICE: Range<usize> = rng(RES + 34 + 48, 8);
+const RES_FILL0_ROLE: usize = RES + 34 + 57;
+
+/// Resting orders on a book account (bids + asks), read from the typed header.
+fn book_resting_count(data: &[u8]) -> u32 {
+    let bids = offset_of!(OrderBook, bid_count);
+    let asks = offset_of!(OrderBook, ask_count);
+    u32::from_le_bytes(data[bids..bids + 4].try_into().unwrap())
+        + u32::from_le_bytes(data[asks..asks + 4].try_into().unwrap())
+}
 
 /// Bundle of per-user PDAs derived from `(user, batch_id, nonce)`.  Returned
 /// by `derive_user_pdas` so a test can wire up a single user's accounts
@@ -119,10 +189,12 @@ fn program_test_with_pdas() -> (ProgramTest, TestPdas) {
         Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID),
     );
     pt.add_account(vault_pda, Account::new(1_000_000, VAULT_SIZE, &CORE_ID));
-    pt.add_account(
-        book_pda,
-        Account::new(1_000_000, BOOK_ACCOUNT_SIZE, &MATCHER_ID),
-    );
+    // Registry / instrument / vault stay zeroed: `Initialize` stamps them. The
+    // book is normally stamped by the matcher's `InitializeBook`; the harness
+    // seeds it directly, so give it its `OrderBook` header here.
+    let mut book = Account::new(1_000_000, book_account_size(), &MATCHER_ID);
+    stamp_header(&mut book.data, discriminator::ORDER_BOOK);
+    pt.add_account(book_pda, book);
 
     let pdas = TestPdas {
         registry: registry_pda,
@@ -377,18 +449,28 @@ fn build_cancel_all_resting_data(num_books: u16) -> Vec<u8> {
     num_books.to_le_bytes().to_vec()
 }
 
-/// Build a minimal Oracle account data (26 bytes) for LiquidateUser fallback.
-/// Layout: price(8) + conf(8) + expo(4) + publish_time(4) + is_active(1) + _pad(1).
+/// Build a valid `PriceOracle` account (128 bytes, `PRICE_ORACLE` header) for the
+/// LiquidateUser fallback. Layout: see `programs/oracle/src/state.rs`
+/// (price@80, confidence@96, is_active@10). The oracle is left inactive.
 fn build_oracle_data(price: i64, conf: i64) -> Vec<u8> {
-    let mut data = vec![0u8; 26];
-    data[0..8].copy_from_slice(&price.to_le_bytes());
-    data[8..16].copy_from_slice(&conf.to_le_bytes());
-    data[24] = 0; // is_active = false
+    let mut data = vec![0u8; 128];
+    data[0] = discriminator::PRICE_ORACLE;
+    data[1] = LAYOUT_VERSION_1;
+    data[10] = 0; // is_active = false
+    data[80..88].copy_from_slice(&price.to_le_bytes());
+    data[96..104].copy_from_slice(&conf.to_le_bytes());
     data
 }
 
-/// Pre-built Portfolio account data (1472 bytes) for a single-position
-/// underwater portfolio. Layout must match `state/portfolio.rs::Portfolio`.
+/// Stamp the account header (discriminator + layout version) onto a fixture.
+fn stamp_header(data: &mut [u8], disc: u8) {
+    data[0] = disc;
+    data[1] = LAYOUT_VERSION_1;
+}
+
+/// Pre-built Portfolio account data for a single-position underwater
+/// portfolio. Offsets come from `offset_of!` so they track
+/// `state/portfolio.rs::Portfolio` (header included).
 #[allow(clippy::too_many_arguments)]
 fn build_underwater_portfolio_data(
     user: Pubkey,
@@ -400,26 +482,50 @@ fn build_underwater_portfolio_data(
     im: u128,
     mm: u128,
 ) -> Vec<u8> {
-    let mut data = vec![0u8; 1472];
-    data[0..32].copy_from_slice(user.as_ref());
-    data[32..48].copy_from_slice(&equity.to_le_bytes());
-    data[80..96].copy_from_slice(&im.to_le_bytes());
-    data[96..112].copy_from_slice(&mm.to_le_bytes());
-    data[112..128].copy_from_slice(&equity.saturating_sub(im as i128).to_le_bytes());
-    data[128..144].copy_from_slice(&equity.saturating_sub(mm as i128).to_le_bytes());
-    data[144..146].copy_from_slice(&1u16.to_le_bytes()); // positions_len = 1
-    data[152..154].copy_from_slice(&instrument_id.to_le_bytes());
-    data[160..168].copy_from_slice(&qty.to_le_bytes());
-    data[168..176].copy_from_slice(&entry_vwap.to_le_bytes());
-    data[1448] = bump;
+    let mut data = vec![0u8; PORTFOLIO_SIZE];
+    stamp_header(&mut data, discriminator::PORTFOLIO);
+    let put = |data: &mut Vec<u8>, off: usize, bytes: &[u8]| {
+        data[off..off + bytes.len()].copy_from_slice(bytes)
+    };
+    put(&mut data, offset_of!(Portfolio, user), user.as_ref());
+    put(&mut data, offset_of!(Portfolio, equity), &equity.to_le_bytes());
+    put(&mut data, offset_of!(Portfolio, im), &im.to_le_bytes());
+    put(&mut data, offset_of!(Portfolio, mm), &mm.to_le_bytes());
+    put(
+        &mut data,
+        offset_of!(Portfolio, free_collateral),
+        &equity.saturating_sub(im as i128).to_le_bytes(),
+    );
+    put(
+        &mut data,
+        offset_of!(Portfolio, health),
+        &equity.saturating_sub(mm as i128).to_le_bytes(),
+    );
+    put(&mut data, offset_of!(Portfolio, positions_len), &1u16.to_le_bytes());
+    let pos0 = offset_of!(Portfolio, positions);
+    put(
+        &mut data,
+        pos0 + offset_of!(Position, instrument_id),
+        &instrument_id.to_le_bytes(),
+    );
+    put(&mut data, pos0 + offset_of!(Position, qty), &qty.to_le_bytes());
+    put(
+        &mut data,
+        pos0 + offset_of!(Position, entry_vwap),
+        &entry_vwap.to_le_bytes(),
+    );
+    data[offset_of!(Portfolio, bump)] = bump;
     data
 }
 
-/// Pre-built Vault account data (80 bytes).
+/// Pre-built Vault account data (header stamped, offsets from `offset_of!`).
 fn build_vault_data(insurance_fund: u128, uncovered_bad_debt: u128) -> Vec<u8> {
-    let mut data = vec![0u8; 80];
-    data[8..24].copy_from_slice(&insurance_fund.to_le_bytes());
-    data[24..40].copy_from_slice(&uncovered_bad_debt.to_le_bytes());
+    let mut data = vec![0u8; VAULT_SIZE];
+    stamp_header(&mut data, discriminator::VAULT);
+    let f = offset_of!(Vault, insurance_fund);
+    data[f..f + 16].copy_from_slice(&insurance_fund.to_le_bytes());
+    let u = offset_of!(Vault, uncovered_bad_debt);
+    data[u..u + 16].copy_from_slice(&uncovered_bad_debt.to_le_bytes());
     data
 }
 
@@ -511,9 +617,9 @@ async fn test_initialize_writes_registry_and_instrument() {
         registry_acct.data.len(),
         REGISTRY_SIZE
     );
-    let g: [u8; 32] = registry_acct.data[0..32].try_into().unwrap();
+    let g: [u8; 32] = registry_acct.data[R_GOVERNANCE].try_into().unwrap();
     assert_eq!(Pubkey::from(g), governance.pubkey(), "governance");
-    let instrument_count = u16::from_le_bytes(registry_acct.data[32..34].try_into().unwrap());
+    let instrument_count = u16::from_le_bytes(registry_acct.data[R_INSTRUMENT_COUNT].try_into().unwrap());
     assert_eq!(
         instrument_count, 1,
         "instrument_count (set after instrument init)"
@@ -531,15 +637,25 @@ async fn test_initialize_writes_registry_and_instrument() {
         .await
         .unwrap()
         .expect("instrument account should exist");
-    let inst_id = u16::from_le_bytes(inst_acct.data[0..2].try_into().unwrap());
+    let inst_id = u16::from_le_bytes(inst_acct.data[I_ID].try_into().unwrap());
     assert_eq!(inst_id, 0, "instrument_id");
-    assert_eq!(&inst_acct.data[2..6], b"SOLP", "base_symbol prefix");
+    assert_eq!(&inst_acct.data[I_BASE_SYMBOL], b"SOLP", "base_symbol prefix");
     // is_active=true and bump set are in the trailing bytes; we don't
     // assert exact offsets because BPF layout differs from host layout.
-    let non_zero_after_60 = inst_acct.data[60..].iter().filter(|b| **b != 0).count();
-    assert!(
-        non_zero_after_60 > 0,
-        "oracle_addr was written (non-zero bytes after offset 60)"
+    assert_eq!(
+        &inst_acct.data[offset_of!(Instrument, oracle_addr)..][..32],
+        oracle.as_ref(),
+        "oracle_addr was written"
+    );
+    assert_eq!(
+        &inst_acct.data[..2],
+        &[discriminator::INSTRUMENT, LAYOUT_VERSION_1],
+        "instrument header stamped by Initialize"
+    );
+    assert_eq!(
+        &registry_acct.data[..2],
+        &[discriminator::REGISTRY, LAYOUT_VERSION_1],
+        "registry header stamped by Initialize"
     );
 }
 
@@ -855,16 +971,16 @@ async fn test_e2e_full_lifecycle_with_fill() {
         .await
         .unwrap()
         .expect("batch");
-    let batch_status = batch_acct.data[8];
+    let batch_status = batch_acct.data[B_STATUS];
     assert_eq!(batch_status, 3, "batch status Settled");
 
     // Batch DFBA offsets (host repr(C), size 160):
     // clearing_price@48, bid@120, ask@128, mbid@136, mask@144, mark_valid@152, liq@153
-    let mark_valid = batch_acct.data.get(152).copied().unwrap_or(0);
-    let liq_paused = batch_acct.data.get(153).copied().unwrap_or(1);
-    let clearing_price = i64::from_le_bytes(batch_acct.data[48..56].try_into().unwrap());
-    let matched_bid = u64::from_le_bytes(batch_acct.data[136..144].try_into().unwrap());
-    let matched_ask = u64::from_le_bytes(batch_acct.data[144..152].try_into().unwrap());
+    let mark_valid = batch_acct.data.get(B_MARK_VALID).copied().unwrap_or(0);
+    let liq_paused = batch_acct.data.get(B_LIQ_PAUSED).copied().unwrap_or(1);
+    let clearing_price = i64::from_le_bytes(batch_acct.data[B_CLEARING_PRICE].try_into().unwrap());
+    let matched_bid = u64::from_le_bytes(batch_acct.data[B_MATCHED_BID].try_into().unwrap());
+    let matched_ask = u64::from_le_bytes(batch_acct.data[B_MATCHED_ASK].try_into().unwrap());
     assert!(matched_bid > 0, "bid auction matched");
     assert!(matched_ask > 0, "ask auction matched");
     assert_eq!(mark_valid, 1, "dual clear ⇒ mark_valid");
@@ -891,15 +1007,15 @@ async fn test_e2e_full_lifecycle_with_fill() {
         .await
         .unwrap()
         .expect("results");
-    let num_fills = u16::from_le_bytes(results_acct.data[32..34].try_into().unwrap());
+    let num_fills = u16::from_le_bytes(results_acct.data[RES_NUM_FILLS].try_into().unwrap());
     assert!(
         num_fills >= 4,
         "expected ≥4 fills (maker+taker × bid+ask), got {num_fills}"
     );
     // First fill: user + qty + price
-    let fill0_user = &results_acct.data[34..66];
-    let fill0_qty = u64::from_le_bytes(results_acct.data[74..82].try_into().unwrap());
-    let fill0_price = i64::from_le_bytes(results_acct.data[82..90].try_into().unwrap());
+    let fill0_user = &results_acct.data[RES_FILL0_USER];
+    let fill0_qty = u64::from_le_bytes(results_acct.data[RES_FILL0_QTY].try_into().unwrap());
+    let fill0_price = i64::from_le_bytes(results_acct.data[RES_FILL0_PRICE].try_into().unwrap());
     assert!(
         fill0_user == maker.pubkey().as_ref() || fill0_user == taker.pubkey().as_ref(),
         "fill0 user not maker/taker"
@@ -907,7 +1023,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
     assert!(fill0_qty > 0, "fill0 qty must be > 0, got {fill0_qty}");
     assert_eq!(fill0_price, ORDER_PRICE, "fill0 price");
     // Portfolio.user bytes at offset 0
-    let maker_user_on_chain = &maker_portfolio_acct.data[0..32];
+    let maker_user_on_chain = &maker_portfolio_acct.data[P_USER];
     assert_eq!(
         maker_user_on_chain,
         maker.pubkey().as_ref(),
@@ -917,20 +1033,20 @@ async fn test_e2e_full_lifecycle_with_fill() {
     // Portfolio layout (repr C): user@0 (32), equity@32 (i128).
     // Maker: buy+sell same size → flat cash; locked D3 maker fee is zero.
     // Taker: fee 2×(1e6*5/1e4)=-1000
-    let maker_equity = i128::from_le_bytes(maker_portfolio_acct.data[32..48].try_into().unwrap());
-    let taker_equity = i128::from_le_bytes(taker_portfolio_acct.data[32..48].try_into().unwrap());
+    let maker_equity = i128::from_le_bytes(maker_portfolio_acct.data[P_EQUITY].try_into().unwrap());
+    let taker_equity = i128::from_le_bytes(taker_portfolio_acct.data[P_EQUITY].try_into().unwrap());
     let vault_acct = ctx
         .banks_client
         .get_account(pdas.vault)
         .await
         .unwrap()
         .expect("vault");
-    let vault_balance = u64::from_le_bytes(vault_acct.data[0..8].try_into().unwrap());
+    let vault_balance = u64::from_le_bytes(vault_acct.data[V_BALANCE].try_into().unwrap());
     assert_eq!(vault_balance, 2 * USER_DEPOSIT_LAMPORTS, "vault balance");
     // Dual legs cancel notional; fees: maker zero, taker fee 2×500.
     // (Instrument fee fields must match #[repr(C)] — fixed in initialize.rs.)
     let maker_principal =
-        i128::from_le_bytes(maker_portfolio_acct.data[48..64].try_into().unwrap());
+        i128::from_le_bytes(maker_portfolio_acct.data[P_PRINCIPAL].try_into().unwrap());
     assert_eq!(
         maker_principal, USER_DEPOSIT_LAMPORTS as i128,
         "maker principal"
@@ -944,7 +1060,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
         USER_DEPOSIT_LAMPORTS as i128 - 1_000,
         "taker equity after dual fill + fees"
     );
-    let insurance = u128::from_le_bytes(vault_acct.data[8..24].try_into().unwrap());
+    let insurance = u128::from_le_bytes(vault_acct.data[V_INSURANCE].try_into().unwrap());
     assert_eq!(insurance, 1_000, "vault insurance net fees");
     let _ = num_fills;
 
@@ -1181,11 +1297,11 @@ async fn test_e2e_dfba_one_sided_liq_paused() {
         .await
         .unwrap()
         .expect("batch");
-    assert_eq!(batch_acct.data[8], 3, "Settled");
-    let mark_valid = batch_acct.data[152];
-    let liq_paused = batch_acct.data[153];
-    let matched_bid = u64::from_le_bytes(batch_acct.data[136..144].try_into().unwrap());
-    let matched_ask = u64::from_le_bytes(batch_acct.data[144..152].try_into().unwrap());
+    assert_eq!(batch_acct.data[B_STATUS], 3, "Settled");
+    let mark_valid = batch_acct.data[B_MARK_VALID];
+    let liq_paused = batch_acct.data[B_LIQ_PAUSED];
+    let matched_bid = u64::from_le_bytes(batch_acct.data[B_MATCHED_BID].try_into().unwrap());
+    let matched_ask = u64::from_le_bytes(batch_acct.data[B_MATCHED_ASK].try_into().unwrap());
     assert_eq!(matched_bid, 0, "no bid auction");
     assert!(matched_ask > 0, "ask auction matched");
     assert_eq!(mark_valid, 0, "one-sided ⇒ !mark_valid");
@@ -1397,8 +1513,8 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(ba.data[8], 3, "batch 0 Settled");
-    assert_eq!(ba.data[152], 0, "one-sided -> !mark_valid");
+    assert_eq!(ba.data[B_STATUS], 3, "batch 0 Settled");
+    assert_eq!(ba.data[B_MARK_VALID], 0, "one-sided -> !mark_valid");
     // Batch 1: taker sell@97k crosses resting buy@98k
     let c = ctx
         .banks_client
@@ -1483,7 +1599,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
     .await
     .unwrap();
     let b1a = ctx.banks_client.get_account(b1).await.unwrap().unwrap();
-    assert_eq!(b1a.data[8], 3, "batch 1 Settled");
+    assert_eq!(b1a.data[B_STATUS], 3, "batch 1 Settled");
     let ta = ctx
         .banks_client
         .get_account(tp.portfolio)
@@ -1491,7 +1607,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
         .unwrap()
         .unwrap();
     assert!(
-        u16::from_le_bytes(ta.data[144..146].try_into().unwrap()) >= 1,
+        u16::from_le_bytes(ta.data[P_POSITIONS_LEN].try_into().unwrap()) >= 1,
         "taker filled from resting"
     );
 }
@@ -1717,18 +1833,18 @@ async fn test_e2e_settle_creates_next_batch_pda() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(ba.data[8], 3, "batch 0 Settled");
-    assert_eq!(ba.data[152], 0, "!mark_valid (one-sided bid auction only)");
+    assert_eq!(ba.data[B_STATUS], 3, "batch 0 Settled");
+    assert_eq!(ba.data[B_MARK_VALID], 0, "!mark_valid (one-sided bid auction only)");
     // Verify batch 1 created
     let b1a = ctx.banks_client.get_account(b1).await.unwrap().unwrap();
-    assert_eq!(b1a.data[8], 0, "batch 1 Collecting");
+    assert_eq!(b1a.data[B_STATUS], 0, "batch 1 Collecting");
     assert_eq!(
-        u64::from_le_bytes(b1a.data[0..8].try_into().unwrap()),
+        u64::from_le_bytes(b1a.data[B_ID].try_into().unwrap()),
         1,
         "batch 1 id"
     );
     assert!(
-        u64::from_le_bytes(b1a.data[16..24].try_into().unwrap()) > 0,
+        u64::from_le_bytes(b1a.data[B_COMMIT_DEADLINE].try_into().unwrap()) > 0,
         "deadline set"
     );
     // Batch 1 lifecycle -> batch 2 created
@@ -1837,9 +1953,9 @@ async fn test_e2e_settle_creates_next_batch_pda() {
     .await
     .unwrap();
     let b2a = ctx.banks_client.get_account(b2).await.unwrap().unwrap();
-    assert_eq!(b2a.data[8], 0, "batch 2 Collecting");
+    assert_eq!(b2a.data[B_STATUS], 0, "batch 2 Collecting");
     assert_eq!(
-        u64::from_le_bytes(b2a.data[0..8].try_into().unwrap()),
+        u64::from_le_bytes(b2a.data[B_ID].try_into().unwrap()),
         2,
         "batch 2 id"
     );
@@ -2139,8 +2255,8 @@ async fn test_e2e_liquidate_user_happy_path() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(ba.data[8], 3, "Settled");
-    assert_eq!(ba.data[152], 1, "mark_valid (dual auction)");
+    assert_eq!(ba.data[B_STATUS], 3, "Settled");
+    assert_eq!(ba.data[B_MARK_VALID], 1, "mark_valid (dual auction)");
     // Liquidate underwater victim
     let liq = Keypair::new();
     submit(
@@ -2163,7 +2279,7 @@ async fn test_e2e_liquidate_user_happy_path() {
     .await
     .unwrap();
     let va = ctx.banks_client.get_account(vp).await.unwrap().unwrap();
-    let vp_len = u16::from_le_bytes(va.data[144..146].try_into().unwrap());
+    let vp_len = u16::from_le_bytes(va.data[P_POSITIONS_LEN].try_into().unwrap());
     assert!(vp_len <= 1, "position reduced after liquidation");
 }
 
@@ -2494,10 +2610,10 @@ async fn test_e2e_liquidate_user_adl_stub_fires() {
         .await
         .unwrap()
         .unwrap();
-    let _uncovered = u128::from_le_bytes(vault.data[24..40].try_into().unwrap());
+    let _uncovered = u128::from_le_bytes(vault.data[V_UNCOVERED].try_into().unwrap());
     // ADL: some bad debt may be uncovered when insurance is insufficient
     // The liquidation still succeeds (positions reduced)
-    let vp_len = u16::from_le_bytes(va.data[144..146].try_into().unwrap());
+    let vp_len = u16::from_le_bytes(va.data[P_POSITIONS_LEN].try_into().unwrap());
     assert!(vp_len <= 1, "position reduced after ADL");
 }
 
@@ -2688,7 +2804,7 @@ async fn test_e2e_cancel_all_resting_orders() {
         .unwrap()
         .unwrap();
     assert!(
-        u16::from_le_bytes(bk.data[18..20].try_into().unwrap()) >= 1,
+        book_resting_count(&bk.data) >= 1,
         "resting bid"
     );
     // Cancel all resting
@@ -2716,7 +2832,7 @@ async fn test_e2e_cancel_all_resting_orders() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        u16::from_le_bytes(bk2.data[18..20].try_into().unwrap()),
+        book_resting_count(&bk2.data),
         0,
         "book empty after cancel"
     );
@@ -2967,7 +3083,7 @@ async fn test_e2e_resting_across_batch() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(b0.data[8], 3, "batch 0 Settled");
+    assert_eq!(b0.data[B_STATUS], 3, "batch 0 Settled");
     let bk = ctx
         .banks_client
         .get_account(pdas.book)
@@ -2975,7 +3091,7 @@ async fn test_e2e_resting_across_batch() {
         .unwrap()
         .unwrap();
     assert!(
-        u16::from_le_bytes(bk.data[18..20].try_into().unwrap()) >= 1,
+        book_resting_count(&bk.data) >= 1,
         "resting bid"
     );
 
@@ -3030,20 +3146,20 @@ async fn test_e2e_resting_across_batch() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(b1.data[8], 2, "batch 1 Clearing");
+    assert_eq!(b1.data[B_STATUS], 2, "batch 1 Clearing");
     let r1 = ctx
         .banks_client
         .get_account(results_1_pda)
         .await
         .unwrap()
         .unwrap();
-    let nf = u16::from_le_bytes(r1.data[32..34].try_into().unwrap());
+    let nf = u16::from_le_bytes(r1.data[RES_NUM_FILLS].try_into().unwrap());
     assert!(nf >= 2, ">=2 fills from resting order, got {nf}");
 
     // Verify: at least one fill has is_maker=true (role preserved)
     let mut found = false;
     for i in 0..nf as usize {
-        let off = 34 + i * 58;
+        let off = RES + 34 + i * 58;
         if r1.data[off + 56] != 0 {
             found = true;
             let fp = i64::from_le_bytes(r1.data[off + 48..off + 56].try_into().unwrap());
@@ -3255,7 +3371,7 @@ async fn test_e2e_self_trade_no_fill() {
         .await
         .unwrap()
         .unwrap();
-    let num_fills = u16::from_le_bytes(results.data[32..34].try_into().unwrap());
+    let num_fills = u16::from_le_bytes(results.data[RES_NUM_FILLS].try_into().unwrap());
     assert_eq!(num_fills, 0, "self-trade should produce 0 fills");
 
     // Verify: batch settled but mark invalid (one-sided clear only)
@@ -3265,7 +3381,7 @@ async fn test_e2e_self_trade_no_fill() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(batch.data[8], 3, "batch Settled");
+    assert_eq!(batch.data[B_STATUS], 3, "batch Settled");
 }
 
 /// E2E: DFBA cancel resting between batches (T9.5.5d).
@@ -3462,7 +3578,7 @@ async fn test_e2e_cancel_resting_between_batches() {
         .unwrap()
         .unwrap();
     assert!(
-        u16::from_le_bytes(bk.data[18..20].try_into().unwrap()) >= 1,
+        book_resting_count(&bk.data) >= 1,
         "resting bid"
     );
 
@@ -3492,7 +3608,7 @@ async fn test_e2e_cancel_resting_between_batches() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        u16::from_le_bytes(bk2.data[18..20].try_into().unwrap()),
+        book_resting_count(&bk2.data),
         0,
         "book empty after cancel"
     );
@@ -3515,33 +3631,45 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
     let oracle_key = Pubkey::new_unique();
     let user = Pubkey::new_unique();
     let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
-    batch.data[..8].copy_from_slice(&7u64.to_le_bytes());
-    batch.data[8] = 2; // Clearing
-    batch.data[48..56].copy_from_slice(&110i64.to_le_bytes());
-    batch.data[152] = 1; // valid mark
+    stamp_header(&mut batch.data, discriminator::BATCH);
+    batch.data[B_ID].copy_from_slice(&7u64.to_le_bytes());
+    batch.data[B_STATUS] = 2; // Clearing
+    batch.data[B_CLEARING_PRICE].copy_from_slice(&110i64.to_le_bytes());
+    batch.data[B_MARK_VALID] = 1; // valid mark
     pt.add_account(batch_key, batch);
     pt.add_account(next_key, Account::new(1_000_000, BATCH_SIZE, &CORE_ID));
+    // Already-initialised batch account: creating the next batch over it must
+    // fail late with AlreadyInitialized and roll everything back.
     let mut bad_next = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
-    bad_next.data[..8].copy_from_slice(&99u64.to_le_bytes());
+    stamp_header(&mut bad_next.data, discriminator::BATCH);
+    bad_next.data[B_ID].copy_from_slice(&99u64.to_le_bytes());
     pt.add_account(bad_next_key, bad_next);
     let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
-    registry.data[36..44].copy_from_slice(&7u64.to_le_bytes());
-    registry.data[64..72].copy_from_slice(&20u64.to_le_bytes());
+    stamp_header(&mut registry.data, discriminator::REGISTRY);
+    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&7u64.to_le_bytes());
+    registry.data[R_T_MAX].copy_from_slice(&20u64.to_le_bytes());
     pt.add_account(pdas.registry, registry);
+    // Replace the zeroed genesis vault with an initialised (stamped) one.
+    let mut vault_seed = Account::new(1_000_000, VAULT_SIZE, &CORE_ID);
+    stamp_header(&mut vault_seed.data, discriminator::VAULT);
+    pt.add_account(pdas.vault, vault_seed);
     let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
+    stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
     // Same fee offsets as Initialize; funding disabled by zero interval.
-    instrument.data[52..54].copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
     pt.add_account(pdas.instrument, instrument);
-    let mut results = Account::new(1_000_000, 34 + 58, &MATCHER_ID);
-    results.data[32..34].copy_from_slice(&1u16.to_le_bytes());
-    results.data[34..66].copy_from_slice(user.as_ref());
-    results.data[74..82].copy_from_slice(&1u64.to_le_bytes());
-    results.data[82..90].copy_from_slice(&10000i64.to_le_bytes());
-    results.data[91] = 1; // ask taker buys
+    let mut results = Account::new(1_000_000, RES + 34 + 58, &MATCHER_ID);
+    stamp_header(&mut results.data, discriminator::BATCH_RESULTS);
+    results.data[RES_NUM_FILLS].copy_from_slice(&1u16.to_le_bytes());
+    results.data[RES_FILL0_USER].copy_from_slice(user.as_ref());
+    results.data[RES_FILL0_QTY].copy_from_slice(&1u64.to_le_bytes());
+    results.data[RES_FILL0_PRICE].copy_from_slice(&10000i64.to_le_bytes());
+    results.data[RES_FILL0_ROLE] = 1; // ask taker buys
     pt.add_account(results_key, results);
     let mut portfolio = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
-    portfolio.data[..32].copy_from_slice(user.as_ref());
-    portfolio.data[32..48].copy_from_slice(&20000i128.to_le_bytes());
+    stamp_header(&mut portfolio.data, discriminator::PORTFOLIO);
+    portfolio.data[P_USER].copy_from_slice(user.as_ref());
+    portfolio.data[P_EQUITY].copy_from_slice(&20000i128.to_le_bytes());
     pt.add_account(portfolio_key, portfolio);
     pt.add_account(
         oracle_key,
@@ -3602,17 +3730,17 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(settled.data[8], 3);
+    assert_eq!(settled.data[B_STATUS], 3);
     assert_eq!(
-        u32::from_le_bytes(settled.data[64..68].try_into().unwrap()),
+        u32::from_le_bytes(settled.data[B_TOTAL_SETTLED].try_into().unwrap()),
         1
     );
     assert_eq!(
-        u64::from_le_bytes(settled.data[72..80].try_into().unwrap()),
+        u64::from_le_bytes(settled.data[B_TOTAL_VOLUME].try_into().unwrap()),
         1
     );
     assert_eq!(
-        u128::from_le_bytes(settled.data[80..96].try_into().unwrap()),
+        u128::from_le_bytes(settled.data[B_TOTAL_NOTIONAL].try_into().unwrap()),
         10000
     );
     let portfolio = ctx
@@ -3622,7 +3750,7 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        i128::from_le_bytes(portfolio.data[32..48].try_into().unwrap()),
+        i128::from_le_bytes(portfolio.data[P_EQUITY].try_into().unwrap()),
         9995
     );
     let registry = ctx
@@ -3632,11 +3760,11 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        u64::from_le_bytes(registry.data[36..44].try_into().unwrap()),
+        u64::from_le_bytes(registry.data[R_BATCH_ID_COUNTER].try_into().unwrap()),
         8
     );
     assert_eq!(
-        u64::from_le_bytes(registry.data[64..72].try_into().unwrap()),
+        u64::from_le_bytes(registry.data[R_T_MAX].try_into().unwrap()),
         20
     );
     let vault = ctx
@@ -3645,9 +3773,8 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .await
         .unwrap()
         .unwrap();
-    // SBF u128 alignment is 8; do not use the host Vault layout to decode it.
     assert_eq!(
-        u128::from_le_bytes(vault.data[8..24].try_into().unwrap()),
+        u128::from_le_bytes(vault.data[V_INSURANCE].try_into().unwrap()),
         5
     );
     let instrument = ctx
@@ -3657,7 +3784,7 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        i64::from_le_bytes(instrument.data[136..144].try_into().unwrap()),
+        i64::from_le_bytes(instrument.data[I_MARK_PRICE].try_into().unwrap()),
         110
     );
 
@@ -3667,10 +3794,90 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(u64::from_le_bytes(next.data[..8].try_into().unwrap()), 8);
-    assert_eq!(next.data[8], 0);
+    assert_eq!(u64::from_le_bytes(next.data[B_ID].try_into().unwrap()), 8);
+    assert_eq!(next.data[B_STATUS], 0);
     assert_eq!(
-        u64::from_le_bytes(next.data[16..24].try_into().unwrap()),
+        u64::from_le_bytes(next.data[B_COMMIT_DEADLINE].try_into().unwrap()),
         clock.slot + 20
     );
+}
+
+/// Spec 13 / issue 16 acceptance: through the real SBF programs, an account
+/// with the wrong discriminator is rejected with `InvalidAccountDiscriminator`
+/// and one with an unsupported layout version with `UnsupportedLayoutVersion`.
+/// A correctly stamped portfolio is accepted by the same instruction.
+#[tokio::test]
+async fn test_e2e_wrong_account_header_is_rejected_with_distinct_errors() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR");
+        return;
+    }
+    use mgk_common::MgkError;
+
+    let cases: [(&str, u8, u8, Option<MgkError>); 3] = [
+        (
+            "wrong discriminator",
+            discriminator::VAULT,
+            LAYOUT_VERSION_1,
+            Some(MgkError::InvalidAccountDiscriminator),
+        ),
+        (
+            "unsupported layout version",
+            discriminator::PORTFOLIO,
+            LAYOUT_VERSION_1 + 6,
+            Some(MgkError::UnsupportedLayoutVersion),
+        ),
+        (
+            "correct header",
+            discriminator::PORTFOLIO,
+            LAYOUT_VERSION_1,
+            None,
+        ),
+    ];
+
+    for (label, disc, version, expected) in cases {
+        let user = Keypair::new();
+        let user_pdas = derive_user_pdas(&user.pubkey(), 0, 0);
+        let (mut pt, pdas) = program_test_with_pdas();
+        pt.add_account(
+            user.pubkey(),
+            Account::new(USER_FUNDING_LAMPORTS, 0, &system_program::id()),
+        );
+        let mut portfolio = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
+        portfolio.data[0] = disc;
+        portfolio.data[1] = version;
+        // Owner of the portfolio, so the accepted case gets past the user check.
+        portfolio.data[P_USER].copy_from_slice(user.pubkey().as_ref());
+        pt.add_account(user_pdas.portfolio, portfolio);
+        let mut vault = Account::new(1_000_000, VAULT_SIZE, &CORE_ID);
+        stamp_header(&mut vault.data, discriminator::VAULT);
+        pt.add_account(pdas.vault, vault);
+        let mut ctx = pt.start_with_context().await;
+
+        let result = submit(
+            &mut ctx,
+            Instruction {
+                program_id: CORE_ID,
+                accounts: vec![
+                    AccountMeta::new(user_pdas.portfolio, false),
+                    AccountMeta::new(user.pubkey(), true),
+                    AccountMeta::new_readonly(system_program::id(), false),
+                    AccountMeta::new(pdas.vault, false),
+                ],
+                data: with_disc(2, build_deposit_data(USER_DEPOSIT_LAMPORTS)),
+            },
+            &[&user],
+        )
+        .await;
+        match expected {
+            Some(err) => {
+                let error = result.expect_err(label);
+                assert!(
+                    format!("{error:?}").contains(&format!("Custom({})", u64::from(err))),
+                    "{label}: expected {err:?}, got {error:?}"
+                );
+            }
+            None => result.expect(label),
+        }
+    }
 }

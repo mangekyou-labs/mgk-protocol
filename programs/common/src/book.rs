@@ -11,6 +11,8 @@
 //! Behaviors (place / cancel / match) live in `perps-matcher` and are
 //! intentionally NOT re-exported from here.
 
+use crate::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
+
 /// Sentinel "no link" offset for end of a FIFO chain.
 pub const NULL_OFFSET: u32 = u32::MAX;
 
@@ -32,6 +34,8 @@ pub const MAX_ORDERS_PER_LEVEL: usize = 16;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OrderBook {
+    /// Account discriminator + layout version (offset 0).
+    pub header: AccountHeader,
     pub instrument_id: u16,
     pub best_bid: i64,
     pub best_ask: i64,
@@ -41,6 +45,30 @@ pub struct OrderBook {
     pub last_update_slot: u64,
     pub bids: [BookLevel; MAX_LEVELS],
     pub asks: [BookLevel; MAX_LEVELS],
+}
+
+// SAFETY: `repr(C)` POD whose first field is the account header.
+unsafe impl AccountLayout for OrderBook {
+    const DISCRIMINATOR: u8 = discriminator::ORDER_BOOK;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
+impl OrderBook {
+    /// An empty book for `instrument_id` carrying the current header.
+    pub fn new(instrument_id: u16) -> Self {
+        Self {
+            header: AccountHeader::of::<Self>(),
+            instrument_id,
+            best_bid: 0,
+            best_ask: 0,
+            bid_count: 0,
+            ask_count: 0,
+            next_order_id: 0,
+            last_update_slot: 0,
+            bids: [BookLevel::default(); MAX_LEVELS],
+            asks: [BookLevel::default(); MAX_LEVELS],
+        }
+    }
 }
 
 /// A price level on one side of the book.
@@ -71,4 +99,44 @@ pub fn book_pda(program_id: &pinocchio::pubkey::Pubkey, instrument_id: u16) -> (
     let id_bytes = instrument_id.to_le_bytes();
     let seeds: [&[u8]; 2] = [b"book", &id_bytes];
     pinocchio::pubkey::find_program_address(&seeds, program_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{discriminator, load, AccountHeader, AccountLayout, ACCOUNT_HEADER_LEN};
+    use crate::MgkError;
+
+    #[test]
+    fn order_book_declares_its_account_layout() {
+        assert_eq!(OrderBook::DISCRIMINATOR, discriminator::ORDER_BOOK);
+        assert_eq!(OrderBook::LAYOUT_VERSION, 1);
+    }
+
+    #[test]
+    fn order_book_header_is_first_in_the_account() {
+        let book = OrderBook::new(7);
+        assert_eq!(book.header, AccountHeader::of::<OrderBook>());
+        let base = &book as *const OrderBook as usize;
+        assert_eq!(&book.header as *const AccountHeader as usize - base, 0);
+        assert_eq!(&book.instrument_id as *const u16 as usize - base, ACCOUNT_HEADER_LEN);
+    }
+
+    #[test]
+    fn order_book_loads_only_with_matching_header() {
+        let book = OrderBook::new(7);
+        let n = core::mem::size_of::<OrderBook>();
+        let mut buf = [0u64; 2048];
+        assert!(n <= core::mem::size_of_val(&buf));
+        let bytes = unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, n) };
+        let src = unsafe { core::slice::from_raw_parts(&book as *const OrderBook as *const u8, n) };
+        bytes.copy_from_slice(src);
+        assert_eq!(load::<OrderBook>(bytes).unwrap().instrument_id, 7);
+
+        bytes[0] = discriminator::BATCH;
+        assert_eq!(load::<OrderBook>(bytes).err(), Some(MgkError::InvalidAccountDiscriminator));
+        bytes[0] = discriminator::ORDER_BOOK;
+        bytes[1] = 2;
+        assert_eq!(load::<OrderBook>(bytes).err(), Some(MgkError::UnsupportedLayoutVersion));
+    }
 }

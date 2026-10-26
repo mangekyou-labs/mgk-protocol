@@ -13,6 +13,12 @@ pub enum MgkError {
     Overflow = 5,
     Underflow = 6,
     Unauthorized = 7,
+    /// Account data starts with a different account-type discriminator than
+    /// the program expects (includes zeroed / uninitialised accounts).
+    InvalidAccountDiscriminator = 8,
+    /// Account type is right but its layout version is not one this build
+    /// can read.
+    UnsupportedLayoutVersion = 9,
 
     // Router errors (100-199)
     InvalidSlab = 100,
@@ -121,5 +127,21 @@ mod tests {
     #[test]
     fn test_reduce_only_violation_pinned() {
         assert_eq!(MgkError::ReduceOnlyViolation as u32, 606);
+    }
+
+    /// Spec 13 / issue 16: account header rejections live in the common
+    /// range (0-99) and are distinct from `InvalidAccount` and each other.
+    #[test]
+    fn test_account_header_errors_pinned_to_common_range() {
+        assert_eq!(MgkError::InvalidAccountDiscriminator as u32, 8);
+        assert_eq!(MgkError::UnsupportedLayoutVersion as u32, 9);
+        assert_ne!(
+            MgkError::InvalidAccountDiscriminator as u32,
+            MgkError::UnsupportedLayoutVersion as u32
+        );
+        assert_ne!(
+            MgkError::InvalidAccountDiscriminator as u32,
+            MgkError::InvalidAccount as u32
+        );
     }
 }

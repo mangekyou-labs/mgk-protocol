@@ -1,3 +1,4 @@
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
 
 pub const MAX_POSITIONS: usize = 32;
@@ -6,7 +7,11 @@ pub const MAX_INSTRUMENTS: usize = 32;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Portfolio {
+    /// Account discriminator + layout version (spec 13 / issue 16).
+    pub header: AccountHeader,
     pub user: Pubkey,
+    /// Explicit padding so `equity` is 16-aligned on every target.
+    pub _pad_u128: [u8; 8],
     pub equity: i128,
     pub principal: i128,
     pub pnl: i128,
@@ -16,12 +21,32 @@ pub struct Portfolio {
     pub health: i128,
     pub positions_len: u16,
     pub positions: [Position; MAX_POSITIONS],
+    /// Explicit padding so `last_funding_checkpoint` is 16-aligned on every target.
+    pub _pad_u128_b: [u8; 8],
     pub last_funding_checkpoint: [i128; MAX_INSTRUMENTS],
     pub last_batch_id: u64,
     pub last_slot: u64,
     pub bump: u8,
     pub _padding: [u8; 7],
+    /// Explicit tail padding so the size is a multiple of 16 on every target.
+    pub _pad_tail: [u8; 8],
 }
+
+// Host (u128 align 16) and SBF (u128 align 8) must agree on this layout: every
+// 128-bit field sits at a 16-aligned offset by construction, and the struct
+// size is a multiple of 16. Checked at compile time for the target being built.
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(offset_of!(Portfolio, equity) & 15 == 0);
+    assert!(offset_of!(Portfolio, principal) & 15 == 0);
+    assert!(offset_of!(Portfolio, pnl) & 15 == 0);
+    assert!(offset_of!(Portfolio, im) & 15 == 0);
+    assert!(offset_of!(Portfolio, mm) & 15 == 0);
+    assert!(offset_of!(Portfolio, free_collateral) & 15 == 0);
+    assert!(offset_of!(Portfolio, health) & 15 == 0);
+    assert!(offset_of!(Portfolio, last_funding_checkpoint) & 15 == 0);
+    assert!(size_of::<Portfolio>() & 15 == 0);
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -31,9 +56,17 @@ pub struct Position {
     pub entry_vwap: i64,
 }
 
+// SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Portfolio {
+    const DISCRIMINATOR: u8 = discriminator::PORTFOLIO;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
+
 impl Portfolio {
     pub fn initialize_in_place(&mut self, user: Pubkey, bump: u8) {
+        self.header = AccountHeader::of::<Self>();
         self.user = user;
+        self._pad_u128 = [0; 8];
         self.equity = 0;
         self.principal = 0;
         self.pnl = 0;
@@ -43,11 +76,13 @@ impl Portfolio {
         self.health = 0;
         self.positions_len = 0;
         self.positions = [Position::default(); MAX_POSITIONS];
+        self._pad_u128_b = [0; 8];
         self.last_funding_checkpoint = [0; MAX_INSTRUMENTS];
         self.last_batch_id = 0;
         self.last_slot = 0;
         self.bump = bump;
         self._padding = [0; 7];
+        self._pad_tail = [0; 8];
     }
 
     pub fn recalc_margin(&mut self) {
@@ -85,7 +120,9 @@ impl Portfolio {
     #[cfg(test)]
     pub fn new(user: Pubkey) -> Self {
         let mut p = Self {
+            header: AccountHeader::of::<Self>(),
             user,
+            _pad_u128: [0; 8],
             equity: 0,
             principal: 0,
             pnl: 0,
@@ -95,11 +132,13 @@ impl Portfolio {
             health: 0,
             positions_len: 0,
             positions: [Position::default(); MAX_POSITIONS],
+            _pad_u128_b: [0; 8],
             last_funding_checkpoint: [0; MAX_INSTRUMENTS],
             last_batch_id: 0,
             last_slot: 0,
             bump: 0,
             _padding: [0; 7],
+            _pad_tail: [0; 8],
         };
         p.recalc_margin();
         p
@@ -109,6 +148,43 @@ impl Portfolio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_portfolio_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let p = Portfolio::new(Pubkey::from([4u8; 32]));
+        assert_eq!(p.header.discriminator, discriminator::PORTFOLIO);
+        assert_eq!(p.header.layout_version, LAYOUT_VERSION_1);
+
+        let words = core::mem::size_of::<Portfolio>().div_ceil(16);
+        let mut buf = std::vec![0u128; words];
+        let bytes: &mut [u8] = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, core::mem::size_of::<Portfolio>())
+        };
+        mgk_common::layout::init_mut::<Portfolio>(bytes).unwrap();
+        assert!(load::<Portfolio>(bytes).is_ok());
+        bytes[0] = discriminator::VAULT;
+        assert_eq!(
+            load::<Portfolio>(bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::PORTFOLIO;
+        bytes[1] = 7;
+        assert_eq!(
+            load::<Portfolio>(bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
+    #[test]
+    fn test_portfolio_initialize_in_place_restamps_header() {
+        let mut p = Portfolio::new(Pubkey::default());
+        p.header.discriminator = 0;
+        p.header.layout_version = 0;
+        p.initialize_in_place(Pubkey::from([1u8; 32]), 3);
+        assert_eq!(p.header, mgk_common::layout::AccountHeader::of::<Portfolio>());
+    }
 
     #[test]
     fn test_portfolio_new() {

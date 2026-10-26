@@ -1,3 +1,4 @@
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
 
 /// M7 7.8: bit positions for `Registry::pause_flags`.
@@ -22,32 +23,59 @@ pub const PAUSE_RESERVED_MASK: u8 = 0b_1100_0000; // bits 6..7 must be 0
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct Registry {
-    pub governance: Pubkey,         // offset 0 (32 bytes)
-    pub instrument_count: u16,      // offset 32 (2 bytes)
-    pub volatility_multiplier: u16, // offset 34 (2 bytes)
-    pub batch_id_counter: u64,      // offset 36 (8 bytes)
-    pub base_deposit: u64,          // offset 44 (8 bytes)
-    pub n_min: u32,                 // offset 52 (4 bytes)
-    pub t_min_slots: u64,           // offset 56 (8 bytes)
-    pub t_max_slots: u64,           // offset 64 (8 bytes)
-    pub t_reveal_slots: u64,        // offset 72 (8 bytes)
-    pub bump: u8,                   // offset 80 (1 byte)
-    pub pause_flags: u8,            // offset 81 (1 byte)
+    /// Account discriminator + layout version (spec 13 / issue 16).
+    pub header: AccountHeader,      // offset 0 (8 bytes)
+    pub governance: Pubkey,         // offset 8 (32 bytes)
+    pub instrument_count: u16,      // offset 40 (2 bytes)
+    pub volatility_multiplier: u16, // offset 42 (2 bytes)
+    pub batch_id_counter: u64,      // offset 44 (8 bytes)
+    pub base_deposit: u64,          // offset 52 (8 bytes)
+    pub n_min: u32,                 // offset 60 (4 bytes)
+    pub t_min_slots: u64,           // offset 64 (8 bytes)
+    pub t_max_slots: u64,           // offset 72 (8 bytes)
+    pub t_reveal_slots: u64,        // offset 80 (8 bytes)
+    pub bump: u8,                   // offset 88 (1 byte)
+    pub pause_flags: u8,            // offset 89 (1 byte)
     /// Max orders per DFBA batch (design D2). Default 64; governance can
     /// adjust up to DFBA_SCRATCH_MAX (128). Stored as u8 to fit in
     /// Registry's existing 96-byte layout.
-    pub max_orders_per_batch: u8, // offset 82 (1 byte)
+    pub max_orders_per_batch: u8, // offset 90 (1 byte)
     /// Marginal size cap for DFBA overflow selection (design D8). Orders
     /// at the marginal price are capped to this size for pro-rata.
     /// Stored as u8; 0 means "use max_orders_per_batch".
-    pub marginal_size_cap: u8, // offset 83 (1 byte)
-    pub _padding: [u8; 2],          // offset 84 (2 bytes) — total 86
+    pub marginal_size_cap: u8, // offset 91 (1 byte)
+    pub _padding: [u8; 2],          // offset 92 (2 bytes) — total 94
+}
+
+// SAFETY: `repr(C, packed)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Registry {
+    const DISCRIMINATOR: u8 = discriminator::REGISTRY;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
 }
 
 impl Registry {
+    /// Byte offset of `batch_id_counter` within the account. Used by the raw
+    /// byte writers that work around SBF packed-field stores.
+    pub const BATCH_ID_COUNTER_OFFSET: usize = core::mem::offset_of!(Registry, batch_id_counter);
+
+    /// Write `batch_id_counter` into raw registry account bytes with volatile
+    /// byte stores (a plain packed-field store was miscompiled on SBF). The
+    /// caller must have validated the account header and size first.
+    pub fn write_batch_id_counter(data: &mut [u8], value: u64) {
+        let dst = &mut data[Self::BATCH_ID_COUNTER_OFFSET..Self::BATCH_ID_COUNTER_OFFSET + 8];
+        for (slot, byte) in dst.iter_mut().zip(value.to_le_bytes()) {
+            // SAFETY: `slot` is a valid, exclusive reference.
+            unsafe { core::ptr::write_volatile(slot, byte) };
+        }
+    }
+
     /// Initialize in place. Struct field order: governance, instrument_count,
     /// volatility_multiplier, batch_id_counter, base_deposit, n_min, t_min_slots,
     /// t_max_slots, t_reveal_slots, bump.
+    ///
+    /// Also sets `max_orders_per_batch` and `marginal_size_cap` to 64. The
+    /// pre-header `Initialize` wrote fields by raw offset and left both at 0,
+    /// so a fresh registry now starts with these defaults.
     #[allow(clippy::too_many_arguments)]
     pub fn initialize_in_place(
         &mut self,
@@ -61,6 +89,7 @@ impl Registry {
         t_reveal_slots: u64,
         bump: u8,
     ) {
+        self.header = AccountHeader::of::<Self>();
         self.governance = governance;
         self.instrument_count = instrument_count;
         self.volatility_multiplier = volatility_multiplier;
@@ -132,6 +161,7 @@ impl Registry {
     #[cfg(test)]
     pub fn new(governance: Pubkey) -> Self {
         let mut r = Self {
+            header: AccountHeader::of::<Self>(),
             governance,
             instrument_count: 0,
             volatility_multiplier: 10_000,
@@ -155,6 +185,40 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 13 / issue 16: the registry carries a REGISTRY v1 header at
+    /// offset 0 and the loader rejects anything else.
+    #[test]
+    fn test_registry_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let r = Registry::new(Pubkey::from([1u8; 32]));
+        assert_eq!(r.header.discriminator, discriminator::REGISTRY);
+        assert_eq!(r.header.layout_version, LAYOUT_VERSION_1);
+
+        let mut bytes = [0u8; core::mem::size_of::<Registry>()];
+        unsafe { core::ptr::write_unaligned(bytes.as_mut_ptr() as *mut Registry, r) };
+        assert_eq!(bytes[0], discriminator::REGISTRY);
+        assert!(load::<Registry>(&bytes).is_ok());
+
+        bytes[0] = discriminator::VAULT;
+        assert_eq!(
+            load::<Registry>(&bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::REGISTRY;
+        bytes[1] = 2;
+        assert_eq!(
+            load::<Registry>(&bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
+
+    /// Header (8) + the 86 body bytes. The lifecycle allocates 96.
+    #[test]
+    fn test_registry_size_includes_header() {
+        assert_eq!(core::mem::size_of::<Registry>(), 94);
+    }
 
     #[test]
     fn test_registry_new() {

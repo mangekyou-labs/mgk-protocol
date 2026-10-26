@@ -36,7 +36,7 @@ const { join } = require('path');
 // Canonical program ID
 // ---------------------------------------------------------------------------
 const ORACLE_PROGRAM_ID = new PublicKey(
-  process.env.ORACLE_PROGRAM_ID || 'CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ',
+  process.env.ORACLE_PROGRAM_ID || 'GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm',
 );
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,19 @@
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
+
+// Host (u128 align 16) and SBF (u128 align 8) must agree on this layout; checked
+// at compile time for whichever target is being built (see state/batch.rs).
+const _: () = {
+    use core::mem::{offset_of, size_of};
+    assert!(offset_of!(Instrument, cum_funding) & 15 == 0);
+    assert!(size_of::<Instrument>() == 352);
+};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Instrument {
+    /// Account discriminator + layout version (spec 13 / issue 16).
+    pub header: AccountHeader,
     pub instrument_id: u16,
     pub base_symbol: [u8; 16],
     pub contract_size: u64,
@@ -16,6 +27,8 @@ pub struct Instrument {
     pub max_leverage: u16,
     pub _pad_ml: [u8; 2],
     pub oracle_addr: Pubkey,
+    /// Explicit padding so `cum_funding` is 16-aligned on every target.
+    pub _pad_u128: [u8; 12],
     pub cum_funding: i128,
     /// Last slot at which `cum_funding` was accrued (u64 slot — fixed
     /// from i64 in M7 7.4 to match `Clock.slot`). 0 = uninitialized /
@@ -65,6 +78,14 @@ pub struct Instrument {
     /// Legacy field — unused by D7. Retained as inert reserved bytes.
     /// Was `premium_samples` (16-entry ring buffer).
     pub _reserved_premium_samples: [i64; 16],
+    /// Explicit tail padding so the size is a multiple of 16 on every target.
+    pub _pad_tail: [u8; 8],
+}
+
+// SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
+unsafe impl AccountLayout for Instrument {
+    const DISCRIMINATOR: u8 = discriminator::INSTRUMENT;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
 }
 
 impl Instrument {
@@ -93,6 +114,7 @@ impl Instrument {
         _reserved_sample_qty: u64,
         _reserved_sma_window: u8,
     ) {
+        self.header = AccountHeader::of::<Self>();
         self.instrument_id = instrument_id;
         self.base_symbol = base_symbol;
         self.contract_size = contract_size;
@@ -105,6 +127,7 @@ impl Instrument {
         self.max_leverage = max_leverage;
         self._pad_ml = [0; 2];
         self.oracle_addr = oracle_addr;
+        self._pad_u128 = [0; 12];
         self.cum_funding = 0;
         self.last_funding_slot = 0;
         self.funding_interval_slots = funding_interval_slots;
@@ -122,6 +145,7 @@ impl Instrument {
         self._reserved_sample_count = 0;
         self._pad_funding = [0; 6];
         self._reserved_premium_samples = [0; 16];
+        self._pad_tail = [0; 8];
     }
 
     #[cfg(test)]
@@ -132,6 +156,7 @@ impl Instrument {
         sym[2] = b'S';
         sym[3] = b'T';
         let mut inst = Self {
+            header: AccountHeader::of::<Self>(),
             instrument_id,
             base_symbol: sym,
             contract_size: 1,
@@ -144,6 +169,7 @@ impl Instrument {
             max_leverage: 10,
             _pad_ml: [0; 2],
             oracle_addr: Pubkey::default(),
+            _pad_u128: [0; 12],
             cum_funding: 0,
             last_funding_slot: 0,
             funding_interval_slots: 100,
@@ -161,6 +187,7 @@ impl Instrument {
             _reserved_sample_count: 0,
             _pad_funding: [0; 6],
             _reserved_premium_samples: [0; 16],
+            _pad_tail: [0; 8],
         };
         inst.initialize_in_place(
             instrument_id,
@@ -192,6 +219,34 @@ impl Instrument {
 mod tests {
     use super::*;
     use core::mem::size_of;
+
+    #[test]
+    fn test_instrument_header_stamped_and_checked_on_load() {
+        use mgk_common::layout::{discriminator, init_mut, load, LAYOUT_VERSION_1};
+        use mgk_common::MgkError;
+        let inst = Instrument::new(1, 1_000_000, 1_000, 100, 50);
+        assert_eq!(inst.header.discriminator, discriminator::INSTRUMENT);
+        assert_eq!(inst.header.layout_version, LAYOUT_VERSION_1);
+
+        let words = size_of::<Instrument>().div_ceil(16);
+        let mut buf = std::vec![0u128; words];
+        let bytes: &mut [u8] = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, size_of::<Instrument>())
+        };
+        init_mut::<Instrument>(bytes).unwrap();
+        assert!(load::<Instrument>(bytes).is_ok());
+        bytes[0] = discriminator::PORTFOLIO;
+        assert_eq!(
+            load::<Instrument>(bytes).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        bytes[0] = discriminator::INSTRUMENT;
+        bytes[1] = 2;
+        assert_eq!(
+            load::<Instrument>(bytes).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
+    }
 
     #[test]
     fn test_instrument_new() {
@@ -229,7 +284,9 @@ mod tests {
         // immediately after _padding, the struct is 160 bytes.
         // M7 7.4: 160 + 176 (8 new funding fields + 128-byte ring
         // buffer) = 336 bytes, 16-aligned due to cum_funding: i128.
-        assert_eq!(size_of::<Instrument>(), 336);
+        // Spec 13 / issue 16: the 8-byte account header at offset 0 adds
+        // 8 bytes, which rounds up to 352 under the 16-byte alignment.
+        assert_eq!(size_of::<Instrument>(), 352);
     }
 
     /// M7 7.4: `last_funding_slot` is `u64` (slot type), not `i64`. Pinned

@@ -25,17 +25,17 @@ pub(super) const DFBA_FILL_WIRE_BYTES: usize = 58;
 /// Access one state in place; neither adapter copies portfolios onto the stack.
 pub(super) trait States<T> {
     fn len(&self) -> usize;
-    fn get_mut(&mut self, index: usize) -> &mut T;
+    fn get_mut(&mut self, index: usize) -> Result<&mut T, ProgramError>;
 }
 
 /// Runtime operations whose timing matters to settlement (including late errors).
 pub(super) trait Environment {
-    fn registry(&self) -> Registry;
-    fn vault(&mut self) -> &mut Vault;
+    fn registry(&self) -> Result<Registry, ProgramError>;
+    fn vault(&mut self) -> Result<&mut Vault, ProgramError>;
     fn validate_book(&self, instrument_id: u16) -> ProgramResult;
     fn clock(&self) -> Result<Clock, ProgramError>;
     fn oracle(&self, expected_addr: &Pubkey) -> Option<(i64, i64, bool)>;
-    fn set_batch_counter(&mut self, value: u64);
+    fn set_batch_counter(&mut self, value: u64) -> ProgramResult;
     fn next_batch_size(&self) -> usize;
     fn next_batch(&mut self) -> &mut Batch;
 }
@@ -53,7 +53,7 @@ pub(super) fn settle(
         return Err(MgkError::InvalidInstruction.into());
     }
 
-    let registry = environment.registry();
+    let registry = environment.registry()?;
 
     const DFBA_HDR: usize = DFBA_RESULT_HEADER_BYTES;
     const DFBA_FILL: usize = DFBA_FILL_WIRE_BYTES;
@@ -135,7 +135,7 @@ pub(super) fn settle(
                 total_taker_notional = total_taker_notional.saturating_add(notional);
             }
             for index in 0..portfolios.len() {
-                let portfolio = portfolios.get_mut(index);
+                let portfolio = portfolios.get_mut(index)?;
                 if portfolio.user != user {
                     continue;
                 }
@@ -149,7 +149,7 @@ pub(super) fn settle(
     }
 
     for index in 0..commitments.len().min(commitment_limit) {
-        let commitment = commitments.get_mut(index);
+        let commitment = commitments.get_mut(index)?;
 
         if commitment.status == CommitmentStatus::Pending {
             // Non-revealed commitment — slash deposit.
@@ -166,7 +166,7 @@ pub(super) fn settle(
             // the user's free collateral should reflect that the order
             // never executed. The slashed deposit itself is forwarded to
             // `vault.insurance_fund` below.
-            return_deposit(portfolios, &commitment.user, commitment.deposit_lamports);
+            return_deposit(portfolios, &commitment.user, commitment.deposit_lamports)?;
             continue;
         }
 
@@ -203,7 +203,7 @@ pub(super) fn settle(
 
         // Find matching portfolio
         for index in 0..portfolios.len() {
-            let portfolio = portfolios.get_mut(index);
+            let portfolio = portfolios.get_mut(index)?;
 
             if portfolio.user == *user {
                 if user_filled_qty > 0 {
@@ -270,7 +270,7 @@ pub(super) fn settle(
                 // locked against `portfolio.im` in `CommitOrder`; without
                 // this, funds would be permanently locked. `recalc_margin`
                 // is called inside `return_deposit`.
-                return_deposit(portfolios, user, commitment.deposit_lamports);
+                return_deposit(portfolios, user, commitment.deposit_lamports)?;
 
                 commitment.status = CommitmentStatus::Settled;
                 total_settled += 1;
@@ -295,7 +295,7 @@ pub(super) fn settle(
             + (total_maker_notional as i128 * instrument.maker_fee_bps as i128) / BPS_DENOM;
 
     if slashed > 0 || protocol_fee_delta != 0 {
-        let vault = environment.vault();
+        let vault = environment.vault()?;
         // Slashed deposits (positive) always credit insurance.
         if slashed > 0 {
             vault.insurance_fund = vault.insurance_fund.saturating_add(slashed);
@@ -389,7 +389,7 @@ pub(super) fn settle(
         let post_funding_cum = instrument.cum_funding;
         let instrument_id_for_funding = instrument.instrument_id;
         for index in 0..portfolios.len() {
-            let portfolio = portfolios.get_mut(index);
+            let portfolio = portfolios.get_mut(index)?;
             apply_funding_to_portfolio(portfolio, instrument_id_for_funding, post_funding_cum);
         }
     } else {
@@ -415,7 +415,7 @@ pub(super) fn settle(
     // check is purely observational: it makes underwater portfolios
     // visible to off-chain monitors without changing the batch outcome.
     for index in 0..portfolios.len() {
-        let portfolio = portfolios.get_mut(index);
+        let portfolio = portfolios.get_mut(index)?;
         if portfolio.needs_liquidation() {
             msg!("Warning: portfolio underwater post-settle, eligible for liquidation");
         }
@@ -425,7 +425,7 @@ pub(super) fn settle(
     // Raw byte write at offset 36 — SBF field assignment has been observed to
     // corrupt neighboring fields (same fix as create_batch / initialize).
     let next_counter = registry.batch_id_counter.saturating_add(1);
-    environment.set_batch_counter(next_counter);
+    environment.set_batch_counter(next_counter)?;
 
     // M7 7.1: embed next-batch creation (design decision D1 — see
     // docs/ai/planning/2026-06-16-m7-design-decisions.md). After settling
@@ -455,7 +455,9 @@ pub(super) fn settle(
     //    check batch_id != 0 as the canonical "already initialized" signal).
     {
         let next_batch_probe = environment.next_batch();
-        if next_batch_probe.batch_id != 0 {
+        if next_batch_probe.batch_id != 0
+            || next_batch_probe.header.discriminator != mgk_common::layout::discriminator::UNINITIALIZED
+        {
             msg!("Error: next_batch account already initialized");
             return Err(MgkError::AlreadyInitialized.into());
         }
@@ -490,16 +492,16 @@ fn return_deposit(
     portfolios: &mut impl States<Portfolio>,
     user: &Pubkey,
     deposit_lamports: u64,
-) -> bool {
+) -> Result<bool, ProgramError> {
     for index in 0..portfolios.len() {
-        let portfolio = portfolios.get_mut(index);
+        let portfolio = portfolios.get_mut(index)?;
         if portfolio.user == *user {
             portfolio.im = portfolio.im.saturating_sub(deposit_lamports as u128);
             portfolio.recalc_margin();
-            return true;
+            return Ok(true);
         }
     }
-    false
+    Ok(false)
 }
 
 /// D7: Compute the funding rate from mark price and oracle index,

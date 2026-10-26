@@ -19,7 +19,7 @@ const { homedir } = require('os');
 const { join } = require('path');
 const { loadEnvLocal } = require('./inject-persona');
 
-const CORE_ID = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
+const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 const ORACLE_ADDR_OFFSET = 60;
 const ORACLE_ADDR_LEN = 32;
 

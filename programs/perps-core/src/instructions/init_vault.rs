@@ -1,3 +1,4 @@
+use mgk_common::layout::init_account_mut;
 use crate::state::Vault;
 use pinocchio::{
     account_info::AccountInfo,
@@ -12,7 +13,7 @@ use pinocchio::{
 /// Data: bump(1)
 pub fn process_init_vault(vault_account: &AccountInfo, bump: u8) -> ProgramResult {
     let vault_data = unsafe {
-        &mut *(vault_account.borrow_mut_data_unchecked().as_ptr() as *mut Vault)
+        init_account_mut::<Vault>(vault_account)?
     };
     vault_data.initialize_in_place(bump);
     Ok(())

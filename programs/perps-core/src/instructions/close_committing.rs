@@ -1,3 +1,4 @@
+use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Batch, BatchStatus, Registry};
 use mgk_common::MgkError;
 use pinocchio::{
@@ -13,9 +14,9 @@ pub fn process_close_committing(
     batch_account: &AccountInfo,
     registry_account: &AccountInfo,
 ) -> ProgramResult {
-    let batch = unsafe { &mut *(batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch) };
+    let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
 
     if registry.is_trading_paused() || registry.is_clears_paused() {
         msg!("Error: Trading/clears is paused");
