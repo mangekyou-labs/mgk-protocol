@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { Logo } from '@/components/common/Logo';
 
 export const metadata: Metadata = {
-  title: 'mgk — On-chain perpetual futures',
-  description: 'On-chain perps with dual-flow batch auctions (DFBA). Fair uniform prices, SOL-PERP on devnet.',
+  title: 'mgk — Demo maintenance',
+  description: 'The MGK devnet demo is being rebuilt. Earlier devnet balances were not carried over.',
 };
 
 const STEPS = [

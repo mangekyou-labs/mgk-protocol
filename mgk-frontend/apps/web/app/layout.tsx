@@ -1,11 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import { Header } from '@/components/layout/Header';
-import { SolanaProvider } from '@/components/providers/SolanaProvider';
-import { ThemeProvider } from '@/components/providers/ThemeProvider';
-import { TickerBar } from '@/components/trade/TickerBar';
-import { StatusBar } from '@/components/trade/StatusBar';
+import { MaintenanceScreen } from '@/components/layout/MaintenanceScreen';
 
 const inter = Inter({
   variable: '--font-inter',
@@ -20,8 +16,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'mgk — On-chain perps',
-  description: 'On-chain perpetual futures with dual-flow batch auctions (DFBA). Devnet.',
+  title: 'mgk — Demo maintenance',
+  description: 'The MGK devnet demo is being rebuilt. Trading is unavailable during maintenance.',
 };
 
 export default function RootLayout({
@@ -29,22 +25,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // This immutable rollback build deliberately never mounts live route content.
+  // Removing maintenance requires a reviewed source change, not an env toggle.
+  void children;
   return (
     <html
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <ThemeProvider>
-          <SolanaProvider>
-            <Header />
-            <TickerBar />
-            <div className="flex-1 flex flex-col min-h-0">
-              {children}
-            </div>
-            <StatusBar />
-          </SolanaProvider>
-        </ThemeProvider>
+        <MaintenanceScreen />
       </body>
     </html>
   );
