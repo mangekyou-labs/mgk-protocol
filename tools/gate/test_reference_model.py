@@ -92,6 +92,24 @@ class ReferenceModelTests(unittest.TestCase):
         self.assertEqual(ledger.fund_lamports, 1_000_000)
         self.assertEqual(ledger.vault_liability_lamports(), before)
 
+    def test_uncollectible_loss_does_not_remove_unmoved_vault_lamports(self):
+        ledger = Ledger(fund_lamports=20_000_000, collateral={"A": 1_000_000})
+        ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, True))
+        before = ledger.vault_liability_lamports()
+        ledger.apply_fill(Fill("A", -100, 90_000_000, 90_000_000, True))
+        self.assertEqual(ledger.collateral["A"], 0)
+        self.assertEqual(ledger.fund_lamports, 21_000_000)
+        self.assertEqual(ledger.uncovered_bad_debt, 0)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+
+    def test_invalid_liquidator_leaves_takeover_unapplied(self):
+        ledger = Ledger(fund_lamports=20_000_000, collateral={"A": 1_000_000_000})
+        ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, True))
+        before = (ledger.positions.copy(), ledger.collateral.copy(), ledger.fund_lamports)
+        with self.assertRaises(ValueError):
+            ledger.liquidate("A", "", 25, 100_000_000)
+        self.assertEqual((ledger.positions, ledger.collateral, ledger.fund_lamports), before)
+
     def test_liquidator_receives_full_penalty_when_trader_is_short(self):
         ledger = Ledger(fund_lamports=100_000, collateral={"A": 100_000, "L": 1_000_000_000})
         ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, True))

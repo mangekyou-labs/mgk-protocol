@@ -84,11 +84,10 @@ class Ledger:
             available = self.collateral.get(account, 0)
             collected = min(amount, available)
             self.collateral[account] = available - collected
-            self.realized_lamports[account] = self.realized_lamports.get(account, 0) - amount
+            self.realized_lamports[account] = self.realized_lamports.get(account, 0) - collected
             self._inflow(collected)
-            # An uncollectible realized loss reduces backing. The fund absorbs
-            # it first; any remainder is uncovered debt.
-            self._outflow(amount - collected)
+            # The unpaid portion moves no lamports. The fund takes the loss
+            # when a counterparty payout is credited, not a second time here.
 
     def apply_fill(self, fill: Fill) -> None:
         # A rejected event must have the same all-or-nothing effect as a
@@ -136,7 +135,12 @@ class Ledger:
         self._inflow(fee)
 
     def liquidate(self, account: str, liquidator: str, quantity_lots: int, conversion_price: int) -> None:
-        if account == liquidator or quantity_lots <= 0 or conversion_price <= 0:
+        next_state = deepcopy(self)
+        next_state._liquidate(account, liquidator, quantity_lots, conversion_price)
+        self.__dict__.update(next_state.__dict__)
+
+    def _liquidate(self, account: str, liquidator: str, quantity_lots: int, conversion_price: int) -> None:
+        if not account or not liquidator or account == liquidator or quantity_lots <= 0 or conversion_price <= 0:
             raise ValueError("invalid liquidation")
         old = self.positions[account]
         if quantity_lots > abs(old.quantity_lots):
@@ -144,8 +148,8 @@ class Ledger:
         direction = 1 if old.quantity_lots > 0 else -1
         # Both sides transact at the oracle price; the takeover cannot create
         # or destroy base exposure.
-        self.apply_fill(Fill(account, -direction * quantity_lots, conversion_price, conversion_price, True))
-        self.apply_fill(Fill(liquidator, direction * quantity_lots, conversion_price, conversion_price, True))
+        self._apply_fill(Fill(account, -direction * quantity_lots, conversion_price, conversion_price, True))
+        self._apply_fill(Fill(liquidator, direction * quantity_lots, conversion_price, conversion_price, True))
         notional = Fraction(quantity_lots * conversion_price, LOTS_PER_SOL)
         penalty = _ceil(_lamports(notional / 100, conversion_price))
         available = self.collateral.get(account, 0)
