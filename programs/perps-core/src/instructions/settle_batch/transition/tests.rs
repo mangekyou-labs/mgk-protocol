@@ -247,8 +247,8 @@ fn legacy_commitments_release_deposits_and_slash_pending_only_within_limit() {
 fn funding_freshness_pause_and_cursor_behavior_use_full_transition() {
     for (oracle, paused, valid, expected_cum, expected_slot) in [
         (Some((100, 1000, true)), false, true, 20, 100),
-        (Some((100, 401, true)), false, true, 20, 100),
-        (Some((100, 400, true)), false, true, 0, 0),
+        (Some((100, 940, true)), false, true, 20, 100),
+        (Some((100, 939, true)), false, true, 0, 0),
         (Some((100, 1001, true)), false, true, 0, 0),
         (Some((100, 1000, false)), false, true, 0, 0),
         (None, false, true, 0, 0),

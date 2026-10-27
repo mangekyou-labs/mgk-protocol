@@ -1,5 +1,5 @@
 use mgk_common::layout::{
-    check_header, discriminator, load_account, load_account_mut, LAYOUT_VERSION_1,
+    load_account, load_account_mut,
 };
 use crate::state::batch::{Batch, BatchStatus};
 use crate::state::instrument::Instrument;
@@ -14,13 +14,7 @@ use mgk_common::{
     math::{calculate_im, calculate_mm},
     MgkError,
 };
-use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
-
-/// M7 7.7: PriceOracle field offset for the `price` field. See
-/// `programs/oracle/src/state.rs` for the full layout. Copied here
-/// rather than imported to keep `liquidate_user` self-contained.
-const ORACLE_PRICE_OFFSET: usize = 80;
-const ORACLE_PRICE_LEN: usize = 8;
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, sysvars::{clock::Clock, Sysvar}, ProgramResult};
 
 /// Liquidate an underwater portfolio (M7 7.7).
 ///
@@ -148,7 +142,7 @@ pub fn process_liquidate_user(
         return Err(MgkError::OperationPaused.into());
     }
 
-    let oracle_price = read_oracle_price(oracle_account);
+    let now = Clock::get()?.unix_timestamp;
 
     let mut mark_prices: [i64; MAX_INSTRUMENTS] = [0; MAX_INSTRUMENTS];
     let mut contract_sizes: [u64; MAX_INSTRUMENTS] = [1; MAX_INSTRUMENTS];
@@ -157,11 +151,16 @@ pub fn process_liquidate_user(
     for inst in instrument_accounts {
         let inst_ref = unsafe { load_account::<Instrument>(inst)? };
         let id = inst_ref.instrument_id as usize;
-        if id < MAX_INSTRUMENTS {
+        if id < MAX_INSTRUMENTS && portfolio.positions.iter().take(portfolio.positions_len as usize)
+            .any(|position| position.instrument_id as usize == id) {
+            // A valid auction mark never bypasses conversion-price validity.
+            let oracle_price = mgk_common::oracle::read_price(
+                oracle_account, &inst_ref.oracle_addr, inst.key(), now,
+            )?;
             mark_prices[id] = if inst_ref.mark_price > 0 {
                 inst_ref.mark_price
             } else {
-                oracle_price.unwrap_or(0)
+                oracle_price
             };
             contract_sizes[id] = if inst_ref.contract_size > 0 {
                 inst_ref.contract_size
@@ -258,21 +257,6 @@ pub fn process_liquidate_user(
     Ok(())
 }
 
-/// Read the fallback oracle's price via raw byte access. Returns `None`
-/// if the account is missing, too small, or fails the account-header check
-/// (`PRICE_ORACLE` discriminator, layout version 1).
-fn read_oracle_price(oracle_account: &AccountInfo) -> Option<i64> {
-    let data = oracle_account.try_borrow_data().ok()?;
-    if data.len() < ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN {
-        return None;
-    }
-    check_header(&data, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1).ok()?;
-    let price_bytes: [u8; 8] = data[ORACLE_PRICE_OFFSET..ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN]
-        .try_into()
-        .ok()?;
-    Some(i64::from_le_bytes(price_bytes))
-}
-
 fn recompute_margin(
     portfolio: &mut Portfolio,
     mark_prices: &[i64; MAX_INSTRUMENTS],
@@ -343,12 +327,6 @@ mod tests {
         inst.contract_size = cs;
         inst.mark_price = mark;
         inst
-    }
-
-    #[test]
-    fn test_oracle_price_offset_matches_oracle_layout() {
-        assert_eq!(ORACLE_PRICE_OFFSET, 80);
-        assert_eq!(discriminator::PRICE_ORACLE, 9);
     }
 
     #[test]
