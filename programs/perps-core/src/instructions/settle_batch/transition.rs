@@ -373,13 +373,13 @@ pub(super) fn settle(
     // Skips leave cumulative funding and its cursor untouched.
     let funding_paused = registry.is_funding_paused();
     // T9.10.3: Oracle freshness check. Compare oracle timestamp with Clock::unix_timestamp;
-    // freshness is 0 <= age < 600 seconds (i.e. ts <= current_unix_ts and current_unix_ts - ts < 600).
-    const ORACLE_STALENESS_WINDOW_SECS: i64 = 600; // 10 minutes
+    // freshness includes the exact 60-second boundary.
+    const ORACLE_STALENESS_WINDOW_SECS: i64 = mgk_common::oracle::MAX_PRICE_AGE_SECONDS;
     let oracle_fresh = if let Some((_price, ts, active)) = oracle_info {
         active
             && ts > 0
             && current_unix_ts >= ts
-            && (current_unix_ts - ts) < ORACLE_STALENESS_WINDOW_SECS
+            && current_unix_ts.checked_sub(ts).is_some_and(|age| age <= ORACLE_STALENESS_WINDOW_SECS)
     } else {
         false
     };

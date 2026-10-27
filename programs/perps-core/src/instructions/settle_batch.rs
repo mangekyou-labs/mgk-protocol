@@ -23,63 +23,18 @@ use pinocchio::{
     ProgramResult,
 };
 
-/// M7 7.5: PriceOracle field offset for the `price` field (raw bytes
-/// read). The full struct is defined in `programs/oracle/src/state.rs`.
-/// At offset 80: header(8) + unused(1) + bump(1) + is_active(1) +
-/// _padding(5) + authority(32) + instrument(32) + price(8). This avoids
-/// pulling mgk-oracle as a dep just to read 8 bytes. The account header
-/// (discriminator `PRICE_ORACLE`, layout version 1) is checked with
-/// `layout::check_header`.
-const ORACLE_PRICE_OFFSET: usize = 80;
-const ORACLE_PRICE_LEN: usize = 8;
-
-/// M7 7.5 / T9.10.3: Read and validate the fallback oracle's price via raw byte access.
-///
-/// Accepts index data ONLY when:
-///   1. `oracle_account.key() == expected_oracle_addr` (matches `instrument.oracle_addr`)
-///   2. `oracle_account.owner() == &mgk_common::program_ids::mgk_oracle_program_id()`
-///   3. `oracle_account.data_len() >= 128` (PRICE_ORACLE_SIZE)
-///   4. header discriminator == `PRICE_ORACLE`
-///   5. header layout version == `LAYOUT_VERSION_1`
-///   6. `oracle.instrument == *instrument_account.key()`
-///   7. `price > 0`
-///
-/// Returns `Some((price, timestamp, is_active))` if valid; `None` otherwise.
+/// The shared validity gate is used both before settlement writes and by its
+/// optional funding adapter. Invalid prices never reach the business transition.
 fn read_oracle_price(
     oracle_account: &AccountInfo,
     instrument_account: &AccountInfo,
     expected_oracle_addr: &Pubkey,
 ) -> Option<(i64, i64, bool)> {
-    if oracle_account.key() != expected_oracle_addr {
-        return None;
-    }
-    if oracle_account.owner() != &mgk_common::program_ids::mgk_oracle_program_id() {
-        return None;
-    }
-    let data = oracle_account.try_borrow_data().ok()?;
-    if data.len() < 128 {
-        return None;
-    }
-    // Validate account type + layout version.
-    layout::check_header(&data, discriminator::PRICE_ORACLE, LAYOUT_VERSION_1).ok()?;
-    let is_active = data[10] != 0;
-    // Validate instrument binding.
-    let oracle_inst_bytes: [u8; 32] = data[48..80].try_into().ok()?;
-    if Pubkey::from(oracle_inst_bytes) != *instrument_account.key() {
-        return None;
-    }
-    // Read price.
-    let price_bytes: [u8; 8] = data[ORACLE_PRICE_OFFSET..ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN]
-        .try_into()
-        .ok()?;
-    let price = i64::from_le_bytes(price_bytes);
-    if price <= 0 {
-        return None;
-    }
-    // Read timestamp.
-    let ts_bytes: [u8; 8] = data[88..96].try_into().ok()?;
-    let timestamp = i64::from_le_bytes(ts_bytes);
-    Some((price, timestamp, is_active))
+    let now = Clock::get().ok()?.unix_timestamp;
+    let price = mgk_common::oracle::read_price(
+        oracle_account, expected_oracle_addr, instrument_account.key(), now,
+    ).ok()?;
+    Some((price, now, true))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -105,6 +60,14 @@ pub fn process_settle_batch(
     let instrument = unsafe {
         load_account_mut::<Instrument>(instrument_account)?
     };
+    // Fail closed before any fill, fee, mark, or batch write, including when
+    // funding is paused or the batch has no fills.
+    mgk_common::oracle::read_price(
+        oracle_account,
+        &instrument.oracle_addr,
+        instrument_account.key(),
+        Clock::get()?.unix_timestamp,
+    )?;
     let results_raw = results_account
         .try_borrow_data()
         .map_err(|_| MgkError::InvalidAccount)?;
@@ -1386,49 +1349,6 @@ mod tests {
     // ====================================================================
     // T9.10.3 — Oracle Validation & Freshness Tests
     // ====================================================================
-
-    #[test]
-    fn test_oracle_freshness_unix_timestamp_boundaries() {
-        const ORACLE_STALENESS_WINDOW_SECS: i64 = 600;
-        let current_unix_ts: i64 = 1_700_000_000;
-
-        let check_fresh = |ts: i64, active: bool| -> bool {
-            active
-                && ts > 0
-                && current_unix_ts >= ts
-                && (current_unix_ts - ts) < ORACLE_STALENESS_WINDOW_SECS
-        };
-
-        // 1. Exact current time (age = 0) -> fresh
-        assert!(check_fresh(current_unix_ts, true));
-
-        // 2. 1 second ago (age = 1) -> fresh
-        assert!(check_fresh(current_unix_ts - 1, true));
-
-        // 3. 599 seconds ago (age = 599) -> fresh
-        assert!(check_fresh(current_unix_ts - 599, true));
-
-        // 4. 600 seconds ago (age = 600) -> stale (not fresh)
-        assert!(!check_fresh(current_unix_ts - 600, true));
-
-        // 5. 601 seconds ago (age = 601) -> stale (not fresh)
-        assert!(!check_fresh(current_unix_ts - 601, true));
-
-        // 6. Future timestamp (ts = current_unix_ts + 1) -> not fresh
-        assert!(!check_fresh(current_unix_ts + 1, true));
-
-        // 7. Future timestamp (ts = current_unix_ts + 60) -> not fresh
-        assert!(!check_fresh(current_unix_ts + 60, true));
-
-        // 8. Zero timestamp -> not fresh
-        assert!(!check_fresh(0, true));
-
-        // 9. Negative timestamp -> not fresh
-        assert!(!check_fresh(-100, true));
-
-        // 10. Inactive oracle (even if timestamp is fresh) -> not fresh
-        assert!(!check_fresh(current_unix_ts, false));
-    }
 
     #[test]
     fn test_oracle_validation_price_and_metadata_rules() {

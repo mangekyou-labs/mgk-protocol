@@ -24,7 +24,7 @@ const BOOK_ACCOUNT_SIZE = 27_704;
 const VAULT_SIZE = 80;
 
 const PARAMS = {
-  baseDeposit: 10_000_000n, nMin: 1, tMinSlots: 2n, tMaxSlots: 150n,
+  baseDeposit: 10_000_000n, nMin: 1, tMinSlots: 2n, tMaxSlots: 25n,
   tRevealSlots: 0n, instrumentId: 0, tickSize: 1n, lotSize: 1n,
   imrBps: 100, mmrBps: 50, takerFeeBps: 5, makerFeeBps: 0,
   volatilityMultiplier: 10_000, maxOrdersPerBatch: 64, marginalSizeCap: 64,

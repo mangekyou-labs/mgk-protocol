@@ -3,10 +3,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { once } = require('node:events');
+const { setTimeout: sleep } = require('node:timers/promises');
 const { execFileSync } = require('node:child_process');
 const { resolve } = require('node:path');
 const { LocalRuntime } = require('./harness');
-const { Keypair, PublicKey, TransactionInstruction, SystemProgram } = require('@solana/web3.js');
+const { Keypair, PublicKey, TransactionInstruction, Transaction, ComputeBudgetProgram, SystemProgram } = require('@solana/web3.js');
 const deployment = require('../../deployments/devnet.json');
 const CORE = new PublicKey(deployment.programs.perps_core);
 const MATCHER = new PublicKey(deployment.programs.perps_matcher);
@@ -65,12 +66,13 @@ test('candidate runtime: controllable oracle and signed init/deposit/post/clear/
   payer.publicKey.toBuffer().copy(init);
   init.writeUInt16LE(1, 32); init.writeUInt16LE(10000, 34);
   u64(1_000_000).copy(init, 44); init.writeUInt32LE(1, 52);
-  u64(10).copy(init, 56); u64(150).copy(init, 64); u64(25).copy(init, 72);
+  u64(10).copy(init, 56); u64(25).copy(init, 64); u64(25).copy(init, 72);
   u64(1).copy(init, 82); u64(1).copy(init, 90);
   init.writeUInt16LE(1000, 98); init.writeUInt16LE(500, 100); init.writeUInt16LE(5, 102);
   oracle.toBuffer().copy(init, 106); init[138] = regBump; init[139] = instBump;
   await runtime.send('initialize', [ix(0, init, [meta(registry), meta(payer.publicKey, true, true), meta(instrument),
     meta(SystemProgram.programId, false), meta(vault)])], [payer]);
+  await runtime.assertState([{ address: registry, fields: [field('10-second batch maximum', 72, 8, 25)] }]);
   await runtime.send('create batch', [ix(16, Buffer.from([batchBump]), [meta(batch), meta(registry)])], [payer]);
   for (let index = 0; index < 2; index++) {
     const user = [maker, taker][index], [portfolio, bump] = portfolios[index];
@@ -119,11 +121,89 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
 `, resolve(__dirname, '../gate')], { input: JSON.stringify({ collateral: {
     [maker.publicKey]: '1000000000', [taker.publicKey]: '1000000000' }, fills }), encoding: 'utf8' }));
   runtime.report.model = model; runtime.flushReport();
+  const settle = oracleKey => ix(8, Buffer.from([0, 0, 2, 0]), [meta(batch), meta(registry), meta(vault),
+    meta(results, false), meta(instrument), meta(book, false), meta(oracleKey, false), meta(MATCHER, false),
+    ...portfolios.map(([portfolio]) => meta(portfolio)), meta(nextBatch)]);
+  // An actual signed oracle update must preserve the publisher's confidence.
+  const update = Buffer.alloc(16);
+  update.writeBigInt64LE(1_000_000n); update.writeBigInt64LE(4321n, 8);
+  await runtime.send('oracle publishes real confidence', [ix(1, update,
+    [meta(oracle), meta(payer.publicKey, false, true)], ORACLE)], [payer]);
+  await runtime.assertState([{ address: oracle, fields: [field('published confidence', 96, 8, 4321, true)] }]);
+  await runtime.rpc('surfnet_pauseClock');
+  const clock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+  const now = Number(clock.data.readBigInt64LE(32));
+  const boundaryResults = [];
+  const simulate = async oracleKey => {
+    const latest = await runtime.connection.getLatestBlockhash('confirmed');
+    const tx = new Transaction({ feePayer: payer.publicKey, ...latest }).add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), settle(oracleKey));
+    tx.sign(payer);
+    return (await runtime.rpc('simulateTransaction', [tx.serialize().toString('base64'),
+      { encoding: 'base64', sigVerify: true, commitment: 'confirmed' }])).value;
+  };
+  const cases = [
+    ['exactly 60 seconds and 1 percent', { publishTime: now - 60, confidence: 10_000 }, null],
+    ['61 seconds', { publishTime: now - 61 }, 114],
+    ['above 1 percent', { confidence: 10_001 }, 210],
+    ['future timestamp', { publishTime: now + 1 }, 114],
+    ['inactive', { active: false }, 'invalid'],
+    ['foreign instrument', { instrument: Keypair.generate().publicKey }, 'invalid'],
+    ['foreign owner', { owner: SystemProgram.programId }, 'invalid'],
+    ['zero price', { price: 0, confidence: 0 }, 210],
+    ['negative confidence', { confidence: -1 }, 210],
+    ['foreign oracle key', {}, 'invalid'],
+    ['invalid header', {}, 'invalid'],
+  ];
+  for (const [label, overrides, expected] of cases) {
+    const oracleKey = label === 'foreign oracle key' ? Keypair.generate().publicKey : oracle;
+    await runtime.setOracle(oracleKey, { owner: ORACLE, authority: payer.publicKey, instrument,
+      price: 1_000_000, publishTime: now, confidence: 12, ...overrides });
+    if (label === 'invalid header') {
+      const account = await runtime.account(oracleKey);
+      account.data[0] = 0;
+      await runtime.setAccount(oracleKey, { owner: ORACLE, data: account.data });
+    }
+    const result = await simulate(oracleKey);
+    if (expected === null) assert.equal(result.err, null, `${label}: ${result.logs}`);
+    else if (typeof expected === 'number') assert.deepEqual(result.err,
+      { InstructionError: [1, { Custom: expected }] }, label);
+    else assert.ok(result.err, `${label} must block settlement`);
+    boundaryResults.push({ label, error: result.err });
+  }
+  runtime.report.oracleBoundaries = boundaryResults; runtime.flushReport();
+  // Submit an invalid transaction too: validator rollback must preserve all risk state.
+  const protectedAccounts = [batch, instrument, vault, nextBatch, ...portfolios.map(([key]) => key)];
+  const before = await Promise.all(protectedAccounts.map(key => runtime.account(key)));
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
-    price: 1_000_000, publishTime: 789, confidence: 12 });
-  await runtime.send('settle', [ix(8, Buffer.from([0, 0, 2, 0]), [meta(batch), meta(registry), meta(vault),
-    meta(results, false), meta(instrument), meta(book, false), meta(oracle, false), meta(MATCHER, false),
-    ...portfolios.map(([portfolio]) => meta(portfolio)), meta(nextBatch)])], [payer]);
+    price: 1_000_000, publishTime: now - 61, confidence: 12 });
+  const latest = await runtime.connection.getLatestBlockhash('confirmed');
+  const rejected = new Transaction({ feePayer: payer.publicKey, ...latest }).add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), settle(oracle));
+  rejected.sign(payer);
+  const rejectedSignature = await runtime.rpc('sendTransaction', [rejected.serialize().toString('base64'),
+    { encoding: 'base64', skipPreflight: true }]);
+  await runtime.rpc('surfnet_resumeClock');
+  let rejectedStatus;
+  const deadline = Date.now() + 15000;
+  do {
+    rejectedStatus = (await runtime.rpc('getSignatureStatuses', [[rejectedSignature], { searchTransactionHistory: true }])).value[0];
+    if (rejectedStatus && ['confirmed', 'finalized'].includes(rejectedStatus.confirmationStatus)) break;
+    assert.ok(Date.now() < deadline, 'rejected settlement confirmation timed out');
+    await sleep(50);
+  } while (true);
+  assert.deepEqual(rejectedStatus.err, { InstructionError: [1, { Custom: 114 }] });
+  const after = await Promise.all(protectedAccounts.map(key => runtime.account(key)));
+  for (let index = 0; index < before.length; index++) {
+    assert.deepEqual(after[index].data, before[index].data, `${protectedAccounts[index]} bytes unchanged`);
+    assert.equal(after[index].lamports, before[index].lamports, `${protectedAccounts[index]} lamports unchanged`);
+  }
+  runtime.report.rejectedSettlement = { signature: rejectedSignature, error: rejectedStatus.err };
+  runtime.flushReport();
+  const freshClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+  await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+    price: 1_000_000, publishTime: Number(freshClock.data.readBigInt64LE(32)), confidence: 12 });
+  await runtime.send('settle', [settle(oracle)], [payer]);
   // Baseline smoke: dual legs cancel notional, maker fees 0, taker fees 2 x 500.
   // This does not claim that master's settlement implements the future restricted-demo accounting.
   await runtime.assertState([

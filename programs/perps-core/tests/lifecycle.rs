@@ -462,6 +462,24 @@ fn build_oracle_data(price: i64, conf: i64) -> Vec<u8> {
     data
 }
 
+/// Seed a configured, active conversion oracle for successful risk actions.
+async fn seed_valid_oracle(ctx: &mut solana_program_test::ProgramTestContext, key: Pubkey, instrument: Pubkey) {
+    let mut clock = ctx.banks_client.get_sysvar::<solana_sdk::clock::Clock>().await.unwrap();
+    if clock.unix_timestamp <= 0 {
+        clock.unix_timestamp = 1_700_000_000;
+        ctx.set_sysvar(&clock);
+    }
+    let mut data = build_oracle_data(100_000_000, 0);
+    data[10] = 1;
+    data[48..80].copy_from_slice(instrument.as_ref());
+    data[88..96].copy_from_slice(&clock.unix_timestamp.to_le_bytes());
+    ctx.set_account(&key, &solana_sdk::account::AccountSharedData::from(Account {
+        lamports: 1_000_000, data,
+        owner: Pubkey::new_from_array(mgk_common::program_ids::ORACLE_ID),
+        executable: false, rent_epoch: 0,
+    }));
+}
+
 /// Stamp the account header (discriminator + layout version) onto a fixture.
 fn stamp_header(data: &mut [u8], disc: u8) {
     data[0] = disc;
@@ -796,9 +814,9 @@ async fn test_e2e_full_lifecycle_with_fill() {
     );
 
     let mut ctx = pt.start_with_context().await;
-
     let governance = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, registry_bump) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, instrument_bump) =
         Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -1120,6 +1138,7 @@ async fn test_e2e_dfba_one_sided_liq_paused() {
     let mut ctx = pt.start_with_context().await;
     let governance = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, registry_bump) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, instrument_bump) =
         Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -1356,6 +1375,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
     let mut ctx = pt.start_with_context().await;
     let gov = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, rb) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, ib) = Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
     submit(
@@ -1654,6 +1674,7 @@ async fn test_e2e_settle_creates_next_batch_pda() {
     let mut ctx = pt.start_with_context().await;
     let gov = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, rb) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, ib) = Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
     submit(
@@ -2032,6 +2053,7 @@ async fn test_e2e_liquidate_user_happy_path() {
         },
     );
     let mut ctx = pt.start_with_context().await;
+    seed_valid_oracle(&mut ctx, opk, pdas.instrument).await;
     let gov = Keypair::new();
     let (_, rb) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, ib) = Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -2365,6 +2387,7 @@ async fn test_e2e_liquidate_user_adl_stub_fires() {
         },
     );
     let mut ctx = pt.start_with_context().await;
+    seed_valid_oracle(&mut ctx, opk, pdas.instrument).await;
     let gov = Keypair::new();
     let (_, rb) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, ib) = Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -2643,6 +2666,7 @@ async fn test_e2e_cancel_all_resting_orders() {
     let mut ctx = pt.start_with_context().await;
     let gov = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, rb) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, ib) = Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
     submit(
@@ -2899,6 +2923,7 @@ async fn test_e2e_resting_across_batch() {
     let mut ctx = pt.start_with_context().await;
     let governance = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, registry_bump) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, instrument_bump) =
         Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -3209,6 +3234,7 @@ async fn test_e2e_self_trade_no_fill() {
     let mut ctx = pt.start_with_context().await;
     let governance = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, registry_bump) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, instrument_bump) =
         Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -3415,6 +3441,7 @@ async fn test_e2e_cancel_resting_between_batches() {
     let mut ctx = pt.start_with_context().await;
     let governance = Keypair::new();
     let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut ctx, oracle, pdas.instrument).await;
     let (_, registry_bump) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
     let (_, instrument_bump) =
         Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
@@ -3655,6 +3682,7 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
     pt.add_account(pdas.vault, vault_seed);
     let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
     stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
+    instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle_key.as_ref());
     // Same fee offsets as Initialize; funding disabled by zero interval.
     instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
     pt.add_account(pdas.instrument, instrument);
@@ -3676,6 +3704,7 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         Account::new(1_000_000, 0, &system_program::id()),
     );
     let mut ctx = pt.start_with_context().await;
+    seed_valid_oracle(&mut ctx, oracle_key, pdas.instrument).await;
     let instruction = |next| Instruction {
         program_id: CORE_ID,
         accounts: vec![

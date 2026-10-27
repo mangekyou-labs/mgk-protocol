@@ -11,6 +11,7 @@ pub mod quote_cache;
 pub mod fill_receipt;
 pub mod program_ids;
 pub mod book;
+pub mod oracle;
 
 #[cfg(test)]
 mod tests;

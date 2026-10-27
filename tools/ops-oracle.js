@@ -29,6 +29,7 @@ const {
   Connection, Keypair, PublicKey, Transaction, TransactionInstruction,
 } = require('@solana/web3.js');
 const { readFileSync, existsSync } = require('fs');
+const { publishedConfidence } = require('./oracle-sources');
 const { homedir } = require('os');
 const { join } = require('path');
 
@@ -137,7 +138,11 @@ async function fetchQuorumPrice(venues, maxFreshnessSec, maxDeviationBps) {
 
   return {
     price: BigInt(Math.round(median * 1_000_000)), // 6 decimals
-    confidence: BigInt(Math.round(median * 10_000)), // 1% of price
+    confidence: publishedConfidence(
+      fresh.map(p => BigInt(Math.round(p.price * 1_000_000))),
+      BigInt(Math.round(median * 1_000_000)),
+      fresh.map(p => BigInt(Math.ceil((p.confidence ?? 0) * 1_000_000))),
+    ),
     venues: fresh.map(p => p.venue),
   };
 }
@@ -237,4 +242,6 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+}

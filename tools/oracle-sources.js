@@ -163,6 +163,20 @@ function absDiff(a, b) {
   return a >= b ? a - b : b - a;
 }
 
+/** Confidence in scaled price units: real venue dispersion or source uncertainty, whichever is larger. */
+function publishedConfidence(prices, median, sourceConfidences = []) {
+  let confidence = 0n;
+  for (const price of prices) {
+    const deviation = absDiff(price, median);
+    if (deviation > confidence) confidence = deviation;
+  }
+  for (const source of sourceConfidences) {
+    if (typeof source !== 'bigint' || source < 0n) throw new Error('Invalid source confidence');
+    if (source > confidence) confidence = source;
+  }
+  return confidence;
+}
+
 /**
  * Filter outliers and compute final median and confidence.
  *
@@ -302,6 +316,7 @@ async function fetchAllAndAggregate(options = {}) {
 }
 
 module.exports = {
+  publishedConfidence,
   SCALE_FACTOR,
   DEFAULTS,
   parseScaledPrice,
