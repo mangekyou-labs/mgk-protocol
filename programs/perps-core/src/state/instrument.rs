@@ -58,7 +58,6 @@ pub struct Instrument {
     // Layout-compatible with M7 7.4 fields at the same offsets.
     // Unused legacy fields (deviation_cap, sample_qty, sma_window,
     // premium_samples) are retained as inert reserved bytes.
-
     /// D7: Funding coefficient in bps (signed non-negative). 10_000 = 1×.
     /// At offset 160 (was `interest_rate_bps`). Default 10_000.
     pub funding_coefficient_bps: i64,
@@ -89,6 +88,17 @@ unsafe impl AccountLayout for Instrument {
 }
 
 impl Instrument {
+    pub const DEMO_TAKER_FEE_BPS: u16 = 5;
+    pub const DEMO_MAKER_FEE_BPS: i16 = 0;
+
+    /// The restricted demo has one fee schedule, shared by every entry point.
+    pub fn validate_demo_fees(taker: u16, maker: i16) -> Result<(), mgk_common::MgkError> {
+        if taker != Self::DEMO_TAKER_FEE_BPS || maker != Self::DEMO_MAKER_FEE_BPS {
+            return Err(mgk_common::MgkError::InvalidRiskParams);
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn initialize_in_place(
         &mut self,
@@ -149,7 +159,13 @@ impl Instrument {
     }
 
     #[cfg(test)]
-    pub fn new(instrument_id: u16, tick_size: u64, lot_size: u64, imr_bps: u16, mmr_bps: u16) -> Self {
+    pub fn new(
+        instrument_id: u16,
+        tick_size: u64,
+        lot_size: u64,
+        imr_bps: u16,
+        mmr_bps: u16,
+    ) -> Self {
         let mut sym = [0u8; 16];
         sym[0] = b'T';
         sym[1] = b'E';
@@ -164,8 +180,8 @@ impl Instrument {
             lot_size,
             imr_bps,
             mmr_bps,
-            taker_fee_bps: 5,
-            maker_fee_bps: 0,
+            taker_fee_bps: Self::DEMO_TAKER_FEE_BPS,
+            maker_fee_bps: Self::DEMO_MAKER_FEE_BPS,
             max_leverage: 10,
             _pad_ml: [0; 2],
             oracle_addr: Pubkey::default(),
@@ -205,11 +221,11 @@ impl Instrument {
             1_000,
             150,
             0,
-            10_000,   // funding_coefficient_bps (D7: 10_000 = 1×)
-            0,        // _reserved_deviation_cap
-            50,       // max_funding_rate_bps (D7: 50 bps cap)
-            0,        // _reserved_sample_qty
-            0,        // _reserved_sma_window
+            10_000, // funding_coefficient_bps (D7: 10_000 = 1×)
+            0,      // _reserved_deviation_cap
+            50,     // max_funding_rate_bps (D7: 50 bps cap)
+            0,      // _reserved_sample_qty
+            0,      // _reserved_sma_window
         );
         inst
     }
@@ -307,11 +323,11 @@ mod tests {
     fn test_funding_defaults() {
         let inst = Instrument::new(1, 1_000_000, 1_000, 100, 50);
         assert_eq!(inst.funding_coefficient_bps, 10_000); // D7 default
-        assert_eq!(inst._reserved_deviation_cap, 0);      // reserved
-        assert_eq!(inst.max_funding_rate_bps, 50);         // D7 default
-        assert_eq!(inst._reserved_sample_qty, 0);          // reserved
-        assert_eq!(inst._reserved_sma_window, 0);          // reserved
-        assert_eq!(inst._reserved_sample_count, 0);        // reserved
+        assert_eq!(inst._reserved_deviation_cap, 0); // reserved
+        assert_eq!(inst.max_funding_rate_bps, 50); // D7 default
+        assert_eq!(inst._reserved_sample_qty, 0); // reserved
+        assert_eq!(inst._reserved_sma_window, 0); // reserved
+        assert_eq!(inst._reserved_sample_count, 0); // reserved
         assert_eq!(inst._reserved_premium_samples, [0i64; 16]);
         assert_eq!(inst.last_funding_slot, 0);
         assert_eq!(inst.cum_funding, 0);

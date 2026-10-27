@@ -62,9 +62,7 @@ pub(super) fn settle(
         _ => return Err(MgkError::StalePrice.into()),
     };
     // Restricted demo fee schedule: no governance retune or maker rebates.
-    if instrument.taker_fee_bps != 5 || instrument.maker_fee_bps != 0 {
-        return Err(MgkError::InvalidRiskParams.into());
-    }
+    Instrument::validate_demo_fees(instrument.taker_fee_bps, instrument.maker_fee_bps)?;
     let registry = env.registry()?;
     let dfba = results.len() >= DFBA_RESULT_HEADER_BYTES
         && (batch.matched_bid_qty > 0
@@ -392,7 +390,10 @@ fn apply_fill(
         0
     } else {
         -lamports(
-            -mul(mul(qty.unsigned_abs() as i128, price as i128)?, 5)?,
+            -mul(
+                mul(qty.unsigned_abs() as i128, price as i128)?,
+                Instrument::DEMO_TAKER_FEE_BPS as i128,
+            )?,
             LOTS_PER_SOL * 10_000,
             conversion,
         )?

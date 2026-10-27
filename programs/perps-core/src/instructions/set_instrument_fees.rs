@@ -52,9 +52,7 @@ pub fn apply_instrument_fees(
     taker_fee_bps: u16,
     maker_fee_bps: i16,
 ) -> ProgramResult {
-    if taker_fee_bps != 5 || maker_fee_bps != 0 {
-        return Err(MgkError::InvalidRiskParams.into());
-    }
+    Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
     instrument.taker_fee_bps = taker_fee_bps;
     instrument.maker_fee_bps = maker_fee_bps;
     Ok(())
