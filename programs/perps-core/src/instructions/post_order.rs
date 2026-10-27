@@ -1,5 +1,6 @@
 //! PostOrder (disc 20) — DFBA open limit post (replaces Commit+Reveal for v1).
 
+use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Batch, BatchStatus, Portfolio, Registry};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{
@@ -46,7 +47,7 @@ pub fn process_post_order(
     reduce_only: bool,
 ) -> ProgramResult {
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_trading_paused() || registry.is_posts_paused() {
         msg!("Error: Trading/posts is paused");
         return Err(MgkError::OperationPaused.into());
@@ -74,7 +75,7 @@ pub fn process_post_order(
         return Err(MgkError::InvalidSide.into());
     }
 
-    let batch = unsafe { &mut *(batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch) };
+    let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
     // Until T9.3 renames status to Collecting, Committing is the open window.
     if batch.status != BatchStatus::Committing {
         msg!("Error: Batch not open for posts");
@@ -82,7 +83,7 @@ pub fn process_post_order(
     }
 
     let portfolio =
-        unsafe { &mut *(portfolio_account.borrow_mut_data_unchecked().as_ptr() as *mut Portfolio) };
+        unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());

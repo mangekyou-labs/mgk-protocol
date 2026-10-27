@@ -14,15 +14,20 @@
 //!
 //! ```text
 //! PriceOracle (128 bytes):
-//!   magic: u64           - Magic bytes for validation
-//!   version: u8          - Version (currently 0)
-//!   bump: u8             - PDA bump seed
-//!   authority: Pubkey    - Who can update prices
-//!   instrument: Pubkey   - Which instrument
-//!   price: i64           - Current price (scaled)
-//!   timestamp: i64       - Last update time
-//!   confidence: i64      - Price confidence interval
+//!   0   header: AccountHeader - discriminator (PRICE_ORACLE = 9) + layout version (1)
+//!   8   _unused: u8
+//!   9   bump: u8             - PDA bump seed
+//!   10  is_active: u8        - Whether price reads are enabled
+//!   16  authority: Pubkey    - Who can update prices
+//!   48  instrument: Pubkey   - Which instrument
+//!   80  price: i64           - Current price (scaled)
+//!   88  timestamp: i64       - Last update time
+//!   96  confidence: i64      - Price confidence interval
 //! ```
+//!
+//! Every handler other than Initialize checks the header on load. A wrong
+//! discriminator is rejected with `MgkError::InvalidAccountDiscriminator` (8)
+//! and a wrong layout version with `MgkError::UnsupportedLayoutVersion` (9).
 
 #![cfg_attr(target_os = "solana", no_std)]
 

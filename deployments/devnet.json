@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "devnet-sol-demo-fresh-ids",
+  "cluster": "devnet",
+  "programs": {
+    "perps_core": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+    "perps_matcher": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+    "oracle": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm"
+  },
+  "accounts": {
+    "registry": { "status": "pending" },
+    "instrument": { "status": "pending" },
+    "oracle": { "status": "pending" },
+    "insurance": { "status": "pending" },
+    "maker": { "status": "pending" }
+  },
+  "start_slot": { "status": "pending" }
+}

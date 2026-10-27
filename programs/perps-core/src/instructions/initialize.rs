@@ -1,3 +1,5 @@
+use crate::state::{Instrument, Registry, Vault};
+use mgk_common::layout::init_account_mut;
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction, Signer},
@@ -11,13 +13,10 @@ use pinocchio::{
 /// System Program ID (all zeros).
 const SYSTEM_PROGRAM_ID_BYTES: [u8; 32] = [0u8; 32];
 
-/// Registry account size (size_of::<Registry>() = 86 on BPF).
-const REGISTRY_SPACE: usize = 86;
-/// Instrument account size (size_of::<Instrument>() = 336 on BPF).
-const INSTRUMENT_SPACE: usize = 336;
-/// Vault account size — must match `size_of::<Vault>()` = 80 (pinned by vault tests).
-/// Was incorrectly 58, which under-allocated the PDA and left vault unusable.
-const VAULT_SPACE: usize = 80;
+/// Account sizes derive from the structs (each starts with an `AccountHeader`).
+const REGISTRY_SPACE: usize = core::mem::size_of::<Registry>();
+const INSTRUMENT_SPACE: usize = core::mem::size_of::<Instrument>();
+const VAULT_SPACE: usize = core::mem::size_of::<Vault>();
 
 /// Build a SystemProgram::CreateAccount instruction (52 bytes).
 fn build_create_account_ix<'a>(
@@ -145,92 +144,59 @@ pub fn process_initialize(
         msg!("Vault PDA created");
     }
 
-    // Zero-init vault fields (createAccount zeros data; set bump explicitly).
+    // ── Initialize vault state (header + defaults, bump) ────────────────────
     if vault_account.data_len() >= VAULT_SPACE {
-        unsafe {
-            let dst = vault_account.borrow_mut_data_unchecked().as_ptr() as *mut u8;
-            // balance @ 0 (u64) — leave 0
-            // insurance_fund @ 16 (u128) — leave 0 (note: host has 8-byte pad after balance)
-            // bump @ 65
-            *dst.add(65) = vault_bump;
-        }
+        let vault = unsafe { init_account_mut::<Vault>(vault_account)? };
+        vault.initialize_in_place(vault_bump);
         msg!("Vault state initialized");
     }
 
     // ── Initialize Registry state ───────────────────────────────────────────
-    // Write fields directly using byte offsets — bypasses struct layout entirely
-    unsafe {
-        let dst = registry_account.borrow_mut_data_unchecked().as_ptr() as *mut u8;
-        // governance @ 0 (32 bytes)
-        *(dst as *mut [u8; 32]) = *governance;
-        // instrument_count @ 32 (2 bytes)
-        *(dst.add(32) as *mut u16) = instrument_count;
-        // volatility_multiplier @ 34 (2 bytes)
-        *(dst.add(34) as *mut u16) = volatility_multiplier;
-        // batch_id_counter @ 36 (8 bytes)
-        *(dst.add(36) as *mut u64) = 0u64;
-        // base_deposit @ 44 (8 bytes)
-        *(dst.add(44) as *mut u64) = base_deposit;
-        // n_min @ 52 (4 bytes)
-        *(dst.add(52) as *mut u32) = n_min;
-        // t_min_slots @ 56 (8 bytes)
-        *(dst.add(56) as *mut u64) = t_min_slots;
-        // t_max_slots @ 64 (8 bytes)
-        *(dst.add(64) as *mut u64) = t_max_slots;
-        // t_reveal_slots @ 72 (8 bytes)
-        *(dst.add(72) as *mut u64) = t_reveal_slots;
-        // bump @ 80 (1 byte)
-        *dst.add(80) = registry_bump;
-        // pause_flags @ 81 (1 byte)
-        *dst.add(81) = 0u8;
-        // padding @ 82..86 (4 bytes) — already zero from createAccount
+    // Typed init stamps the account header (discriminator + layout version)
+    // and writes every field at its `repr(C)` offset.
+    {
+        let registry = unsafe { init_account_mut::<Registry>(registry_account)? };
+        registry.initialize_in_place(
+            *governance,
+            instrument_count,
+            volatility_multiplier,
+            base_deposit,
+            n_min,
+            t_min_slots,
+            t_max_slots,
+            t_reveal_slots,
+            registry_bump,
+        );
     }
-    msg!("INIT_DONE_214");
     msg!("Registry initialized");
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Initialize Instrument state — direct byte-offset writes to avoid SBF
-    // compiler bug with struct field assignment (same root cause as registry
-    // and batch init bugs).
-    //
-    // Instrument `#[repr(C)]` offsets (pinned by `print_instrument_offsets` host test):
-    //   @0 id, @2 symbol[16], @24 contract, @32 tick, @40 lot,
-    //   @48 imr, @50 mmr, @52 taker_fee, @54 maker_fee, @56 max_lev, @58 pad2,
-    //   @60 oracle[32], @92 cum_funding i128, @108 last_funding, @116 interval,
-    //   @124 is_active, @125 bump, @126 pad6+align, @136 mark_price, @144 ref_qty,
-    //   @152 decay, @160 interest, @168 deviation, @176 funding_cap, @184 sample_qty,
-    //   @192 sma_window, @193 sample_count, @200 premium_samples[16]
+    // ── Initialize default instrument ───────────────────────────────────────
     let mut sym = [0u8; 16];
-    sym[0] = b'S';
-    sym[1] = b'O';
-    sym[2] = b'L';
-    sym[3] = b'P';
-    let dst = unsafe { instrument_account.borrow_mut_data_unchecked().as_ptr() as *mut u8 };
-    unsafe {
-        *(dst as *mut u16) = instrument_id;
-        dst.add(2).copy_from_nonoverlapping(sym.as_ptr(), 16);
-        *(dst.add(24) as *mut u64) = 1u64; // contract_size
-        *(dst.add(32) as *mut u64) = tick_size;
-        *(dst.add(40) as *mut u64) = lot_size;
-        *(dst.add(48) as *mut u16) = imr_bps;
-        *(dst.add(50) as *mut u16) = mmr_bps;
-        *(dst.add(52) as *mut u16) = taker_fee_bps;
-        *(dst.add(54) as *mut i16) = maker_fee_bps;
-        *(dst.add(56) as *mut u16) = 10u16; // max_leverage
-        dst.add(60)
-            .copy_from_nonoverlapping(oracle_addr.as_ref().as_ptr(), 32);
-        *(dst.add(108) as *mut u64) = 0; // last_funding_slot
-        *(dst.add(116) as *mut u64) = 100u64; // funding_interval_slots
-        *dst.add(124) = 1; // is_active
-        *dst.add(125) = instrument_bump;
-        *(dst.add(136) as *mut i64) = 0; // mark_price
-        *(dst.add(144) as *mut u64) = 1_000u64; // mark_reference_qty
-        *(dst.add(152) as *mut u64) = 150u64; // mark_decay_window_slots
-        *(dst.add(160) as *mut i64) = 10_000; // funding_coefficient_bps (D7: 10_000 = 1×)
-        *(dst.add(168) as *mut i64) = 0; // _reserved_deviation_cap (D7: unused)
-        *(dst.add(176) as *mut i64) = 50; // max_funding_rate_bps (D7: 50 bps cap)
-        *(dst.add(184) as *mut u64) = 0u64; // _reserved_sample_qty (D7: unused)
-        *dst.add(192) = 0; // _reserved_sma_window (D7: unused)
+    sym[..4].copy_from_slice(b"SOLP");
+    {
+        let instrument = unsafe { init_account_mut::<Instrument>(instrument_account)? };
+        instrument.initialize_in_place(
+            instrument_id,
+            sym,
+            1,    // contract_size
+            tick_size,
+            lot_size,
+            imr_bps,
+            mmr_bps,
+            taker_fee_bps,
+            maker_fee_bps,
+            10,   // max_leverage
+            oracle_addr,
+            100,  // funding_interval_slots
+            1_000, // mark_reference_qty
+            150,  // mark_decay_window_slots
+            instrument_bump,
+            10_000, // funding_coefficient_bps (D7: 1x)
+            0,    // _reserved_deviation_cap
+            50,   // max_funding_rate_bps (D7: 50 bps cap)
+            0,    // _reserved_sample_qty
+            0,    // _reserved_sma_window
+        );
     }
     msg!("Default instrument initialized");
 

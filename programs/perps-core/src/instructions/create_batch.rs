@@ -1,4 +1,5 @@
 use crate::state::{Batch, Registry};
+use mgk_common::layout::{discriminator, init_account_mut, load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
@@ -13,8 +14,8 @@ use pinocchio::{
 /// System Program ID (all zeros).
 const SYSTEM_PROGRAM_ID: [u8; 32] = [0u8; 32];
 
-/// Batch account size (size_of::<Batch>() = 160 on BPF).
-const BATCH_SPACE: usize = 160;
+/// Batch account size (header + body, derived from the struct).
+const BATCH_SPACE: usize = core::mem::size_of::<Batch>();
 
 /// Create the first batch in Committing state.
 ///
@@ -49,10 +50,7 @@ pub fn process_create_batch(
         let lamports = rent.minimum_balance(BATCH_SPACE);
 
         // Read batch_id from registry counter to derive the correct PDA.
-        let batch_id = unsafe {
-            let reg_ptr = registry_account.borrow_data_unchecked().as_ptr() as *const Registry;
-            (*reg_ptr).batch_id_counter
-        };
+        let batch_id = { unsafe { *load_account::<Registry>(registry_account)? } }.batch_id_counter;
         let batch_id_le = batch_id.to_le_bytes();
         let (batch_pda, _) = find_program_address(&[b"batch", &batch_id_le], program_id);
 
@@ -81,88 +79,37 @@ pub fn process_create_batch(
         msg!("Batch PDA created");
     }
 
-    // Verify batch is not already initialized (batch_id != 0 means already in use).
-    let batch_probe = unsafe { &*(batch_account.borrow_data_unchecked().as_ptr() as *const Batch) };
-    if batch_probe.batch_id != 0 {
-        return Err(MgkError::AlreadyInitialized.into());
+    // Verify batch is not already initialized: a stamped header (any
+    // non-zero discriminator) or a non-zero batch_id means it is in use.
+    {
+        let data = unsafe { batch_account.borrow_data_unchecked() };
+        if data.len() < BATCH_SPACE {
+            return Err(MgkError::InvalidAccount.into());
+        }
+        if data[0] != discriminator::UNINITIALIZED {
+            return Err(MgkError::AlreadyInitialized.into());
+        }
     }
 
     let current_slot = Clock::get()?.slot;
     // batch_id equals the current registry counter value (0 for the first batch).
     // After this, counter is incremented so it equals total batches created.
-    let batch_id = unsafe {
-        let reg_ptr = registry_account.borrow_data_unchecked().as_ptr() as *const Registry;
-        (*reg_ptr).batch_id_counter
-    };
+    // The registry header is checked by `load_account`.
+    let registry = { unsafe { *load_account::<Registry>(registry_account)? } };
+    let batch_id = registry.batch_id_counter;
+    let t_max_slots = registry.t_max_slots;
 
-    // Use raw pointer write to avoid SBF compiler bug with struct field assignment.
-    // The field assignment `registry.batch_id_counter = batch_id` was observed to
-    // write bytes to offset 40-43 instead of 36-43 on the SBF target (byte-reversal
-    // of the u64 across the field boundary). Using ptr::write_volatile forces
-    // the compiler to emit the correct store instruction.
-    let registry_data_ptr =
-        unsafe { registry_account.borrow_mut_data_unchecked().as_ptr() as *mut u8 };
-    // Read t_max_slots via raw pointer (field offset 64, u64)
-    let t_max_slots = unsafe {
-        let ptr = registry_data_ptr.add(64) as *const u64;
-        *ptr
-    };
-    // Write batch_id_counter via raw byte offset (field offset 36, u64).
-    // Using raw pointer arithmetic avoids any struct-layout issues on the SBF
-    // target where field-based dereferencing may compute incorrect addresses.
+    // Raw byte stores for the counter keep the SBF packed-field workaround.
     // After this, counter = total batches created = batch_id + 1.
-    unsafe {
-        let next_counter = batch_id.saturating_add(1).to_le_bytes();
-        core::ptr::write_volatile(registry_data_ptr.add(36), next_counter[0]);
-        core::ptr::write_volatile(registry_data_ptr.add(37), next_counter[1]);
-        core::ptr::write_volatile(registry_data_ptr.add(38), next_counter[2]);
-        core::ptr::write_volatile(registry_data_ptr.add(39), next_counter[3]);
-        core::ptr::write_volatile(registry_data_ptr.add(40), next_counter[4]);
-        core::ptr::write_volatile(registry_data_ptr.add(41), next_counter[5]);
-        core::ptr::write_volatile(registry_data_ptr.add(42), next_counter[6]);
-        core::ptr::write_volatile(registry_data_ptr.add(43), next_counter[7]);
-    }
+    Registry::write_batch_id_counter(
+        unsafe { registry_account.borrow_mut_data_unchecked() },
+        batch_id.saturating_add(1),
+    );
 
-    // Direct byte-offset writes to avoid SBF compiler bug with struct field
-    // assignment (same root cause as the registry init bug). The SBF compiler
-    // miscompiles field-based writes when 8-byte values cross alignment
-    // boundaries. Using ptr::add + explicit type casts forces correct offsets.
-    //
-    // Batch layout (all little-endian):
-    //   @0   batch_id          u64
-    //   @8   status            u8 (0=Committing)
-    //   @9   _pad_status       [u8; 7]
-    //   @16  commit_deadline   u64
-    //   @24  reveal_deadline   u64
-    //   @32  close_slot        u64
-    //   @40  shuffle_seed      u64
-    //   @48  clearing_price    i64
-    //   @56  total_commitments u32
-    //   @60  total_revealed    u32
-    //   @64  total_settled     u32
-    //   @68  total_volume      u64
-    //   @76  total_notional    u128
-    //   @92  slashed_deposits  u128
-    //   @108 bump              u8
-    //   @109 _padding          [u8; 7]
-    let dst = unsafe { batch_account.borrow_mut_data_unchecked().as_ptr() as *mut u8 };
-    unsafe {
-        *(dst as *mut u64) = batch_id; // @0
-        *dst.add(8) = 0; // @8 status = Committing
-                         // _pad_status @9..16 left zero (account created with zeroed space)
-        *(dst.add(16) as *mut u64) = current_slot.saturating_add(t_max_slots); // @16 commit_deadline
-        *(dst.add(24) as *mut u64) = 0; // @24 reveal_deadline
-        *(dst.add(32) as *mut u64) = 0; // @32 close_slot
-        *(dst.add(40) as *mut u64) = 0; // @40 shuffle_seed
-        *(dst.add(48) as *mut i64) = 0; // @48 clearing_price
-        *(dst.add(56) as *mut u32) = 0; // @56 total_commitments
-        *(dst.add(60) as *mut u32) = 0; // @60 total_revealed
-        *(dst.add(64) as *mut u32) = 0; // @64 total_settled
-        *(dst.add(68) as *mut u64) = 0; // @68 total_volume
-                                        // total_notional @76..92 and slashed_deposits @92..108 left zero
-        *dst.add(108) = bump; // @108 bump
-                              // _padding @109..115 left zero
-    }
+    // Typed init stamps the batch header and writes each field at its
+    // `repr(C)` offset; `reveal_deadline` stays 0 until CloseCommitting.
+    let batch = unsafe { init_account_mut::<Batch>(batch_account)? };
+    batch.initialize_in_place(batch_id, current_slot.saturating_add(t_max_slots), 0, bump);
 
     Ok(())
 }
@@ -180,23 +127,19 @@ pub fn process_set_batch_counter(
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
 
-    let registry_data_ptr = unsafe { registry_account.borrow_data_unchecked().as_ptr() };
+    // Header check (discriminator + layout version) before any access.
+    let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
+    let stored_governance = registry.governance;
 
-    // Read current governance from registry (offset 0, Pubkey = 32 bytes)
-    let governance_ptr = registry_data_ptr as *const Pubkey;
-    let stored_governance = unsafe { *governance_ptr };
-
-    // Governance check via raw pointer (avoids layout issues on SBF)
     let caller = governance_account.key();
     if caller.as_ref() != stored_governance {
         return Err(MgkError::Unauthorized.into());
     }
 
-    // Write 0 to batch_id_counter at offset 36 (u64)
-    unsafe {
-        let ptr = registry_data_ptr.add(36) as *mut u64;
-        *ptr = 0;
-    }
+    Registry::write_batch_id_counter(
+        unsafe { registry_account.borrow_mut_data_unchecked() },
+        0,
+    );
 
     Ok(())
 }

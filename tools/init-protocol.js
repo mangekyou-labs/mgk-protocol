@@ -17,14 +17,14 @@ const { readFileSync } = require('fs');
 const { homedir } = require('os');
 const { join } = require('path');
 
-const CORE_ID = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
-const MATCHER_ID = new PublicKey('7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC');
-const ORACLE_ID = new PublicKey('CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ');
+const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
+const MATCHER_ID = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
+const ORACLE_ID = new PublicKey('GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm');
 const BOOK_ACCOUNT_SIZE = 27_704;
 const VAULT_SIZE = 80;
 
 const PARAMS = {
-  baseDeposit: 10_000_000n, nMin: 1, tMinSlots: 2n, tMaxSlots: 150n,
+  baseDeposit: 10_000_000n, nMin: 1, tMinSlots: 2n, tMaxSlots: 25n,
   tRevealSlots: 0n, instrumentId: 0, tickSize: 1n, lotSize: 1n,
   imrBps: 100, mmrBps: 50, takerFeeBps: 5, makerFeeBps: 0,
   volatilityMultiplier: 10_000, maxOrdersPerBatch: 64, marginalSizeCap: 64,

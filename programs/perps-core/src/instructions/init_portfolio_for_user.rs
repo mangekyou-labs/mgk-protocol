@@ -24,6 +24,7 @@
 //! Data: user_pubkey(32) = 32 bytes total (disc 19 stripped by dispatcher)
 
 use crate::state::Portfolio;
+use mgk_common::layout::init_account_mut;
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction, Signer},
@@ -122,12 +123,9 @@ pub fn process_init_portfolio_for_user(
         msg!("InitPortfolioForUser: created portfolio at PDA via invoke_signed");
     }
 
-    // Initialize portfolio data in-place (idempotent).
-    let data_ptr = unsafe { portfolio_account.borrow_mut_data_unchecked().as_ptr() } as *mut u8;
-    unsafe {
-        core::ptr::copy_nonoverlapping(user.as_ref().as_ptr(), data_ptr, 32);
-        core::ptr::write_bytes(data_ptr.add(32), 0, PORTFOLIO_SPACE - 32);
-    }
+    // Initialize portfolio data in-place: stamp the header, then reset the body.
+    let portfolio = unsafe { init_account_mut::<Portfolio>(portfolio_account)? };
+    portfolio.initialize_in_place(user, bump);
 
     msg!("InitPortfolioForUser: portfolio initialized for user");
     Ok(())

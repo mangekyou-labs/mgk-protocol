@@ -222,6 +222,7 @@ mod tests {
     #[test]
     fn test_mark_price_mid_uses_both_sides() {
         let mut book = OrderBook {
+            header: Default::default(),
             instrument_id: 0,
             best_bid: 0,
             best_ask: 0,
@@ -250,6 +251,7 @@ mod tests {
     #[test]
     fn test_first_batch_uses_oracle() {
         let book = OrderBook {
+            header: Default::default(),
             instrument_id: 0,
             best_bid: 0,
             best_ask: 0,
@@ -269,6 +271,7 @@ mod tests {
     #[test]
     fn test_first_batch_no_oracle_returns_zero() {
         let book = OrderBook {
+            header: Default::default(),
             instrument_id: 0,
             best_bid: 0,
             best_ask: 0,
@@ -288,6 +291,7 @@ mod tests {
     #[test]
     fn test_stale_book_uses_oracle() {
         let mut book = OrderBook {
+            header: Default::default(),
             instrument_id: 0,
             best_bid: 0,
             best_ask: 0,
@@ -310,6 +314,7 @@ mod tests {
     #[test]
     fn test_stale_book_no_oracle_carries_forward() {
         let mut book = OrderBook {
+            header: Default::default(),
             instrument_id: 0,
             best_bid: 0,
             best_ask: 0,
@@ -330,6 +335,7 @@ mod tests {
     #[test]
     fn test_one_sided_book_uses_oracle() {
         let mut book = OrderBook {
+            header: Default::default(),
             instrument_id: 0,
             best_bid: 0,
             best_ask: 0,

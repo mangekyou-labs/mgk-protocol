@@ -91,7 +91,7 @@ test('buildSetFundingParamsInstruction uses CORE_ID as programId', () => {
     maxRateBps: 50,
     intervalSlots: 100,
   });
-  assert.equal(ix.programId.toBase58(), 'C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
+  assert.equal(ix.programId.toBase58(), '9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 });
 
 // ---------------------------------------------------------------------------

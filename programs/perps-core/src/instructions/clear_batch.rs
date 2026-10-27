@@ -1,3 +1,4 @@
+use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Batch, BatchStatus, Registry};
 use mgk_common::MgkError;
 use pinocchio::{
@@ -62,13 +63,13 @@ pub fn process_clear_batch(
     _portfolio_accounts: &[AccountInfo],
 ) -> ProgramResult {
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_trading_paused() || registry.is_clears_paused() {
         msg!("Error: Trading/clears is paused");
         return Err(MgkError::OperationPaused.into());
     }
 
-    let batch = unsafe { &*(batch_account.borrow_data_unchecked().as_ptr() as *const Batch) };
+    let batch = unsafe { load_account::<Batch>(batch_account)? };
 
     // DFBA: close_collecting lands in Clearing; also accept legacy Revealing.
     if batch.status != BatchStatus::Clearing && batch.status != BatchStatus::Revealing {
@@ -114,9 +115,16 @@ pub fn process_clear_batch(
     )?;
 
     // Read DFBA results header into batch.
-    let results_data = results_account
+    let results_raw = results_account
         .try_borrow_data()
         .map_err(|_| MgkError::InvalidAccount)?;
+    // The matcher stamps the BATCH_RESULTS header on every write; reject
+    // anything else before reading the payload.
+    let results_data = mgk_common::layout::body(
+        &results_raw,
+        mgk_common::layout::discriminator::BATCH_RESULTS,
+        mgk_common::layout::LAYOUT_VERSION_1,
+    )?;
     if results_data.len() < DFBA_RESULTS_HEADER {
         return Err(ProgramError::AccountDataTooSmall);
     }
@@ -127,7 +135,7 @@ pub fn process_clear_batch(
     let matched_ask = u64::from_le_bytes(results_data[24..32].try_into().unwrap());
 
     let batch_mut =
-        unsafe { &mut *(batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch) };
+        unsafe { load_account_mut::<Batch>(batch_account)? };
     batch_mut.bid_clearing_price = bid;
     batch_mut.ask_clearing_price = ask;
     batch_mut.matched_bid_qty = matched_bid;

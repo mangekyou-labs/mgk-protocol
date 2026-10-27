@@ -1,4 +1,6 @@
 use super::order::{LimitOrder, Side};
+use mgk_common::layout::{check_header, discriminator, LAYOUT_VERSION_1};
+use mgk_common::MgkError;
 use pinocchio::{program_error::ProgramError, pubkey::Pubkey};
 
 // Re-export so existing `mgk_perps_matcher::state::book::OrderBook` paths
@@ -6,6 +8,7 @@ use pinocchio::{program_error::ProgramError, pubkey::Pubkey};
 // `mgk-common::book` so other programs (notably perps-core) can
 // read the book PDA without taking a Rust crate dependency on perps-matcher
 // (which would cause a duplicate `panic_handler` at link time).
+use mgk_common::layout::AccountHeader;
 pub use mgk_common::book::{BookLevel, OrderBook, MAX_LEVELS, MAX_ORDERS_PER_LEVEL, NULL_OFFSET};
 
 /// Total maximum resting orders in the book (bids + asks).
@@ -55,6 +58,8 @@ pub struct BookState {
 /// points that already have a borrowed buffer.
 impl BookState {
     pub fn zeroed_in_place(&mut self) {
+        // Re-stamp the account header: an emptied book is still an `OrderBook`.
+        self.book.header = AccountHeader::of::<OrderBook>();
         // Zero the book header.
         self.book.instrument_id = 0;
         self.book.best_bid = 0;
@@ -89,17 +94,7 @@ impl Default for BookState {
 impl BookState {
     pub fn new() -> Self {
         Self {
-            book: OrderBook {
-                instrument_id: 0,
-                best_bid: 0,
-                best_ask: 0,
-                bid_count: 0,
-                ask_count: 0,
-                next_order_id: 0,
-                last_update_slot: 0,
-                bids: [BookLevel::default(); MAX_LEVELS],
-                asks: [BookLevel::default(); MAX_LEVELS],
-            },
+            book: OrderBook::new(0),
             resting: [RestingOrder::default(); MAX_RESTING_ORDERS],
             resting_count: 0,
         }
@@ -509,6 +504,11 @@ pub enum BookError {
     BadAlignment,
     /// Modify rejected because new_qty is below the resting order's filled_qty.
     QtyBelowFilled,
+    /// Account does not start with the `OrderBook` discriminator (includes
+    /// zeroed, never-initialised accounts).
+    InvalidDiscriminator,
+    /// `OrderBook` account with a layout version this build cannot read.
+    UnsupportedLayoutVersion,
 }
 
 impl From<BookError> for ProgramError {
@@ -524,6 +524,8 @@ impl From<BookError> for ProgramError {
             BookError::BufferTooShort => 10,      // AccountDataTooSmall (generic)
             BookError::BadAlignment => 11,        // InvalidAccountData (generic)
             BookError::QtyBelowFilled => 200 + 1, // InvalidOrder
+            BookError::InvalidDiscriminator => MgkError::InvalidAccountDiscriminator as u64,
+            BookError::UnsupportedLayoutVersion => MgkError::UnsupportedLayoutVersion as u64,
         };
         ProgramError::from(code)
     }
@@ -577,6 +579,15 @@ pub fn serialize_book_state(state: &BookState, buf: &mut [u8]) -> Result<(), Boo
     Ok(())
 }
 
+/// Reject book data whose discriminator / layout version is not an
+/// `OrderBook` v1 header. Distinct errors for each case.
+fn check_book_header(buf: &[u8]) -> Result<(), BookError> {
+    check_header(buf, discriminator::ORDER_BOOK, LAYOUT_VERSION_1).map_err(|e| match e {
+        MgkError::UnsupportedLayoutVersion => BookError::UnsupportedLayoutVersion,
+        _ => BookError::InvalidDiscriminator,
+    })
+}
+
 /// Read a `BookState` from `buf`. The buffer must be exactly
 /// `book_account_size()` bytes (or larger — extras are ignored).
 ///
@@ -591,6 +602,7 @@ pub fn book_state_from_bytes_mut(buf: &mut [u8]) -> Result<&mut BookState, BookE
     if (buf.as_ptr() as usize) % 8 != 0 {
         return Err(BookError::BadAlignment);
     }
+    check_book_header(buf)?;
     // SAFETY:
     // - buf is at least `size` bytes (checked above).
     // - The returned &mut BookState borrows buf for the caller's lifetime,
@@ -606,6 +618,7 @@ pub fn deserialize_book_state(buf: &[u8]) -> Result<BookState, BookError> {
     if buf.len() < size {
         return Err(BookError::BufferTooShort);
     }
+    check_book_header(buf)?;
     let mut state = BookState::new();
     let dst = &mut state as *mut BookState as *mut u8;
     // SAFETY: see `serialize_book_state`. The buffer is read-only, the
@@ -742,7 +755,103 @@ mod tests {
         // Pin the on-disk size so account sizing stays predictable.
         // RestingOrder × 256 + OrderBook header ≈ 27 KB.
         let size = book_account_size();
-        assert_eq!(size, 27_704, "update e2e BOOK_ACCOUNT_SIZE if this changes");
+        assert_eq!(size, 27_712,"update e2e BOOK_ACCOUNT_SIZE if this changes");
+    }
+
+    // ---- Spec 13 / issue 16: account discriminator + layout version ----
+
+    fn aligned_book_buf() -> Vec<u64> {
+        vec![0u64; book_account_size().div_ceil(8)]
+    }
+
+    fn as_bytes_mut(words: &mut [u64]) -> &mut [u8] {
+        let len = core::mem::size_of_val(words);
+        // SAFETY: u64 slice reinterpreted as bytes; same allocation, u8 align 1.
+        unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, len) }
+    }
+
+    #[test]
+    fn test_new_book_state_carries_order_book_header() {
+        let state = BookState::new();
+        assert_eq!(state.book.header, mgk_common::layout::AccountHeader::of::<OrderBook>());
+        let mut buf = vec![0u8; book_account_size()];
+        serialize_book_state(&state, &mut buf).unwrap();
+        assert_eq!(buf[0], mgk_common::layout::discriminator::ORDER_BOOK);
+        assert_eq!(buf[1], mgk_common::layout::LAYOUT_VERSION_1);
+    }
+
+    #[test]
+    fn test_zeroed_in_place_restamps_header() {
+        let mut state = BookState::new();
+        state.book.header = mgk_common::layout::AccountHeader::default();
+        state.zeroed_in_place();
+        assert_eq!(state.book.header, mgk_common::layout::AccountHeader::of::<OrderBook>());
+    }
+
+    #[test]
+    fn test_from_bytes_mut_rejects_zeroed_uninitialised_account() {
+        let mut words = aligned_book_buf();
+        let buf = as_bytes_mut(&mut words);
+        assert_eq!(
+            book_state_from_bytes_mut(buf).err(),
+            Some(BookError::InvalidDiscriminator)
+        );
+    }
+
+    #[test]
+    fn test_from_bytes_mut_rejects_wrong_discriminator() {
+        let mut words = aligned_book_buf();
+        let buf = as_bytes_mut(&mut words);
+        buf[0] = mgk_common::layout::discriminator::BATCH;
+        buf[1] = mgk_common::layout::LAYOUT_VERSION_1;
+        assert_eq!(
+            book_state_from_bytes_mut(buf).err(),
+            Some(BookError::InvalidDiscriminator)
+        );
+    }
+
+    #[test]
+    fn test_from_bytes_mut_rejects_unsupported_layout_version() {
+        let mut words = aligned_book_buf();
+        let buf = as_bytes_mut(&mut words);
+        buf[0] = mgk_common::layout::discriminator::ORDER_BOOK;
+        buf[1] = mgk_common::layout::LAYOUT_VERSION_1 + 1;
+        assert_eq!(
+            book_state_from_bytes_mut(buf).err(),
+            Some(BookError::UnsupportedLayoutVersion)
+        );
+    }
+
+    #[test]
+    fn test_from_bytes_mut_accepts_stamped_book() {
+        let mut words = aligned_book_buf();
+        let buf = as_bytes_mut(&mut words);
+        mgk_common::layout::write_header(
+            buf,
+            mgk_common::layout::discriminator::ORDER_BOOK,
+            mgk_common::layout::LAYOUT_VERSION_1,
+        )
+        .unwrap();
+        let state = book_state_from_bytes_mut(buf).unwrap();
+        assert_eq!(state.resting_count, 0);
+    }
+
+    #[test]
+    fn test_deserialize_rejects_wrong_header() {
+        let buf = vec![0u8; book_account_size()];
+        assert_eq!(
+            deserialize_book_state(&buf).err(),
+            Some(BookError::InvalidDiscriminator)
+        );
+    }
+
+    #[test]
+    fn test_header_errors_map_to_mgk_error_codes() {
+        let d: ProgramError = BookError::InvalidDiscriminator.into();
+        let v: ProgramError = BookError::UnsupportedLayoutVersion.into();
+        assert_eq!(d, ProgramError::from(mgk_common::MgkError::InvalidAccountDiscriminator as u64));
+        assert_eq!(v, ProgramError::from(mgk_common::MgkError::UnsupportedLayoutVersion as u64));
+        assert_ne!(d, v);
     }
 
     #[test]

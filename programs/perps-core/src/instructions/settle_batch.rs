@@ -12,6 +12,7 @@ use crate::state::portfolio::Portfolio;
 use crate::state::registry::Registry;
 use crate::state::vault::Vault;
 use mgk_common::book::OrderBook;
+use mgk_common::layout::{self, AccountLayout, discriminator, load_account, load_account_mut, LAYOUT_VERSION_1};
 use mgk_common::MgkError;
 use pinocchio::{
     account_info::AccountInfo,
@@ -22,75 +23,18 @@ use pinocchio::{
     ProgramResult,
 };
 
-/// M7 7.5: PriceOracle field offset for the `price` field (raw bytes
-/// read). The full struct is defined in `programs/oracle/src/state.rs`.
-/// At offset 80: magic(8) + version(1) + bump(1) + is_active(1) +
-/// _padding(5) + authority(32) + instrument(32) + price(8). This avoids
-/// pulling mgk-oracle as a dep just to read 8 bytes.
-const ORACLE_PRICE_OFFSET: usize = 80;
-const ORACLE_PRICE_LEN: usize = 8;
-/// Magic bytes stored as a u64 LE at offset 0 of `PriceOracle`. The
-/// `PriceOracle::MAGIC` constant in `programs/oracle/src/state.rs` is
-/// `b"PRCLORCL"`, which when stored LE on-chain becomes
-/// `0x4C43524F4C435250` (P=0x50, R=0x52, C=0x43, L=0x4C, O=0x4F, ...).
-const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
-
-/// M7 7.5 / T9.10.3: Read and validate the fallback oracle's price via raw byte access.
-///
-/// Accepts index data ONLY when:
-///   1. `oracle_account.key() == expected_oracle_addr` (matches `instrument.oracle_addr`)
-///   2. `oracle_account.owner() == &mgk_common::program_ids::mgk_oracle_program_id()`
-///   3. `oracle_account.data_len() >= 128` (PRICE_ORACLE_SIZE)
-///   4. `magic == ORACLE_MAGIC` (`0x4C43_524F_4C43_5250`)
-///   5. `version == 0`
-///   6. `oracle.instrument == *instrument_account.key()`
-///   7. `price > 0`
-///
-/// Returns `Some((price, timestamp, is_active))` if valid; `None` otherwise.
+/// The shared validity gate is used both before settlement writes and by its
+/// optional funding adapter. Invalid prices never reach the business transition.
 fn read_oracle_price(
     oracle_account: &AccountInfo,
     instrument_account: &AccountInfo,
     expected_oracle_addr: &Pubkey,
 ) -> Option<(i64, i64, bool)> {
-    if oracle_account.key() != expected_oracle_addr {
-        return None;
-    }
-    if oracle_account.owner() != &mgk_common::program_ids::mgk_oracle_program_id() {
-        return None;
-    }
-    let data = oracle_account.try_borrow_data().ok()?;
-    if data.len() < 128 {
-        return None;
-    }
-    // Validate magic.
-    let magic_bytes: [u8; 8] = data[0..8].try_into().ok()?;
-    let magic = u64::from_le_bytes(magic_bytes);
-    if magic != ORACLE_MAGIC {
-        return None;
-    }
-    // Validate version.
-    let version = data[8];
-    if version != 0 {
-        return None;
-    }
-    let is_active = data[10] != 0;
-    // Validate instrument binding.
-    let oracle_inst_bytes: [u8; 32] = data[48..80].try_into().ok()?;
-    if Pubkey::from(oracle_inst_bytes) != *instrument_account.key() {
-        return None;
-    }
-    // Read price.
-    let price_bytes: [u8; 8] = data[ORACLE_PRICE_OFFSET..ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN]
-        .try_into()
-        .ok()?;
-    let price = i64::from_le_bytes(price_bytes);
-    if price <= 0 {
-        return None;
-    }
-    // Read timestamp.
-    let ts_bytes: [u8; 8] = data[88..96].try_into().ok()?;
-    let timestamp = i64::from_le_bytes(ts_bytes);
-    Some((price, timestamp, is_active))
+    let now = Clock::get().ok()?.unix_timestamp;
+    let price = mgk_common::oracle::read_price(
+        oracle_account, expected_oracle_addr, instrument_account.key(), now,
+    ).ok()?;
+    Some((price, now, true))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -108,21 +52,34 @@ pub fn process_settle_batch(
     portfolio_accounts: &[AccountInfo],
     next_batch_account: &AccountInfo,
 ) -> ProgramResult {
-    let batch = unsafe { &mut *(batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch) };
+    let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
     if batch.status != BatchStatus::Clearing {
         msg!("Error: Batch not in clearing phase");
         return Err(MgkError::InvalidInstruction.into());
     }
     let instrument = unsafe {
-        &mut *(instrument_account.borrow_mut_data_unchecked().as_ptr() as *mut Instrument)
+        load_account_mut::<Instrument>(instrument_account)?
     };
-    let results = results_account
+    // Fail closed before any fill, fee, mark, or batch write, including when
+    // funding is paused or the batch has no fills.
+    mgk_common::oracle::read_price(
+        oracle_account,
+        &instrument.oracle_addr,
+        instrument_account.key(),
+        Clock::get()?.unix_timestamp,
+    )?;
+    let results_raw = results_account
         .try_borrow_data()
         .map_err(|_| MgkError::InvalidAccount)?;
+    let results = layout::body(
+        &results_raw,
+        discriminator::BATCH_RESULTS,
+        LAYOUT_VERSION_1,
+    )?;
     transition::settle(
         batch,
         instrument,
-        &results,
+        results,
         &mut RuntimeStates::<Commitment>::new(commitment_accounts),
         &mut RuntimeStates::<Portfolio>::new(portfolio_accounts),
         &mut RuntimeEnvironment {
@@ -151,12 +108,16 @@ impl<'a, T> RuntimeStates<'a, T> {
         }
     }
 }
-impl<T> transition::States<T> for RuntimeStates<'_, T> {
+impl<T: AccountLayout> transition::States<T> for RuntimeStates<'_, T> {
     fn len(&self) -> usize {
         self.accounts.len()
     }
-    fn get_mut(&mut self, index: usize) -> &mut T {
-        unsafe { &mut *(self.accounts[index].borrow_mut_data_unchecked().as_ptr() as *mut T) }
+    fn get_mut(&mut self, index: usize) -> Result<&mut T, ProgramError> {
+        let account = self
+            .accounts
+            .get(index)
+            .ok_or(ProgramError::NotEnoughAccountKeys)?;
+        Ok(unsafe { load_account_mut::<T>(account)? })
     }
 }
 
@@ -170,11 +131,11 @@ struct RuntimeEnvironment<'a> {
     next_batch_account: &'a AccountInfo,
 }
 impl transition::Environment for RuntimeEnvironment<'_> {
-    fn registry(&self) -> Registry {
-        unsafe { *(self.registry_account.borrow_data_unchecked().as_ptr() as *const Registry) }
+    fn registry(&self) -> Result<Registry, ProgramError> {
+        Ok(unsafe { *load_account::<Registry>(self.registry_account)? })
     }
-    fn vault(&mut self) -> &mut Vault {
-        unsafe { &mut *(self.vault_account.borrow_mut_data_unchecked().as_ptr() as *mut Vault) }
+    fn vault(&mut self) -> Result<&mut Vault, ProgramError> {
+        Ok(unsafe { load_account_mut::<Vault>(self.vault_account)? })
     }
     fn validate_book(&self, instrument_id: u16) -> ProgramResult {
         // Book ownership check (still required for funding premium path).
@@ -188,7 +149,7 @@ impl transition::Environment for RuntimeEnvironment<'_> {
         }
 
         let book =
-            unsafe { &*(self.book_account.borrow_data_unchecked().as_ptr() as *const OrderBook) };
+            unsafe { load_account::<OrderBook>(self.book_account)? };
         if book.instrument_id != instrument_id {
             msg!("Error: book instrument_id does not match instrument");
             return Err(MgkError::InvalidAccount.into());
@@ -202,27 +163,20 @@ impl transition::Environment for RuntimeEnvironment<'_> {
     fn oracle(&self, expected_addr: &Pubkey) -> Option<(i64, i64, bool)> {
         read_oracle_price(self.oracle_account, self.instrument_account, expected_addr)
     }
-    fn set_batch_counter(&mut self, value: u64) {
-        unsafe {
-            let dst = self.registry_account.borrow_mut_data_unchecked().as_ptr() as *mut u8;
-            let bytes = value.to_le_bytes();
-            core::ptr::write_volatile(dst.add(36), bytes[0]);
-            core::ptr::write_volatile(dst.add(37), bytes[1]);
-            core::ptr::write_volatile(dst.add(38), bytes[2]);
-            core::ptr::write_volatile(dst.add(39), bytes[3]);
-            core::ptr::write_volatile(dst.add(40), bytes[4]);
-            core::ptr::write_volatile(dst.add(41), bytes[5]);
-            core::ptr::write_volatile(dst.add(42), bytes[6]);
-            core::ptr::write_volatile(dst.add(43), bytes[7]);
-        }
+    fn set_batch_counter(&mut self, value: u64) -> ProgramResult {
+        // Header check first, then raw byte writes (SBF packed-field workaround).
+        unsafe { load_account::<Registry>(self.registry_account)? };
+        let data = unsafe { self.registry_account.borrow_mut_data_unchecked() };
+        Registry::write_batch_id_counter(data, value);
+        Ok(())
     }
     fn next_batch_size(&self) -> usize {
         self.next_batch_account.data_len()
     }
+    /// Unchecked on purpose: the next batch is a zeroed account that
+    /// `initialize_in_place` stamps; `settle` rejects an already-stamped one.
     fn next_batch(&mut self) -> &mut Batch {
-        unsafe {
-            &mut *(self.next_batch_account.borrow_mut_data_unchecked().as_ptr() as *mut Batch)
-        }
+        unsafe { &mut *(self.next_batch_account.borrow_mut_data_unchecked().as_mut_ptr() as *mut Batch) }
     }
 }
 
@@ -411,6 +365,7 @@ mod tests {
     #[test]
     fn test_initialize_in_place_zeroes_every_field() {
         let mut b = Batch {
+            header: mgk_common::layout::AccountHeader::default(),
             batch_id: 99,
             status: BatchStatus::Settled,
             _pad_status: [1; 7],
@@ -423,6 +378,7 @@ mod tests {
             total_revealed: 22,
             total_settled: 33,
             total_volume: 44,
+            _pad_u128: 1,
             total_notional: 55,
             slashed_deposits: 66,
             bump: 77,
@@ -449,6 +405,7 @@ mod tests {
         assert_eq!(b.total_revealed, 0);
         assert_eq!(b.total_settled, 0);
         assert_eq!(b.total_volume, 0);
+        assert_eq!(b._pad_u128, 0);
         assert_eq!(b.total_notional, 0);
         assert_eq!(b.slashed_deposits, 0);
         assert_eq!(b.bump, 254);
@@ -597,12 +554,13 @@ mod tests {
         // Pin the layout that the e2e test relies on. If a refactor
         // changes offsets, this test will start failing and force an
         // update of the e2e offsets.
-        assert_eq!(offset_of!(Portfolio, user), 0);
-        assert_eq!(offset_of!(Portfolio, equity), 32);
-        assert_eq!(offset_of!(Portfolio, principal), 48);
-        assert_eq!(offset_of!(Portfolio, pnl), 64);
-        assert_eq!(offset_of!(Portfolio, im), 80);
-        assert_eq!(offset_of!(Portfolio, mm), 96);
+        assert_eq!(offset_of!(Portfolio, header), 0);
+        assert_eq!(offset_of!(Portfolio, user), 8);
+        assert_eq!(offset_of!(Portfolio, equity), 48);
+        assert_eq!(offset_of!(Portfolio, principal), 64);
+        assert_eq!(offset_of!(Portfolio, pnl), 80);
+        assert_eq!(offset_of!(Portfolio, im), 96);
+        assert_eq!(offset_of!(Portfolio, mm), 112);
     }
 
     // ---- M7 7.4.3 — funding integration into SettleBatch ----
@@ -1393,51 +1351,8 @@ mod tests {
     // ====================================================================
 
     #[test]
-    fn test_oracle_freshness_unix_timestamp_boundaries() {
-        const ORACLE_STALENESS_WINDOW_SECS: i64 = 600;
-        let current_unix_ts: i64 = 1_700_000_000;
-
-        let check_fresh = |ts: i64, active: bool| -> bool {
-            active
-                && ts > 0
-                && current_unix_ts >= ts
-                && (current_unix_ts - ts) < ORACLE_STALENESS_WINDOW_SECS
-        };
-
-        // 1. Exact current time (age = 0) -> fresh
-        assert!(check_fresh(current_unix_ts, true));
-
-        // 2. 1 second ago (age = 1) -> fresh
-        assert!(check_fresh(current_unix_ts - 1, true));
-
-        // 3. 599 seconds ago (age = 599) -> fresh
-        assert!(check_fresh(current_unix_ts - 599, true));
-
-        // 4. 600 seconds ago (age = 600) -> stale (not fresh)
-        assert!(!check_fresh(current_unix_ts - 600, true));
-
-        // 5. 601 seconds ago (age = 601) -> stale (not fresh)
-        assert!(!check_fresh(current_unix_ts - 601, true));
-
-        // 6. Future timestamp (ts = current_unix_ts + 1) -> not fresh
-        assert!(!check_fresh(current_unix_ts + 1, true));
-
-        // 7. Future timestamp (ts = current_unix_ts + 60) -> not fresh
-        assert!(!check_fresh(current_unix_ts + 60, true));
-
-        // 8. Zero timestamp -> not fresh
-        assert!(!check_fresh(0, true));
-
-        // 9. Negative timestamp -> not fresh
-        assert!(!check_fresh(-100, true));
-
-        // 10. Inactive oracle (even if timestamp is fresh) -> not fresh
-        assert!(!check_fresh(current_unix_ts, false));
-    }
-
-    #[test]
     fn test_oracle_validation_price_and_metadata_rules() {
-        let make_oracle_data = |magic: u64,
+        let make_oracle_data = |disc: u8,
                                 version: u8,
                                 is_active: bool,
                                 inst: &Pubkey,
@@ -1445,8 +1360,8 @@ mod tests {
                                 ts: i64|
          -> [u8; 128] {
             let mut data = [0u8; 128];
-            data[0..8].copy_from_slice(&magic.to_le_bytes());
-            data[8] = version;
+            data[0] = disc;
+            data[1] = version;
             data[10] = if is_active { 1 } else { 0 };
             data[48..80].copy_from_slice(inst.as_ref());
             data[80..88].copy_from_slice(&price.to_le_bytes());
@@ -1457,38 +1372,56 @@ mod tests {
         let inst_pk = Pubkey::from([0x11u8; 32]);
         let other_inst_pk = Pubkey::from([0x22u8; 32]);
 
+        const DISC: u8 = discriminator::PRICE_ORACLE;
+        const VER: u8 = LAYOUT_VERSION_1;
+
         // Valid data
-        let valid = make_oracle_data(ORACLE_MAGIC, 0, true, &inst_pk, 87_000_000, 1_700_000_000);
+        let valid = make_oracle_data(DISC, VER, true, &inst_pk, 87_000_000, 1_700_000_000);
         assert_eq!(valid.len(), 128);
+        assert_eq!(layout::check_header(&valid, DISC, VER), Ok(()));
 
         // Price <= 0 must be rejected
-        let zero_price = make_oracle_data(ORACLE_MAGIC, 0, true, &inst_pk, 0, 1_700_000_000);
-        let neg_price = make_oracle_data(ORACLE_MAGIC, 0, true, &inst_pk, -500, 1_700_000_000);
+        let zero_price = make_oracle_data(DISC, VER, true, &inst_pk, 0, 1_700_000_000);
+        let neg_price = make_oracle_data(DISC, VER, true, &inst_pk, -500, 1_700_000_000);
         let price_0 = i64::from_le_bytes(zero_price[80..88].try_into().unwrap());
         let price_neg = i64::from_le_bytes(neg_price[80..88].try_into().unwrap());
         assert!(price_0 <= 0);
         assert!(price_neg <= 0);
 
-        // Wrong magic
-        let bad_magic = make_oracle_data(0xDEADBEEF, 0, true, &inst_pk, 87_000_000, 1_700_000_000);
-        assert_ne!(
-            u64::from_le_bytes(bad_magic[0..8].try_into().unwrap()),
-            ORACLE_MAGIC
+        // Wrong discriminator (zeroed / another account type)
+        let bad_disc = make_oracle_data(0, VER, true, &inst_pk, 87_000_000, 1_700_000_000);
+        assert_eq!(
+            layout::check_header(&bad_disc, DISC, VER),
+            Err(MgkError::InvalidAccountDiscriminator)
+        );
+        let other_type = make_oracle_data(
+            discriminator::VAULT,
+            VER,
+            true,
+            &inst_pk,
+            87_000_000,
+            1_700_000_000,
+        );
+        assert_eq!(
+            layout::check_header(&other_type, DISC, VER),
+            Err(MgkError::InvalidAccountDiscriminator)
         );
 
-        // Version != 0
-        let bad_ver = make_oracle_data(ORACLE_MAGIC, 1, true, &inst_pk, 87_000_000, 1_700_000_000);
-        assert_ne!(bad_ver[8], 0);
+        // Unsupported layout version
+        let bad_ver = make_oracle_data(DISC, VER + 1, true, &inst_pk, 87_000_000, 1_700_000_000);
+        assert_eq!(
+            layout::check_header(&bad_ver, DISC, VER),
+            Err(MgkError::UnsupportedLayoutVersion)
+        );
 
         // Inactive
-        let inactive =
-            make_oracle_data(ORACLE_MAGIC, 0, false, &inst_pk, 87_000_000, 1_700_000_000);
+        let inactive = make_oracle_data(DISC, VER, false, &inst_pk, 87_000_000, 1_700_000_000);
         assert_eq!(inactive[10], 0);
 
         // Instrument mismatch
         let mismatch = make_oracle_data(
-            ORACLE_MAGIC,
-            0,
+            DISC,
+            VER,
             true,
             &other_inst_pk,
             87_000_000,

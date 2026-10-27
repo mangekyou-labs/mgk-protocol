@@ -1,3 +1,6 @@
+use mgk_common::layout::{
+    load_account, load_account_mut,
+};
 use crate::state::batch::{Batch, BatchStatus};
 use crate::state::instrument::Instrument;
 use crate::state::liquidation::{
@@ -11,14 +14,7 @@ use mgk_common::{
     math::{calculate_im, calculate_mm},
     MgkError,
 };
-use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
-
-/// M7 7.7: PriceOracle field offset for the `price` field. See
-/// `programs/oracle/src/state.rs` for the full layout. Copied here
-/// rather than imported to keep `liquidate_user` self-contained.
-const ORACLE_PRICE_OFFSET: usize = 80;
-const ORACLE_PRICE_LEN: usize = 8;
-const ORACLE_MAGIC: u64 = 0x4C43_524F_4C43_5250;
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, sysvars::{clock::Clock, Sysvar}, ProgramResult};
 
 /// Liquidate an underwater portfolio (M7 7.7).
 ///
@@ -71,9 +67,9 @@ pub fn process_liquidate_user(
     }
 
     let portfolio =
-        unsafe { &mut *(portfolio_account.borrow_mut_data_unchecked().as_ptr() as *mut Portfolio) };
+        unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
 
     // M7 7.8: governance emergency brake. Liquidations can be paused by
     // governance (e.g. to manually intervene on a single position, or to
@@ -102,7 +98,7 @@ pub fn process_liquidate_user(
         if passed_count >= MAX_INSTRUMENTS {
             break;
         }
-        let inst_ref = unsafe { &*(inst.borrow_data_unchecked().as_ptr() as *const Instrument) };
+        let inst_ref = unsafe { load_account::<Instrument>(inst)? };
         let id = inst_ref.instrument_id;
         if !passed_ids[..passed_count].contains(&id) {
             passed_ids[passed_count] = id;
@@ -122,7 +118,7 @@ pub fn process_liquidate_user(
 
     // DFBA T9.4.1: liquidations require a dual-clear mark on the settled batch.
     // Trading may continue when only liq is paused (`liq_paused` / !mark_valid).
-    let batch = unsafe { &*(batch_account.borrow_data_unchecked().as_ptr() as *const Batch) };
+    let batch = unsafe { load_account::<Batch>(batch_account)? };
     if batch.status != BatchStatus::Settled {
         msg!("Error: Liquidate requires a Settled batch for mark_valid");
         return Err(MgkError::BatchNotSettled.into());
@@ -132,29 +128,39 @@ pub fn process_liquidate_user(
         return Err(MgkError::MarkInvalidForLiquidation.into());
     }
     // Prefer instrument mark when set; dual mid was written on settle when mark_valid.
-    let any_mark = instrument_accounts.iter().any(|a| {
-        let inst = unsafe { &*(a.borrow_data_unchecked().as_ptr() as *const Instrument) };
-        inst.mark_price > 0
-    }) || batch.clearing_price > 0;
+    let mut any_instrument_mark = false;
+    for a in instrument_accounts.iter() {
+        let inst = unsafe { load_account::<Instrument>(a)? };
+        if inst.mark_price > 0 {
+            any_instrument_mark = true;
+            break;
+        }
+    }
+    let any_mark = any_instrument_mark || batch.clearing_price > 0;
     if !any_mark {
         msg!("Error: No usable mark price for liquidation");
         return Err(MgkError::OperationPaused.into());
     }
 
-    let oracle_price = read_oracle_price(oracle_account);
+    let now = Clock::get()?.unix_timestamp;
 
     let mut mark_prices: [i64; MAX_INSTRUMENTS] = [0; MAX_INSTRUMENTS];
     let mut contract_sizes: [u64; MAX_INSTRUMENTS] = [1; MAX_INSTRUMENTS];
     let mut imr_bps_table: [u16; MAX_INSTRUMENTS] = [0; MAX_INSTRUMENTS];
     let mut mmr_bps_table: [u16; MAX_INSTRUMENTS] = [0; MAX_INSTRUMENTS];
     for inst in instrument_accounts {
-        let inst_ref = unsafe { &*(inst.borrow_data_unchecked().as_ptr() as *const Instrument) };
+        let inst_ref = unsafe { load_account::<Instrument>(inst)? };
         let id = inst_ref.instrument_id as usize;
-        if id < MAX_INSTRUMENTS {
+        if id < MAX_INSTRUMENTS && portfolio.positions.iter().take(portfolio.positions_len as usize)
+            .any(|position| position.instrument_id as usize == id) {
+            // A valid auction mark never bypasses conversion-price validity.
+            let oracle_price = mgk_common::oracle::read_price(
+                oracle_account, &inst_ref.oracle_addr, inst.key(), now,
+            )?;
             mark_prices[id] = if inst_ref.mark_price > 0 {
                 inst_ref.mark_price
             } else {
-                oracle_price.unwrap_or(0)
+                oracle_price
             };
             contract_sizes[id] = if inst_ref.contract_size > 0 {
                 inst_ref.contract_size
@@ -225,7 +231,7 @@ pub fn process_liquidate_user(
     if portfolio.equity < 0 {
         let bad_debt = portfolio.equity.unsigned_abs();
         let vault =
-            unsafe { &mut *(vault_account.borrow_mut_data_unchecked().as_ptr() as *mut Vault) };
+            unsafe { load_account_mut::<Vault>(vault_account)? };
         let payout = bad_debt.min(vault.insurance_fund);
         if payout > 0 {
             vault.insurance_fund = vault.insurance_fund.saturating_sub(payout);
@@ -242,30 +248,13 @@ pub fn process_liquidate_user(
 
     if uncovered_bad_debt > 0 {
         let vault =
-            unsafe { &mut *(vault_account.borrow_mut_data_unchecked().as_ptr() as *mut Vault) };
+            unsafe { load_account_mut::<Vault>(vault_account)? };
         vault.mark_adl_pending(uncovered_bad_debt);
         msg!("ADL pending: keeper observation required");
     }
 
     msg!("LiquidateUser: complete");
     Ok(())
-}
-
-/// Read the fallback oracle's price via raw byte access. Returns `None`
-/// if the account is missing, too small, or fails magic validation.
-fn read_oracle_price(oracle_account: &AccountInfo) -> Option<i64> {
-    let data = oracle_account.try_borrow_data().ok()?;
-    if data.len() < ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN {
-        return None;
-    }
-    let magic_bytes: [u8; 8] = data[0..8].try_into().ok()?;
-    if u64::from_le_bytes(magic_bytes) != ORACLE_MAGIC {
-        return None;
-    }
-    let price_bytes: [u8; 8] = data[ORACLE_PRICE_OFFSET..ORACLE_PRICE_OFFSET + ORACLE_PRICE_LEN]
-        .try_into()
-        .ok()?;
-    Some(i64::from_le_bytes(price_bytes))
 }
 
 fn recompute_margin(
@@ -338,11 +327,6 @@ mod tests {
         inst.contract_size = cs;
         inst.mark_price = mark;
         inst
-    }
-
-    #[test]
-    fn test_oracle_magic_is_pinned() {
-        assert_eq!(ORACLE_MAGIC, 0x4C43_524F_4C43_5250);
     }
 
     #[test]

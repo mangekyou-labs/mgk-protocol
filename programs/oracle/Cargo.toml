@@ -11,6 +11,7 @@ name = "mgk_oracle"
 
 [dependencies]
 pinocchio.workspace = true
+mgk-common = { path = "../common" }
 
 [dev-dependencies]
 solana-program-test.workspace = true

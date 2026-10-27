@@ -5,8 +5,8 @@ import { createStore } from './store.js';
 import { createSyncer, syncChunk, type SyncChunkResult } from './syncer.js';
 
 describe('syncer - gap-aware slot synchronization', () => {
-  const corePk = new PublicKey('C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx');
-  const matcherPk = new PublicKey('7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC');
+  const corePk = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
+  const matcherPk = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
 
   it('advances cursor on quiet markets even when getBlocks returns no blocks', async () => {
     const store = createStore(':memory:');

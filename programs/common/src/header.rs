@@ -1,15 +1,21 @@
 //! Slab header - v0 minimal metadata
 
+use crate::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
 use pinocchio::pubkey::Pubkey;
+
+// SAFETY: `repr(C)` POD whose first field is the account header.
+unsafe impl AccountLayout for SlabHeader {
+    const DISCRIMINATOR: u8 = discriminator::SLAB;
+    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+}
 
 /// Slab header - v0 simplified for single-account slab
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct SlabHeader {
-    /// Magic bytes for validation (b"PERP10\0\0")
-    pub magic: [u8; 8],
-    /// Version (=1 for v0)
-    pub version: u32,
+    /// Account discriminator + layout version (replaces the old
+    /// `b"PERP10\0\0"` magic and `version: u32`).
+    pub header: AccountHeader,
     /// Sequence number (incremented on any book/state change)
     pub seqno: u32,
 
@@ -48,8 +54,6 @@ pub struct SlabHeader {
 }
 
 impl SlabHeader {
-    pub const MAGIC: &'static [u8; 8] = b"PERP10\0\0";
-    pub const VERSION: u32 = 1;
     pub const LEN: usize = core::mem::size_of::<Self>();
 
     /// Initialize new slab header (v0 minimal)
@@ -70,8 +74,7 @@ impl SlabHeader {
         let off_receipt_area = off_book + 3072; // 3KB for book
 
         Self {
-            magic: *Self::MAGIC,
-            version: Self::VERSION,
+            header: AccountHeader::of::<Self>(),
             seqno: 0,
             program_id,
             lp_owner,
@@ -90,9 +93,9 @@ impl SlabHeader {
         }
     }
 
-    /// Validate magic and version
+    /// True if the discriminator and layout version are the current ones.
     pub fn validate(&self) -> bool {
-        &self.magic == Self::MAGIC && self.version == Self::VERSION
+        self.header == AccountHeader::of::<Self>()
     }
 
     /// Increment sequence number (on any book change)
@@ -121,8 +124,44 @@ mod tests {
 
         assert!(header.validate());
         assert_eq!(header.seqno, 0);
-        assert_eq!(header.version, 1);
-        assert_eq!(header.magic, *SlabHeader::MAGIC);
+        assert_eq!(header.header.layout_version, 1);
+        assert_eq!(header.header.discriminator, crate::layout::discriminator::SLAB);
+    }
+
+    #[test]
+    fn test_header_rejects_wrong_discriminator_or_version() {
+        use crate::layout::{discriminator, load, AccountHeader};
+        use crate::MgkError;
+        let mut header = SlabHeader::new(
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+            1,
+            1,
+            1,
+            0,
+        );
+        let n = core::mem::size_of::<SlabHeader>();
+        let as_bytes = |h: &SlabHeader| -> [u8; 256] {
+            let mut b = [0u8; 256];
+            let src = unsafe { core::slice::from_raw_parts(h as *const SlabHeader as *const u8, n) };
+            b[..n].copy_from_slice(src);
+            b
+        };
+        assert!(load::<SlabHeader>(&as_bytes(&header)[..n]).is_ok());
+        header.header = AccountHeader::new(discriminator::BATCH, 1);
+        assert!(!header.validate());
+        assert_eq!(
+            load::<SlabHeader>(&as_bytes(&header)[..n]).err(),
+            Some(MgkError::InvalidAccountDiscriminator)
+        );
+        header.header = AccountHeader::new(discriminator::SLAB, 2);
+        assert!(!header.validate());
+        assert_eq!(
+            load::<SlabHeader>(&as_bytes(&header)[..n]).err(),
+            Some(MgkError::UnsupportedLayoutVersion)
+        );
     }
 
     #[test]

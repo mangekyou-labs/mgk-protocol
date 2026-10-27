@@ -1,5 +1,6 @@
 //! SetBatchParams (disc 21) — governance-only batch parameter update.
 
+use mgk_common::layout::{load_account_mut};
 use crate::state::Registry;
 use mgk_common::MgkError;
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
@@ -29,7 +30,7 @@ pub fn process_set_batch_params(
     }
 
     let registry =
-        unsafe { &mut *(registry_account.borrow_mut_data_unchecked().as_ptr() as *mut Registry) };
+        unsafe { load_account_mut::<Registry>(registry_account)? };
 
     if registry.governance != *governance_account.key() {
         msg!("Error: Invalid governance");
@@ -116,7 +117,8 @@ mod tests {
 
     #[test]
     fn test_set_batch_params_size_unchanged() {
-        // Registry must stay at 86 bytes for on-chain compatibility.
-        assert_eq!(core::mem::size_of::<Registry>(), 86);
+        // Registry is the 86-byte body plus the 8-byte account header
+        // (spec 13 / issue 16). Pin it so layout drift is deliberate.
+        assert_eq!(core::mem::size_of::<Registry>(), 94);
     }
 }

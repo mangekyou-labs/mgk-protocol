@@ -35,9 +35,19 @@ Account validation helpers live in `programs/common/src/`: `validate_owner`, `va
 Instruction dispatch uses `instruction_data[0]` as a u8 discriminator — **not** Anchor's 8-byte SHA256 digest. Add new instructions by appending to the match in `entrypoint.rs`.
 
 ### Hardcoded program IDs
-- Matcher: `PERPMatcher111111111111111111111111111` (placeholder, see `programs/common/src/program_ids.rs`)
-- Oracle: declared in `programs/oracle/src/lib.rs`
-- Perps core: `PRPSCore11111111111111111111111111111111` (placeholder)
+Fresh IDs per ADR 0004, byte arrays in `programs/common/src/program_ids.rs`, base58 mirrored in `deployments/devnet.json` (a test keeps the two in sync). Only public keys are committed; the keypairs live outside the repo.
+- Perps core: `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT`
+- Matcher: `68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK`
+- Oracle: `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm`
+
+### Deployment manifest
+`deployments/devnet.json` is the single source of cluster, program IDs, registry/instrument/oracle/insurance/maker addresses and start slot. Not-yet-deployed entries are explicit `{"status":"pending"}` placeholders. Schema: `deployments/manifest.schema.json`; validator and tests: `cargo test -p mgk-deployment`.
+
+### Versioned accounts
+Every account type starts with an 8-byte `AccountHeader` (`programs/common/src/layout.rs`): discriminator, layout version, 6 reserved bytes. Loaders (`load_account`, `load_account_mut`, `init_account_mut`) check it: a wrong discriminator (including zeroed accounts) is `MgkError::InvalidAccountDiscriminator` (8), a wrong version is `MgkError::UnsupportedLayoutVersion` (9). New account types need a discriminator in `layout::discriminator` and an `AccountLayout` impl.
+
+### Host vs SBF layout
+SBF aligns `u128`/`i128` to 8, the host to 16. Account structs with 128-bit fields therefore carry explicit padding so every such field sits at its 16-aligned offset and the size is identical on both. Compile-time `const _: () = { assert!(offset_of!(..) ..) }` blocks pin this and are evaluated by both `cargo build` and `cargo build-sbf`. Keep them updated when changing a struct.
 
 ### no_std
 All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std)]` so they can compile for both BPF and native test.
@@ -47,11 +57,17 @@ All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std
 Tests are inline in `#[cfg(test)] mod tests` blocks within instruction/state source files. Run per-crate:
 
 ```sh
-cargo test -p mgk-perps-matcher      # 59 tests
-cargo test -p mgk-perps-core         # 19 tests
-cargo test -p mgk-oracle           # 5 tests
-cargo test -p mgk-common           # 42 tests
+cargo test -p mgk-perps-matcher      # 126 tests
+cargo test -p mgk-perps-core         # 286 lib tests + 13 lifecycle (9 run, 4 ignored for CU)
+cargo test -p mgk-oracle           # 9 tests
+cargo test -p mgk-common           # 65 tests
+cargo test -p mgk-deployment       # 20 tests
 ```
+
+Lifecycle tests load the SBF programs: run `cargo build-sbf` first, then
+`BPF_OUT_DIR=$PWD/target/deploy cargo test -p mgk-perps-core --test lifecycle --features host-hash`.
+Without `BPF_OUT_DIR` they skip. Tests and clippy need a recent stable toolchain (`cargo +stable ...`);
+the Solana toolchain behind `cargo build-sbf` is older.
 
 ## SBF build quirks
 
@@ -62,6 +78,13 @@ cargo test -p mgk-common           # 42 tests
 ## Error codes
 
 Shared `MgkError` enum in `programs/common/src/error.rs` with ranges:
-- 0–99: common
+- 0–99: common (8 = `InvalidAccountDiscriminator`, 9 = `UnsupportedLayoutVersion`)
+
+Registry defaults: `Initialize` now writes `max_orders_per_batch = 64` and `marginal_size_cap = 64`
+(via `Registry::initialize_in_place`). Before the account-header change it wrote fields by raw offset
+and left both at 0, so this is a behaviour change; adjust later with `SetBatchParams`.
+
+Re-initialization: the oracle `Initialize` rejects an account whose discriminator is not
+`UNINITIALIZED` (`MgkError::AlreadyInitialized`).
 
 Errors are cast to `u64` via `From<MgkError> for u64` and returned by entrypoints.
