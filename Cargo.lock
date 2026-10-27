@@ -2425,6 +2425,7 @@ dependencies = [
  "mgk-perps-matcher",
  "pinocchio",
  "pinocchio-pubkey",
+ "proptest",
  "sha2 0.10.9",
  "solana-program-test",
  "solana-sdk",

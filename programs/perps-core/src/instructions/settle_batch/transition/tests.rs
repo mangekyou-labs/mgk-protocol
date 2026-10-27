@@ -35,7 +35,7 @@ impl Host {
             },
             slot: 100,
             timestamp: 1000,
-            oracle: None,
+            oracle: Some((100_000_000, 1000, true)),
             book_error: None,
             next_size: core::mem::size_of::<Batch>(),
             clock_reads: core::cell::Cell::new(0),
@@ -94,32 +94,6 @@ impl Environment for Host {
     }
 }
 
-#[test]
-fn full_transition_settles_and_opens_next_batch() {
-    let mut host = Host::new();
-    let mut batch = Batch::new(7);
-    batch.status = BatchStatus::Clearing;
-    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-    instrument.mark_price = 90;
-    host.settle(&mut batch, &mut instrument, &[0, 0], &mut [], &mut [])
-        .unwrap();
-    assert_eq!(batch.status, BatchStatus::Settled);
-    assert_eq!(instrument.mark_price, 90);
-    assert_eq!(host.next.batch_id, 8);
-    assert_eq!(host.next.status, BatchStatus::Committing);
-    assert_eq!(host.next.commit_deadline_slot, 120);
-    assert_eq!(host.next.reveal_deadline_slot, 0);
-    assert_eq!(host.clock_reads.get(), 2);
-    let counter = host.registry.batch_id_counter;
-    assert_eq!(counter, 1);
-}
-
-fn clearing_batch() -> Batch {
-    let mut batch = Batch::new(7);
-    batch.status = BatchStatus::Clearing;
-    batch
-}
-
 fn fills(entries: &[(u8, u64, i64, bool, u8)]) -> Vec<u8> {
     let mut bytes = vec![0; 34 + entries.len() * 58];
     bytes[32..34].copy_from_slice(&(entries.len() as u16).to_le_bytes());
@@ -135,158 +109,289 @@ fn fills(entries: &[(u8, u64, i64, bool, u8)]) -> Vec<u8> {
 }
 
 #[test]
-fn lookup_uses_first_portfolio_and_totals_include_missing_users() {
+fn position_open_moves_no_notional_and_charges_sol_fee() {
     let mut host = Host::new();
-    let mut batch = clearing_batch();
-    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-    let mut first = Portfolio::new([1; 32]);
-    let mut duplicate = Portfolio::new([1; 32]);
-    let results = fills(&[
-        (1, 2, 100, true, 0),
-        (2, 3, 100, false, 1),
-        (1, 0, 100, true, 0),
-    ]);
-    host.settle(
-        &mut batch,
-        &mut instrument,
-        &results,
-        &mut [],
-        &mut [&mut first, &mut duplicate],
-    )
-    .unwrap();
-    assert_eq!(first.positions[0].qty, 2);
-    assert_eq!(duplicate.positions_len, 0);
-    assert_eq!(batch.total_settled, 1);
-    assert_eq!(batch.total_volume, 5);
-    assert_eq!(batch.total_notional, 500);
-    assert_eq!(batch.clearing_price, 100);
-    assert_eq!(instrument.mark_price, 0); // VWAP fallback does not seed the mark.
-}
-
-#[test]
-fn aggregate_protocol_fee_rounding_differs_from_individual_fills() {
-    let mut host = Host::new();
+    host.oracle = Some((100_000_000, 1000, true));
     let mut batch = clearing_batch();
     let mut instrument = Instrument::new(0, 1, 1, 100, 50);
     let mut portfolio = Portfolio::new([1; 32]);
-    let results = fills(&[(1, 1, 1000, false, 0), (1, 1, 1000, false, 0)]);
+    portfolio.equity = 1_000_000_000;
     host.settle(
         &mut batch,
         &mut instrument,
-        &results,
+        &fills(&[(1, 1000, 100_000_000, false, 1)]),
         &mut [],
         &mut [&mut portfolio],
     )
     .unwrap();
-    assert_eq!(portfolio.equity, 2000); // Each 0.5 fee truncates to zero.
-    assert_eq!(host.vault.insurance_fund, 1); // Aggregate 2000 * 5 bps.
+    assert_eq!(portfolio.equity, 999_500_000);
+    assert_eq!(host.vault.insurance_fund, 500_000);
+    assert_eq!(portfolio.positions[0].qty, 1000);
 }
 
-#[test]
-fn rebates_exhaust_insurance_and_record_shortfall() {
+fn clearing_batch() -> Batch {
+    let mut batch = Batch::new(7);
+    batch.status = BatchStatus::Clearing;
+    batch
+}
+
+fn run_fills(
+    portfolio: &mut Portfolio,
+    entries: &[(u8, u64, i64, bool, u8)],
+    conversion: i64,
+) -> (Batch, Host) {
     let mut host = Host::new();
-    host.vault.insurance_fund = 1;
+    host.oracle = Some((conversion, 1000, true));
+    host.vault.insurance_fund = 1_000_000_000_000_000_000;
     let mut batch = clearing_batch();
     let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-    instrument.maker_fee_bps = -2;
-    let mut portfolio = Portfolio::new([1; 32]);
     host.settle(
         &mut batch,
         &mut instrument,
-        &fills(&[(1, 1, 10000, true, 0)]),
+        &fills(entries),
         &mut [],
-        &mut [&mut portfolio],
+        &mut [portfolio],
     )
     .unwrap();
-    assert_eq!(portfolio.equity, -9998);
-    assert_eq!(host.vault.insurance_fund, 0);
-    assert_eq!(host.vault.uncovered_bad_debt, 1);
+    (batch, host)
 }
 
 #[test]
-fn legacy_commitments_release_deposits_and_slash_pending_only_within_limit() {
-    let mut host = Host::new();
-    let mut batch = clearing_batch();
-    batch.total_commitments = 2;
-    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-    let mut portfolio = Portfolio::new([1; 32]);
-    portfolio.im = 30;
-    let mut revealed = Commitment::new(7, [1; 32]);
-    revealed.status = CommitmentStatus::Revealed;
-    revealed.deposit_lamports = 10;
-    let mut pending = Commitment::new(7, [1; 32]);
-    pending.deposit_lamports = 20;
-    let mut extra = Commitment::new(7, [1; 32]);
-    extra.deposit_lamports = 99;
-    // A short legacy result with no DFBA metadata selects the legacy path.
-    let mut results = vec![0; 51];
-    results[..2].copy_from_slice(&1u16.to_le_bytes());
-    results[2..34].copy_from_slice(&portfolio.user);
-    results[34..42].copy_from_slice(&2u64.to_le_bytes());
-    results[42..50].copy_from_slice(&20000u64.to_le_bytes());
-    host.settle(
-        &mut batch,
-        &mut instrument,
-        &results,
-        &mut [&mut revealed, &mut pending, &mut extra],
-        &mut [&mut portfolio],
-    )
-    .unwrap();
-    assert_eq!(revealed.status, CommitmentStatus::Settled);
-    assert_eq!(pending.status, CommitmentStatus::Slashed);
-    assert_eq!(extra.status, CommitmentStatus::Pending);
-    assert_eq!(portfolio.im, 0);
-    assert_eq!(portfolio.positions[0].qty, 2);
-    assert_eq!(portfolio.equity, -20010);
-    assert_eq!(host.vault.insurance_fund, 30);
-    assert_eq!(batch.slashed_deposits, 20);
-    assert_eq!(batch.total_settled, 1);
+fn exact_weighted_entry_survives_reduce_then_flip_and_close() {
+    let mut p = Portfolio::new([1; 32]);
+    p.equity = 1_000_000_000;
+    run_fills(
+        &mut p,
+        &[
+            (1, 1000, 100_000_000, true, 0),
+            (1, 1001, 100_000_001, true, 0),
+        ],
+        100_000_000,
+    );
+    assert_eq!(
+        (
+            p.positions[0].entry_vwap,
+            p.positions[0].entry_remainder,
+            p.positions[0].entry_denominator
+        ),
+        (100_000_000, 1001, 2001)
+    );
+    run_fills(&mut p, &[(1, 2001, 101_000_000, true, 1)], 100_000_000);
+    // Independent Python Fraction reference vector: integer VWAP overpays 11 lamports.
+    assert_eq!(p.realized_lamports, 20_009_989);
+    assert_eq!(p.positions_len, 0);
+    assert_eq!(p.realized_usd, 2_000_998);
+    run_fills(
+        &mut p,
+        &[
+            (1, 1000, 100_000_000, true, 0),
+            (1, 400, 110_000_000, true, 1),
+        ],
+        100_000_000,
+    );
+    assert_eq!(p.positions[0].qty, 600);
+    assert_eq!(p.positions[0].entry_vwap, 100_000_000);
+    run_fills(&mut p, &[(1, 1000, 120_000_000, true, 1)], 100_000_000);
+    assert_eq!(p.positions[0].qty, -400);
+    assert_eq!(p.positions[0].entry_vwap, 120_000_000);
+    run_fills(&mut p, &[(1, 400, 110_000_000, true, 0)], 100_000_000);
+    assert_eq!(p.positions_len, 0);
+    assert_eq!(p.realized_lamports, 220_009_989);
 }
 
 #[test]
-fn funding_freshness_pause_and_cursor_behavior_use_full_transition() {
-    for (oracle, paused, valid, expected_cum, expected_slot) in [
-        (Some((100, 1000, true)), false, true, 20, 100),
-        (Some((100, 940, true)), false, true, 20, 100),
-        (Some((100, 939, true)), false, true, 0, 0),
-        (Some((100, 1001, true)), false, true, 0, 0),
-        (Some((100, 1000, false)), false, true, 0, 0),
-        (None, false, true, 0, 0),
-        (Some((100, 1000, true)), true, true, 0, 0),
-        (Some((100, 1000, true)), false, false, 0, 0),
+fn opposing_fills_apply_in_results_order_instead_of_netting() {
+    let mut p = Portfolio::new([1; 32]);
+    run_fills(
+        &mut p,
+        &[
+            (1, 1000, 100_000_000, true, 0),
+            (1, 1000, 110_000_000, true, 1),
+            (1, 1000, 120_000_000, true, 0),
+        ],
+        100_000_000,
+    );
+    assert_eq!(p.positions[0].qty, 1000);
+    assert_eq!(p.positions[0].entry_vwap, 120_000_000);
+    assert_eq!(p.realized_lamports, 100_000_000);
+}
+
+#[test]
+fn fractional_micro_usd_is_converted_before_display_rounding() {
+    let mut p = Portfolio::new([1; 32]);
+    run_fills(
+        &mut p,
+        &[(1, 1, 100_000_000, true, 0), (1, 1, 100_000_001, true, 1)],
+        100_000_000,
+    );
+    assert_eq!(p.realized_usd, 0); // 0.001 microUSD display rounds down.
+    assert_eq!(p.realized_lamports, 0);
+    run_fills(
+        &mut p,
+        &[(1, 1, 100_000_001, true, 0), (1, 1, 100_000_000, true, 1)],
+        100_000_000,
+    );
+    assert_eq!(p.realized_usd, -1);
+    assert_eq!(p.realized_lamports, -1);
+}
+
+#[test]
+fn fees_round_up_per_fill_and_fund_equals_actual_charges() {
+    let mut p = Portfolio::new([1; 32]);
+    let (_, host) = run_fills(
+        &mut p,
+        &[(1, 1, 1, false, 1), (1, 1, 1, false, 1)],
+        100_000_000,
+    );
+    assert_eq!(p.equity, -2);
+    assert_eq!(p.fees_paid, 2);
+    assert_eq!(host.vault.insurance_fund, 1_000_000_000_000_000_002);
+}
+
+#[test]
+fn invalid_conversion_rejects_before_any_transition_write_and_can_retry() {
+    for oracle in [
+        None,
+        Some((0, 1000, true)),
+        Some((-1, 1000, true)),
+        Some((100, 939, true)),
+        Some((100, 1001, true)),
+        Some((100, 1000, false)),
     ] {
         let mut host = Host::new();
         host.oracle = oracle;
-        if paused {
-            host.registry.pause_flags = crate::state::registry::PAUSE_FUNDING;
-        }
         let mut batch = clearing_batch();
-        batch.mark_valid = u8::from(valid);
-        batch.clearing_price = 110;
-        let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-        instrument.funding_interval_slots = 50;
-        instrument.funding_coefficient_bps = 100;
-        instrument.max_funding_rate_bps = 100;
-        let mut portfolio = Portfolio::new([1; 32]);
-        portfolio.positions_len = 1;
-        portfolio.positions[0].instrument_id = 0;
-        portfolio.positions[0].qty = 2;
+        let mut inst = Instrument::new(0, 1, 1, 100, 50);
+        let mut p = Portfolio::new([1; 32]);
+        p.equity = 1_000_000_000;
+        let result = fills(&[(1, 1000, 100_000_000, false, 1)]);
+        assert!(host
+            .settle(&mut batch, &mut inst, &result, &mut [], &mut [&mut p])
+            .is_err());
+        assert_eq!(p.equity, 1_000_000_000);
+        assert_eq!(p.positions_len, 0);
+        assert_eq!(batch.status, BatchStatus::Clearing);
+        assert_eq!(host.vault.insurance_fund, 0);
+        let counter = host.registry.batch_id_counter;
+        assert_eq!(counter, 0);
+        host.oracle = Some((100_000_000, 940, true));
+        host.settle(&mut batch, &mut inst, &result, &mut [], &mut [&mut p])
+            .unwrap();
+        assert_eq!(p.equity, 999_500_000);
+    }
+}
+
+#[test]
+fn funding_never_accrues_even_when_registry_unpaused() {
+    let mut host = Host::new();
+    let mut batch = clearing_batch();
+    batch.mark_valid = 1;
+    batch.clearing_price = 110_000_000;
+    let mut inst = Instrument::new(0, 1, 1, 100, 50);
+    inst.funding_interval_slots = 1;
+    inst.funding_coefficient_bps = 100;
+    let mut p = Portfolio::new([1; 32]);
+    host.settle(&mut batch, &mut inst, &fills(&[]), &mut [], &mut [&mut p])
+        .unwrap();
+    assert_eq!(inst.cum_funding, 0);
+    assert_eq!(inst.last_funding_slot, 0);
+    assert_eq!(p.funding_paid, 0);
+    assert!(p.last_funding_checkpoint.iter().all(|&x| x == 0));
+}
+
+#[test]
+fn malformed_or_overflowing_fills_fail_instead_of_saturating() {
+    for entry in [
+        (1, u64::MAX, 100, true, 0),
+        (1, 1, -1, true, 0),
+        (1, 1, 100, true, 2),
+    ] {
+        let mut host = Host::new();
+        let mut batch = clearing_batch();
+        let mut inst = Instrument::new(0, 1, 1, 100, 50);
+        let mut p = Portfolio::new([1; 32]);
+        assert!(host
+            .settle(
+                &mut batch,
+                &mut inst,
+                &fills(&[entry]),
+                &mut [],
+                &mut [&mut p]
+            )
+            .is_err());
+    }
+}
+
+proptest::proptest! {
+    #[test]
+    fn balanced_roundtrip_never_mints_lamports(qty in 1u64..10_001, open in 1_000_000i64..1_000_000_000, close in 1_000_000i64..1_000_000_000, conversion in 1_000_000i64..1_000_000_000) {
+        let mut long=Portfolio::new([1;32]);
+        let mut short=Portfolio::new([1;32]);
+        let initial=10_000_000_000_000i128;
+        long.equity=initial; short.equity=initial;
+        run_fills(&mut long,&[(1,qty,open,true,0),(1,qty,close,true,1)],conversion);
+        run_fills(&mut short,&[(1,qty,open,true,1),(1,qty,close,true,0)],conversion);
+        proptest::prop_assert_eq!(long.positions_len,0);
+        proptest::prop_assert_eq!(short.positions_len,0);
+        let net=long.realized_lamports+short.realized_lamports;
+        proptest::prop_assert!(net==0 || net == -1);
+        proptest::prop_assert_eq!(long.equity+short.equity,2*initial+net);
+        proptest::prop_assert_eq!(long.fees_paid+short.fees_paid,0);
+    }
+    #[test]
+    fn partial_reduce_retains_exact_entry(qty in 2u64..10_000, extra in 1u64..10_000, price in 1_000_000i64..1_000_000_000) {
+        let mut p=Portfolio::new([1;32]);
+        run_fills(&mut p,&[(1,qty,price,true,0),(1,extra,price+1,true,0)],price);
+        let before=p.positions[0];
+        run_fills(&mut p,&[(1,1,price,true,1)],price);
+        proptest::prop_assert_eq!(p.positions[0].qty,(qty+extra-1) as i64);
+        proptest::prop_assert_eq!(p.positions[0].entry_vwap,before.entry_vwap);
+        proptest::prop_assert_eq!(p.positions[0].entry_remainder,before.entry_remainder);
+        proptest::prop_assert_eq!(p.positions[0].entry_denominator,before.entry_denominator);
+    }
+}
+
+#[test]
+fn exhausted_fund_rejects_payout_without_creating_debt() {
+    let mut p = Portfolio::new([1; 32]);
+    run_fills(&mut p, &[(1, 1000, 100_000_000, true, 0)], 100_000_000);
+    let mut host = Host::new();
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
+    assert_eq!(
         host.settle(
             &mut batch,
             &mut instrument,
-            &[0; 34],
+            &fills(&[(1, 1000, 110_000_000, true, 1)]),
             &mut [],
-            &mut [&mut portfolio],
-        )
-        .unwrap();
-        assert_eq!(
-            instrument.cum_funding, expected_cum,
-            "oracle={oracle:?} pause={paused} valid={valid}"
-        );
-        assert_eq!(instrument.last_funding_slot, expected_slot);
-        assert_eq!(portfolio.last_funding_checkpoint[0], expected_cum);
-        assert_eq!(portfolio.pnl, 2 * expected_cum);
+            &mut [&mut p]
+        ),
+        Err(MgkError::InsufficientFunds.into())
+    );
+    assert_eq!(host.vault.insurance_fund, 0);
+    assert_eq!(host.vault.uncovered_bad_debt, 0);
+    // This pure adapter deliberately does not emulate Solana transaction rollback.
+    assert_eq!(batch.status, BatchStatus::Clearing);
+}
+
+#[test]
+fn rational_entry_exhaustion_returns_checked_error() {
+    let mut p = Portfolio::new([1; 32]);
+    super::apply_fill(&mut p, 0, 1, 100_000_000, true, 100_000_000).unwrap();
+    let mut exhausted = false;
+    for _ in 0..128 {
+        match super::apply_fill(&mut p, 0, 1, 100_000_001, true, 100_000_000) {
+            Ok(_) => {
+                super::apply_fill(&mut p, 0, -1, 100_000_001, true, 100_000_000).unwrap();
+            }
+            Err(error) => {
+                assert_eq!(error, MgkError::Overflow.into());
+                exhausted = true;
+                break;
+            }
+        }
     }
+    assert!(exhausted);
 }
 
 #[test]
@@ -343,55 +448,41 @@ fn malformed_results_fail_before_writes_and_oversized_next_batch_fails_late() {
 }
 
 #[test]
-fn full_position_table_keeps_cash_flow_without_creating_a_position() {
+fn legacy_commitments_release_deposits_and_slash_pending_only_within_limit() {
     let mut host = Host::new();
     let mut batch = clearing_batch();
+    batch.total_commitments = 2;
     let mut instrument = Instrument::new(0, 1, 1, 100, 50);
     let mut portfolio = Portfolio::new([1; 32]);
-    portfolio.positions_len = 32;
-    for (i, position) in portfolio.positions.iter_mut().enumerate() {
-        position.instrument_id = (i + 1) as u16;
-    }
+    portfolio.im = 30;
+    let mut revealed = Commitment::new(7, [1; 32]);
+    revealed.status = CommitmentStatus::Revealed;
+    revealed.deposit_lamports = 10;
+    let mut pending = Commitment::new(7, [1; 32]);
+    pending.deposit_lamports = 20;
+    let mut extra = Commitment::new(7, [1; 32]);
+    extra.deposit_lamports = 99;
+    // A short legacy result with no DFBA metadata selects the legacy path.
+    let mut results = vec![0; 51];
+    results[..2].copy_from_slice(&1u16.to_le_bytes());
+    results[2..34].copy_from_slice(&portfolio.user);
+    results[34..42].copy_from_slice(&2u64.to_le_bytes());
+    results[42..50].copy_from_slice(&20000u64.to_le_bytes());
     host.settle(
         &mut batch,
         &mut instrument,
-        &fills(&[(1, 1, 10000, false, 1)]),
-        &mut [],
+        &results,
+        &mut [&mut revealed, &mut pending, &mut extra],
         &mut [&mut portfolio],
     )
     .unwrap();
-    assert_eq!(portfolio.positions_len, 32);
-    assert!(portfolio.find_position(0).is_none());
-    assert_eq!(portfolio.equity, -10005);
-    assert_eq!(batch.total_settled, 1);
-    assert_eq!(host.vault.insurance_fund, 5);
-}
-
-#[test]
-fn dfba_with_revealed_commitment_preserves_legacy_scan_behavior() {
-    let mut host = Host::new();
-    let mut batch = clearing_batch();
-    batch.total_commitments = 1;
-    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-    let mut portfolio = Portfolio::new([1; 32]);
-    portfolio.im = 10;
-    let mut commitment = Commitment::new(7, [1; 32]);
-    commitment.status = CommitmentStatus::Revealed;
-    commitment.deposit_lamports = 10;
-    host.settle(
-        &mut batch,
-        &mut instrument,
-        &fills(&[(1, 1, 100, true, 0)]),
-        &mut [&mut commitment],
-        &mut [&mut portfolio],
-    )
-    .unwrap();
-    // The retired commitment path still scans legacy offsets in DFBA data.
-    // This fixture has no legacy user match; it releases the deposit anyway.
-    assert_eq!(commitment.status, CommitmentStatus::Settled);
-    assert_eq!(portfolio.positions[0].qty, 1);
-    assert_eq!(portfolio.equity, -100);
+    assert_eq!(revealed.status, CommitmentStatus::Settled);
+    assert_eq!(pending.status, CommitmentStatus::Slashed);
+    assert_eq!(extra.status, CommitmentStatus::Pending);
     assert_eq!(portfolio.im, 0);
-    assert_eq!(batch.total_settled, 2);
-    assert_eq!(batch.total_notional, 100);
+    assert_eq!(portfolio.positions[0].qty, 2);
+    assert_eq!(portfolio.equity, -1);
+    assert_eq!(host.vault.insurance_fund, 21);
+    assert_eq!(batch.slashed_deposits, 20);
+    assert_eq!(batch.total_settled, 1);
 }

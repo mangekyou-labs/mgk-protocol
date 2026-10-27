@@ -171,6 +171,7 @@ mod tests {
             instrument_id,
             qty,
             entry_vwap,
+            ..Position::default()
         }
     }
 
@@ -665,6 +666,7 @@ mod tests {
             instrument_id: id,
             qty: 10,
             entry_vwap: 1_000_000,
+            ..Position::default()
         }
     }
 

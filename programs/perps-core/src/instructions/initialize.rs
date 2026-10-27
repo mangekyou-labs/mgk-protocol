@@ -66,6 +66,9 @@ pub fn process_initialize(
     vault_account: &AccountInfo,
     vault_bump: u8,
 ) -> ProgramResult {
+    if taker_fee_bps != 5 || maker_fee_bps != 0 {
+        return Err(mgk_common::MgkError::InvalidRiskParams.into());
+    }
     msg!("INIT_RUST_V3");
 
     // ── Create registry PDA if needed ────────────────────────────────────────

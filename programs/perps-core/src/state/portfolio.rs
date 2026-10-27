@@ -1,4 +1,4 @@
-use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
+use mgk_common::layout::{discriminator, AccountHeader, AccountLayout};
 use pinocchio::pubkey::Pubkey;
 
 pub const MAX_POSITIONS: usize = 32;
@@ -14,12 +14,18 @@ pub struct Portfolio {
     pub _pad_u128: [u8; 8],
     pub equity: i128,
     pub principal: i128,
-    pub pnl: i128,
+    /// Cumulative realized micro-USD, rounded down per fill for display only.
+    pub realized_usd: i128,
+    pub realized_lamports: i128,
+    pub fees_paid: i128,
+    /// Restricted demo: funding is disabled and this total stays zero.
+    pub funding_paid: i128,
     pub im: u128,
     pub mm: u128,
     pub free_collateral: i128,
     pub health: i128,
     pub positions_len: u16,
+    pub _pad_positions: [u8; 6],
     pub positions: [Position; MAX_POSITIONS],
     /// Explicit padding so `last_funding_checkpoint` is 16-aligned on every target.
     pub _pad_u128_b: [u8; 8],
@@ -37,9 +43,28 @@ pub struct Portfolio {
 // size is a multiple of 16. Checked at compile time for the target being built.
 const _: () = {
     use core::mem::{offset_of, size_of};
+    assert!(size_of::<Portfolio>() == 2048);
+    assert!(size_of::<Position>() == 40);
+    assert!(offset_of!(Portfolio, user) == 8);
+    assert!(offset_of!(Portfolio, equity) == 48);
+    assert!(offset_of!(Portfolio, principal) == 64);
+    assert!(offset_of!(Portfolio, realized_usd) == 80);
+    assert!(offset_of!(Portfolio, realized_lamports) == 96);
+    assert!(offset_of!(Portfolio, fees_paid) == 112);
+    assert!(offset_of!(Portfolio, funding_paid) == 128);
+    assert!(offset_of!(Portfolio, positions_len) == 208);
+    assert!(offset_of!(Portfolio, positions) == 216);
+    assert!(offset_of!(Portfolio, last_funding_checkpoint) == 1504);
+    assert!(offset_of!(Portfolio, last_batch_id) == 2016);
+    assert!(offset_of!(Portfolio, last_slot) == 2024);
+    assert!(offset_of!(Portfolio, bump) == 2032);
+    assert!(offset_of!(Position, qty) == 8);
+    assert!(offset_of!(Position, entry_vwap) == 16);
+    assert!(offset_of!(Position, entry_remainder) == 24);
+    assert!(offset_of!(Position, entry_denominator) == 32);
     assert!(offset_of!(Portfolio, equity) & 15 == 0);
     assert!(offset_of!(Portfolio, principal) & 15 == 0);
-    assert!(offset_of!(Portfolio, pnl) & 15 == 0);
+    assert!(offset_of!(Portfolio, realized_usd) & 15 == 0);
     assert!(offset_of!(Portfolio, im) & 15 == 0);
     assert!(offset_of!(Portfolio, mm) & 15 == 0);
     assert!(offset_of!(Portfolio, free_collateral) & 15 == 0);
@@ -53,13 +78,18 @@ const _: () = {
 pub struct Position {
     pub instrument_id: u16,
     pub qty: i64,
+    /// Floor of the exact micro-USD entry price, for display.
     pub entry_vwap: i64,
+    /// Exact entry = entry_vwap + entry_remainder / entry_denominator.
+    /// A zero denominator is the canonical integer-entry representation.
+    pub entry_remainder: u64,
+    pub entry_denominator: u64,
 }
 
 // SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
 unsafe impl AccountLayout for Portfolio {
     const DISCRIMINATOR: u8 = discriminator::PORTFOLIO;
-    const LAYOUT_VERSION: u8 = LAYOUT_VERSION_1;
+    const LAYOUT_VERSION: u8 = 2;
 }
 
 impl Portfolio {
@@ -69,12 +99,16 @@ impl Portfolio {
         self._pad_u128 = [0; 8];
         self.equity = 0;
         self.principal = 0;
-        self.pnl = 0;
+        self.realized_usd = 0;
+        self.realized_lamports = 0;
+        self.fees_paid = 0;
+        self.funding_paid = 0;
         self.im = 0;
         self.mm = 0;
         self.free_collateral = 0;
         self.health = 0;
         self.positions_len = 0;
+        self._pad_positions = [0; 6];
         self.positions = [Position::default(); MAX_POSITIONS];
         self._pad_u128_b = [0; 8];
         self.last_funding_checkpoint = [0; MAX_INSTRUMENTS];
@@ -125,12 +159,16 @@ impl Portfolio {
             _pad_u128: [0; 8],
             equity: 0,
             principal: 0,
-            pnl: 0,
+            realized_usd: 0,
+            realized_lamports: 0,
+            fees_paid: 0,
+            funding_paid: 0,
             im: 0,
             mm: 0,
             free_collateral: 0,
             health: 0,
             positions_len: 0,
+            _pad_positions: [0; 6],
             positions: [Position::default(); MAX_POSITIONS],
             _pad_u128_b: [0; 8],
             last_funding_checkpoint: [0; MAX_INSTRUMENTS],
@@ -151,16 +189,19 @@ mod tests {
 
     #[test]
     fn test_portfolio_header_stamped_and_checked_on_load() {
-        use mgk_common::layout::{discriminator, load, LAYOUT_VERSION_1};
+        use mgk_common::layout::{discriminator, load};
         use mgk_common::MgkError;
         let p = Portfolio::new(Pubkey::from([4u8; 32]));
         assert_eq!(p.header.discriminator, discriminator::PORTFOLIO);
-        assert_eq!(p.header.layout_version, LAYOUT_VERSION_1);
+        assert_eq!(p.header.layout_version, 2);
 
         let words = core::mem::size_of::<Portfolio>().div_ceil(16);
         let mut buf = std::vec![0u128; words];
         let bytes: &mut [u8] = unsafe {
-            core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, core::mem::size_of::<Portfolio>())
+            core::slice::from_raw_parts_mut(
+                buf.as_mut_ptr() as *mut u8,
+                core::mem::size_of::<Portfolio>(),
+            )
         };
         mgk_common::layout::init_mut::<Portfolio>(bytes).unwrap();
         assert!(load::<Portfolio>(bytes).is_ok());
@@ -170,7 +211,7 @@ mod tests {
             Some(MgkError::InvalidAccountDiscriminator)
         );
         bytes[0] = discriminator::PORTFOLIO;
-        bytes[1] = 7;
+        bytes[1] = mgk_common::layout::LAYOUT_VERSION_1;
         assert_eq!(
             load::<Portfolio>(bytes).err(),
             Some(MgkError::UnsupportedLayoutVersion)
@@ -183,7 +224,10 @@ mod tests {
         p.header.discriminator = 0;
         p.header.layout_version = 0;
         p.initialize_in_place(Pubkey::from([1u8; 32]), 3);
-        assert_eq!(p.header, mgk_common::layout::AccountHeader::of::<Portfolio>());
+        assert_eq!(
+            p.header,
+            mgk_common::layout::AccountHeader::of::<Portfolio>()
+        );
     }
 
     #[test]
@@ -246,6 +290,7 @@ mod tests {
             instrument_id: 1,
             qty: 100,
             entry_vwap: 50_000_000,
+            ..Position::default()
         };
         p.positions_len = 1;
 
