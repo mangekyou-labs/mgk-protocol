@@ -37,7 +37,7 @@ pub fn validate_price_data(data: &[u8], instrument: &Pubkey, now: i64) -> Result
         return Err(MgkError::InvalidPrice);
     }
     let age = now.checked_sub(timestamp).ok_or(MgkError::StalePrice)?;
-    if timestamp <= 0 || !(0..=MAX_PRICE_AGE_SECONDS).contains(&age) {
+    if !(0..=MAX_PRICE_AGE_SECONDS).contains(&age) {
         return Err(MgkError::StalePrice);
     }
     Ok(price)

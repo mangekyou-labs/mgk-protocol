@@ -464,11 +464,7 @@ fn build_oracle_data(price: i64, conf: i64) -> Vec<u8> {
 
 /// Seed a configured, active conversion oracle for successful risk actions.
 async fn seed_valid_oracle(ctx: &mut solana_program_test::ProgramTestContext, key: Pubkey, instrument: Pubkey) {
-    let mut clock = ctx.banks_client.get_sysvar::<solana_sdk::clock::Clock>().await.unwrap();
-    if clock.unix_timestamp <= 0 {
-        clock.unix_timestamp = 1_700_000_000;
-        ctx.set_sysvar(&clock);
-    }
+    let clock = ctx.banks_client.get_sysvar::<solana_sdk::clock::Clock>().await.unwrap();
     let mut data = build_oracle_data(100_000_000, 0);
     data[10] = 1;
     data[48..80].copy_from_slice(instrument.as_ref());
