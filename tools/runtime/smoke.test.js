@@ -20,7 +20,7 @@ const ix = (discriminator, data, keys, programId = CORE) => new TransactionInstr
 const field = (name, offset, bytes, value, signed = false) => ({ name, offset, bytes, value: String(value), signed });
 
 // Intentionally runs, or fails: absence of candidate artifacts is never a skipped green test.
-test('candidate runtime: controllable oracle and signed init/deposit/post/clear/settle', { timeout: 90000 }, async t => {
+test('candidate runtime: exact position settlement and invalid-oracle rollback', { timeout: 180000 }, async t => {
   assert.ok(process.env.MGK_CANDIDATE_MANIFEST, 'MGK_CANDIDATE_MANIFEST is required; see tools/runtime/README.md');
   const candidate = JSON.parse(readFileSync(process.env.MGK_CANDIDATE_MANIFEST, 'utf8'));
   assert.match(candidate.commit, /^[0-9a-f]{40}$/, 'candidate commit required');
@@ -35,17 +35,17 @@ test('candidate runtime: controllable oracle and signed init/deposit/post/clear/
   const [registry, regBump] = pda([Buffer.from('registry')]);
   const [instrument, instBump] = pda([Buffer.from('instrument'), Buffer.alloc(2)]);
   const [vault] = pda([Buffer.from('vault')]);
-  const [batch, batchBump] = pda([Buffer.from('batch'), u64(0)]);
-  const [nextBatch] = pda([Buffer.from('batch'), u64(1)]);
+  let [batch, batchBump] = pda([Buffer.from('batch'), u64(0)]);
+  let [nextBatch] = pda([Buffer.from('batch'), u64(1)]);
   const [book] = pda([Buffer.from('book'), Buffer.alloc(2)], MATCHER);
-  const [results] = pda([Buffer.from('results'), u64(0)], MATCHER);
+  let [results] = pda([Buffer.from('results'), u64(0)], MATCHER);
   const oracle = Keypair.generate().publicKey;
   const portfolios = [maker, taker].map(user => pda([Buffer.from('portfolio'), user.publicKey.toBuffer()]));
-  // Genesis scaffolding supplies zeroed storage as the legacy lifecycle test does.
+  // Genesis scaffolding supplies zeroed storage for the signed initialization lifecycle.
   // All initialized fields, deposits, orders, clearing and settlement are written by signed program transactions.
   for (const [address, owner, size] of [[registry, CORE, 94], [instrument, CORE, 352], [vault, CORE, 80],
     [batch, CORE, 176], [nextBatch, CORE, 176], [book, MATCHER, 27712], [results, MATCHER, 8 + 34 + 128 * 58],
-    ...portfolios.map(([address]) => [address, CORE, 1488])]) {
+    ...portfolios.map(([address]) => [address, CORE, 2048])]) {
     const data = Buffer.alloc(size);
     // The matcher normally stamps this header in InitializeBook. Other accounts
     // are stamped by their signed initialize instructions below.
@@ -85,6 +85,13 @@ test('candidate runtime: controllable oracle and signed init/deposit/post/clear/
   }
   const vaultBefore = await runtime.account(vault);
   assert.equal(vaultBefore.lamports, 2_010_000_000n, 'deposited lamports plus genesis rent');
+  // A cash-backed genesis fund isolates accounting from the separate #23 top-up/exhaustion work.
+  const initialFund = 20_000_000_000n;
+  const seededVault = Buffer.from(vaultBefore.data);
+  seededVault.writeBigUInt64LE(initialFund, 16);
+  seededVault.writeBigUInt64LE(2_000_000_000n + initialFund, 8);
+  await runtime.setAccount(vault, { owner: CORE, data: seededVault,
+    lamports: Number(vaultBefore.lamports + initialFund) });
   for (const [index, side, isMaker] of [[0, 0, true], [0, 1, true], [1, 1, false], [1, 0, false]]) {
     const user = [maker, taker][index], data = Buffer.alloc(21);
     data[0] = side; data[1] = Number(isMaker); data.writeBigInt64LE(1_000_000n, 2); u64(1).copy(data, 10);
@@ -97,30 +104,82 @@ test('candidate runtime: controllable oracle and signed init/deposit/post/clear/
     meta(MATCHER, false), meta(registry, false), meta(instrument, false)])], [payer]);
   const cleared = await runtime.account(results);
   assert.equal(cleared.data.readUInt16LE(40), 4, 'both DFBA sides produced maker and taker fills');
-  // Feed observed matcher fills into the independent issue-14 model. The two
-  // flat legs at a $1 conversion price also match the current legacy fee units.
-  const fills = Array.from({ length: 4 }, (_, index) => {
-    const offset = 8 + 34 + index * 58;
-    const makerFill = Boolean(cleared.data[offset + 56]);
-    const bidAuction = cleared.data[offset + 57] === 0;
-    const quantity = cleared.data.readBigUInt64LE(offset + 40);
-    return { account: new PublicKey(cleared.data.subarray(offset, offset + 32)).toBase58(),
-      quantity_lots: String(bidAuction === makerFill ? quantity : -quantity),
-      fill_price: String(cleared.data.readBigInt64LE(offset + 48)), conversion_price: '1000000', maker: makerFill };
-  });
-  const model = JSON.parse(execFileSync('python3', ['-B', '-c', `
+  // All expectations come from the independent Fraction ledger, fed only observed fills.
+  const observedFills = [];
+  const recordFills = (data, conversionPrice) => {
+    const count = data.readUInt16LE(40);
+    const fills = Array.from({ length: count }, (_, index) => {
+      const offset = 8 + 34 + index * 58;
+      const makerFill = Boolean(data[offset + 56]);
+      const bidAuction = data[offset + 57] === 0;
+      const quantity = data.readBigUInt64LE(offset + 40);
+      return { account: new PublicKey(data.subarray(offset, offset + 32)).toBase58(),
+        quantity_lots: String(bidAuction === makerFill ? quantity : -quantity),
+        fill_price: String(data.readBigInt64LE(offset + 48)), conversion_price: String(conversionPrice), maker: makerFill };
+    });
+    for (const fill of fills) assert.ok([String(maker.publicKey), String(taker.publicKey)].includes(fill.account),
+      'observed fill belongs to a participating portfolio owner');
+    observedFills.push(...fills);
+    return fills;
+  };
+  const reference = () => JSON.parse(execFileSync('python3', ['-B', '-c', `
 import json, sys
+from fractions import Fraction
 sys.path.insert(0, sys.argv[1])
 from reference_model import Ledger, Fill
 request = json.load(sys.stdin)
-ledger = Ledger(0, {account: int(value) for account, value in request['collateral'].items()})
+ledger = Ledger(int(request['fund']), {account: int(value) for account, value in request['collateral'].items()})
+usd_totals = {}
 for fill in request['fills']:
-    ledger.apply_fill(Fill(fill['account'], int(fill['quantity_lots']), int(fill['fill_price']), int(fill['conversion_price']), fill['maker']))
-assert not ledger.positions
-print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()}, 'fund': str(ledger.fund_lamports), 'liability': str(ledger.vault_liability_lamports())}))
-`, resolve(__dirname, '../gate')], { input: JSON.stringify({ collateral: {
-    [maker.publicKey]: '1000000000', [taker.publicKey]: '1000000000' }, fills }), encoding: 'utf8' }));
-  runtime.report.model = model; runtime.flushReport();
+    account = fill['account']
+    before = ledger.realized_micro_usd.get(account, Fraction(0))
+    ledger.apply_fill(Fill(account, int(fill['quantity_lots']), int(fill['fill_price']), int(fill['conversion_price']), fill['maker']))
+    delta = ledger.realized_micro_usd.get(account, Fraction(0)) - before
+    # The i128 display counter quantizes each event toward the protocol; conversion above stays exact.
+    usd_totals[account] = usd_totals.get(account, 0) + delta.numerator // delta.denominator
+positions = {account: {'qty': str(p.quantity_lots), 'entry': str(p.entry_price.numerator // p.entry_price.denominator),
+    'numerator': str(p.entry_price.numerator), 'denominator': str(p.entry_price.denominator)} for account, p in ledger.positions.items()}
+print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()}, 'fund': str(ledger.fund_lamports),
+    'liability': str(ledger.vault_liability_lamports()), 'positions': positions,
+    'realized_usd': {a: str(v) for a, v in usd_totals.items()},
+    'realized_lamports': {a: str(v) for a, v in ledger.realized_lamports.items()},
+    'fees': {a: str(v) for a, v in ledger.fees_lamports.items()}}))
+`, resolve(__dirname, '../gate')], { input: JSON.stringify({ fund: String(initialFund), collateral: {
+    [maker.publicKey]: '1000000000', [taker.publicKey]: '1000000000' }, fills: observedFills }), encoding: 'utf8' }));
+  recordFills(cleared.data, 1_000_000);
+  let model = reference();
+  const assertModel = async label => {
+    model = reference();
+    const expected = portfolios.map(([address], index) => {
+      const account = String([maker, taker][index].publicKey), position = model.positions[account];
+      return { address, fields: [field('portfolio version', 1, 1, 2),
+        field(`${label}: collateral`, 48, 16, model.collateral[account], true),
+        field(`${label}: realized USD`, 80, 16, model.realized_usd[account] ?? 0, true),
+        field(`${label}: realized lamports`, 96, 16, model.realized_lamports[account] ?? 0, true),
+        field(`${label}: fees paid`, 112, 16, model.fees[account] ?? 0, true),
+        field(`${label}: funding off`, 128, 16, 0, true),
+        field(`${label}: position count`, 208, 2, position ? 1 : 0),
+        field(`${label}: quantity`, 224, 8, position?.qty ?? 0, true),
+        field(`${label}: entry floor`, 232, 8, position?.entry ?? 0, true)] };
+    });
+    await runtime.assertState([...expected, { address: vault,
+      lamports: String(BigInt(model.liability) + 10_000_000n), fields: [
+        field(`${label}: vault balance`, 8, 8, model.liability),
+        field(`${label}: fund`, 16, 16, model.fund), field(`${label}: no uncovered debt`, 32, 16, 0)] }]);
+    for (let index = 0; index < portfolios.length; index++) {
+      const position = model.positions[String([maker, taker][index].publicKey)];
+      if (!position) continue;
+      const state = (await runtime.account(portfolios[index][0])).data;
+      const integer = state.readBigInt64LE(232), remainder = state.readBigUInt64LE(240);
+      const denominator = state.readBigUInt64LE(248) || 1n;
+      assert.equal((integer * denominator + remainder) * BigInt(position.denominator),
+        BigInt(position.numerator) * denominator, `${label}: exact rational entry`);
+    }
+    runtime.report.settlementScenarios ??= [];
+    runtime.report.settlementScenarios.push({ label, model, observedFills: [...observedFills] });
+    runtime.report.model = model;
+    runtime.flushReport();
+  };
   const settle = oracleKey => ix(8, Buffer.from([0, 0, 2, 0]), [meta(batch), meta(registry), meta(vault),
     meta(results, false), meta(instrument), meta(book, false), meta(oracleKey, false), meta(MATCHER, false),
     ...portfolios.map(([portfolio]) => meta(portfolio)), meta(nextBatch)]);
@@ -204,8 +263,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price: 1_000_000, publishTime: Number(freshClock.data.readBigInt64LE(32)), confidence: 12 });
   await runtime.send('settle', [settle(oracle)], [payer]);
-  // Baseline smoke: dual legs cancel notional, maker fees 0, taker fees 2 x 500.
-  // This does not claim that master's settlement implements the future restricted-demo accounting.
+  await assertModel('dual-auction roundtrip and oracle retry');
   await runtime.assertState([
     { address: batch, fields: [field('Settled', 16, 1, 3)] },
     { address: portfolios[0][0], fields: [field('maker equity', 48, 16, model.collateral[maker.publicKey], true)] },
@@ -214,8 +272,58 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
       field('insurance fees', 16, 16, model.fund)] },
     { address: nextBatch, fields: [field('batch id', 8, 8, 1), field('Collecting', 16, 1, 0)] },
   ]);
-  await assert.rejects(runtime.assertState([{ address: vault, lamports: '2010000001' }]), /lamports/);
+  await assert.rejects(runtime.assertState([{ address: vault, lamports: String(BigInt(model.liability) + 10_000_001n) }]), /lamports/);
   await assert.rejects(runtime.assertState([{ address: portfolios[0][0], fields: [field('wrong expected model equity', 48, 16, 42)] }]), /wrong expected model equity/);
+  // Each later batch uses genuine signed post/clear/settle instructions. The oracle
+  // conversion deliberately differs from the fill price, exposing spot-cashflow and unit bugs.
+  let batchId = 1;
+  const settleScenario = async (label, orders, conversionPrice) => {
+    batch = nextBatch;
+    [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
+    [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
+    await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
+    await runtime.setAccount(results, { owner: MATCHER, data: Buffer.alloc(8 + 34 + 128 * 58) });
+    for (const { side, qty, price } of orders) {
+      for (const index of [0, 1]) {
+        const user = [maker, taker][index], data = Buffer.alloc(21);
+        data[0] = index === 0 ? side : 1 - side; data[1] = Number(index === 0);
+        data.writeBigInt64LE(BigInt(price), 2); u64(qty).copy(data, 10);
+        await runtime.send(`${label}: post ${index} ${side}`, [ix(20, data,
+          [meta(portfolios[index][0]), meta(user.publicKey, true, true), meta(batch),
+            meta(registry, false), meta(book), meta(MATCHER, false)])], [payer, user]);
+      }
+    }
+    await runtime.advanceSlots(200);
+    await runtime.send(`${label}: close collecting`, [ix(6, Buffer.alloc(0), [meta(batch), meta(registry)])], [payer]);
+    await runtime.send(`${label}: clear`, [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]),
+      [meta(batch), meta(book), meta(results), meta(MATCHER, false), meta(registry, false), meta(instrument, false)])], [payer]);
+    const observed = (await runtime.account(results)).data;
+    assert.equal(observed.readUInt16LE(40), orders.length * 2, `${label}: all paired orders filled`);
+    recordFills(observed, conversionPrice);
+    const fresh = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+    await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+      price: conversionPrice, publishTime: Number(fresh.data.readBigInt64LE(32)), confidence: 12 });
+    await runtime.send(`${label}: settle`, [settle(oracle)], [payer]);
+    await assertModel(label);
+    batchId++;
+  };
+  await settleScenario('open without cash exchange', [{ side: 0, qty: 1000, price: 100_000_000 }], 99_000_000);
+  await settleScenario('grow with fractional weighted entry', [{ side: 0, qty: 1001, price: 100_000_001 }], 99_000_000);
+  const grownEntry = model.positions[String(maker.publicKey)];
+  assert.notEqual(grownEntry.denominator, '1', 'grow fixture produces a fractional entry');
+  await settleScenario('partial reduce preserves exact entry', [{ side: 1, qty: 501, price: 101_000_000 }], 99_000_000);
+  const reducedEntry = model.positions[String(maker.publicKey)];
+  assert.equal(reducedEntry.numerator, grownEntry.numerator, 'partial reduce retains entry numerator');
+  assert.equal(reducedEntry.denominator, grownEntry.denominator, 'partial reduce retains entry denominator');
+  await settleScenario('flip realizes only the old side', [{ side: 1, qty: 2000, price: 102_000_000 }], 101_000_000);
+  assert.equal(model.positions[String(maker.publicKey)].qty, '-500', 'flip leaves only excess quantity');
+  assert.equal(model.positions[String(maker.publicKey)].entry, '102000000', 'flip resets entry to its fill');
+  await settleScenario('close removes position', [{ side: 0, qty: 500, price: 103_000_000 }], 102_000_000);
+  assert.deepEqual(model.positions, {}, 'both positions deleted after close');
+  await settleScenario('ordered dual-auction realization', [
+    { side: 0, qty: 1000, price: 100_000_000 }, { side: 1, qty: 1000, price: 110_000_000 },
+  ], 105_000_000);
+  assert.deepEqual(model.positions, {}, 'opposite fills close in cleared-results order');
   const worker = await runtime.launchWorker(process.execPath, ['-e',
     'fetch(process.env.RPC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[]})}).then(r=>r.json()).then(r=>{if(!Number.isInteger(r.result))process.exit(1)})']);
   const [exitCode] = await once(worker, 'exit');

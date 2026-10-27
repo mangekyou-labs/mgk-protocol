@@ -51,7 +51,7 @@ await runtime.assertState([{
   address: portfolio,
   owner: coreProgramId,
   lamports: '10000000',
-  fields: [{name: 'equity', offset: 32, bytes: 16, signed: true,
+  fields: [{name: 'equity', offset: 48, bytes: 16, signed: true,
     value: model.collateral[wallet]}],
 }]);
 ```
@@ -63,17 +63,37 @@ one-field discrepancy fails the assertion.
 
 The smoke seeds zeroed account storage, then executes the candidate oracle and
 signed initialize, portfolio creation, deposit, order posting, batch closing,
-clearing and settlement instructions. It decodes observed matcher fills and
-passes them to the independent issue-14 Python reference ledger, then compares
-RPC collateral, insurance fund and vault lamports with its outputs. Both sides
-roundtrip at the same price and a $1 conversion price, where the baseline fee
-units coincide with the reference model. It also changes oracle fields, advances
-slots, checks deliberate mismatch rejection and runs a child process against RPC.
+clearing and settlement instructions. Each batch decodes the actual matcher
+fills in cleared-results order and passes them to the independent issue-14
+Python `Fraction` ledger. Seven batches cover a same-price roundtrip, opening
+without exchanging notional cash, fractional weighted entry, partial reduction,
+flipping, closing, and two opposite auctions within one batch. Conversion prices
+vary independently of fill prices.
 
-This verifies the current legacy lifecycle and harness integration. It does not
-establish the later restricted-demo accounting rules or complete the parent
-release gate. Version-1 wire layouts and instruction encodings live in the
-harness adapter and smoke; future protocol layout changes must update them.
-All transactions are ephemeral local simulation; no external cluster is used.
-CI builds fresh SBF artifacts, records their hashes, runs these tests and uploads
-the candidate manifest and runtime report even when the smoke fails.
+After every settlement it compares both portfolios' collateral, exact rational
+entry and quantity, cumulative realized USD, cumulative realized lamports, fees,
+and zero funding with the model. It also compares insurance-fund accounting,
+vault balance and physical lamports. Exact fractional realized USD is converted
+to lamports before rounding: credits round down and debits round up. The i128
+micro-USD display counter separately sums the floor of each realized event,
+including negative events; quantizing that counter must not affect conversion.
+
+A cash-backed 20 SOL insurance fixture supplies both real vault lamports and its
+accounting counter after the signed deposits. This isolates position settlement
+from issue #23's top-up instruction and insurance-exhaustion behavior. All orders,
+clearing and settlement still execute as real signed candidate transactions.
+The smoke checks invalid oracle boundaries, submits a stale-oracle transaction,
+compares all protected account bytes and lamports after rollback, and successfully
+retries with a fresh oracle. It also checks deliberate mismatch rejection and
+runs a child process against RPC.
+
+The smoke adapter uses Portfolio version 2 (2048 bytes): collateral at byte 48,
+realized USD/lamports at 80/96, fees/funding at 112/128, position count at 208,
+and 40-byte positions at 216. Entry is an integer floor plus an unsigned
+remainder/denominator; a zero denominator denotes an integer entry. Other
+account layouts and instruction encodings remain version 1. Future protocol
+layout changes must update this adapter. This coverage does not complete the
+parent release gate or test insurance exhaustion. All transactions are ephemeral
+local simulation; no external cluster is used. CI builds fresh SBF artifacts,
+records their hashes, runs these tests and uploads the candidate manifest and
+runtime report even when the smoke fails.
