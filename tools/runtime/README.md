@@ -35,7 +35,8 @@ all owned worker processes and the validator and removes temporary storage.
 
 `setAccount(address, {owner, lamports, data})` supplies genesis fixtures.
 `setOracle(address, {owner, authority, instrument, price, publishTime,
-confidence, active, bump})` controls the baseline oracle fields.
+confidence, active, bump})` controls the version-1 oracle fields (discriminator 9, layout version 1). Program IDs come
+from `deployments/devnet.json`.
 `advanceSlots(count)` requests and observes an absolute clock advance.
 `send(label, instructions, signers)` signs, simulates with signature verification,
 sends and waits for successful confirmation. `launchWorker(command, args,
@@ -71,7 +72,7 @@ slots, checks deliberate mismatch rejection and runs a child process against RPC
 
 This verifies the current legacy lifecycle and harness integration. It does not
 establish the later restricted-demo accounting rules or complete the parent
-release gate. Baseline wire layouts and instruction encodings live in the
+release gate. Version-1 wire layouts and instruction encodings live in the
 harness adapter and smoke; future protocol layout changes must update them.
 All transactions are ephemeral local simulation; no external cluster is used.
 CI builds fresh SBF artifacts, records their hashes, runs these tests and uploads

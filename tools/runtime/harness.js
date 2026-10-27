@@ -129,7 +129,7 @@ class LocalRuntime {
   // The baseline PriceOracle layout is intentionally contained here; future layout changes update this adapter.
   async setOracle(address, { owner, authority, instrument, price, publishTime, confidence, active = true, bump = 0 }) {
     const data = Buffer.alloc(128);
-    data.write('PRCLORCL'); data[8] = 0; data[9] = bump; data[10] = Number(active);
+    data[0] = 9; data[1] = 1; data[9] = bump; data[10] = Number(active);
     new PublicKey(authority).toBuffer().copy(data, 16);
     new PublicKey(instrument).toBuffer().copy(data, 48);
     data.writeBigInt64LE(exactInteger(price), 80);
