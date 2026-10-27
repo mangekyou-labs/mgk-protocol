@@ -5,6 +5,7 @@ members = [
     "programs/oracle",
     "programs/perps-core",
     "programs/perps-matcher",
+    "deployments",
 ]
 # Only build programs by default for cargo build-sbf
 default-members = [
@@ -12,6 +13,7 @@ default-members = [
     "programs/oracle",
     "programs/perps-core",
     "programs/perps-matcher",
+    "deployments",
 ]
 
 [workspace.package]

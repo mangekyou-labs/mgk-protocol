@@ -1,3 +1,4 @@
+use mgk_common::layout::{load_account, load_account_mut};
 use pinocchio::{
     account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey,
     ProgramResult,
@@ -14,7 +15,7 @@ use crate::instructions::{
     process_settle_batch, process_withdraw, CoreInstruction,
 };
 use crate::state::{Portfolio, Registry, Vault};
-use mgk_common::{borrow_account_data_mut, validate_owner, validate_writable, MgkError};
+use mgk_common::{validate_owner, validate_writable, MgkError};
 
 #[cfg(all(target_os = "solana", not(test)))]
 pinocchio::entrypoint!(process_instruction);
@@ -542,8 +543,8 @@ fn process_deposit_inner(
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
 
-    let portfolio = unsafe { borrow_account_data_mut::<Portfolio>(portfolio_account)? };
-    let vault = unsafe { borrow_account_data_mut::<Vault>(vault_account)? };
+    let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
+    let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
 
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
 
@@ -591,8 +592,8 @@ fn process_withdraw_inner(
     validate_writable(vault_account)?;
     validate_owner(registry_account, program_id)?;
 
-    let portfolio = unsafe { borrow_account_data_mut::<Portfolio>(portfolio_account)? };
-    let vault = unsafe { borrow_account_data_mut::<Vault>(vault_account)? };
+    let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
+    let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
 
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
 
@@ -636,7 +637,7 @@ fn process_add_instrument_inner(
     validate_writable(registry_account)?;
     validate_writable(instrument_account)?;
 
-    let registry = unsafe { borrow_account_data_mut::<Registry>(registry_account)? };
+    let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
 
     let instrument_id = u16::from_le_bytes(data[0..2].try_into().unwrap());
     let tick_size = u64::from_le_bytes(data[2..10].try_into().unwrap());
@@ -955,7 +956,7 @@ fn process_settle_batch_inner(
         // next_batch_id = current.batch_id + 1
         let current_batch_id = unsafe {
             let b =
-                &*(batch_account.borrow_data_unchecked().as_ptr() as *const crate::state::Batch);
+                load_account::<crate::state::Batch>(batch_account)?;
             b.batch_id
         };
         let next_id = current_batch_id.saturating_add(1);
@@ -1185,7 +1186,7 @@ fn process_set_pause_flags_inner(
 
     let flags = data[0];
 
-    let registry = unsafe { borrow_account_data_mut::<Registry>(registry_account)? };
+    let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
 
     process_set_pause_flags(registry, governance_account, flags)
 }

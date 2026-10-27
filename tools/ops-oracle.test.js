@@ -328,7 +328,7 @@ test('sanitizeHealthPayload strips all keys, API secrets, and sensitive URLs', (
     privateKey: 'abc',
     apiKey: 'xyz',
     rpcHost: 'api.devnet.solana.com',
-    oracleAccount: 'CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ',
+    oracleAccount: 'GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm',
     aggregatePrice: '87500000',
   };
 
@@ -342,7 +342,7 @@ test('sanitizeHealthPayload strips all keys, API secrets, and sensitive URLs', (
   assert.equal(clean.apiKey, undefined);
 
   assert.equal(clean.rpcHost, 'api.devnet.solana.com');
-  assert.equal(clean.oracleAccount, 'CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ');
+  assert.equal(clean.oracleAccount, 'GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm');
   assert.equal(clean.aggregatePrice, '87500000');
 
   const jsonStr = JSON.stringify(clean);

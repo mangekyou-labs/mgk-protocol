@@ -59,6 +59,8 @@ desktop.ini
 !package.json
 !**/package.json
 !**/tsconfig*.json
+!deployments/devnet.json
+!deployments/manifest.schema.json
 !**/test-fixtures/**/*.json
 !sbf-solana-solana.json
 !vercel.json

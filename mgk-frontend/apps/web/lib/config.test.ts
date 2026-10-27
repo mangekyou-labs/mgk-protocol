@@ -2,9 +2,9 @@ import { PublicKey } from '@solana/web3.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // M9 DFBA deploy (2026-08-06) — must match lib/config.ts DEVNET_DEFAULTS
-const CORE_DEVNET = 'C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx';
-const MATCHER_DEVNET = '7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC';
-const ORACLE_DEVNET = 'CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ';
+const CORE_DEVNET = '9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT';
+const MATCHER_DEVNET = '68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK';
+const ORACLE_DEVNET = 'GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm';
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 const BOOK_DEVNET = 'J33Y6yo6AZM6JKLEw89tN1kPmyEADqWWjGxb1aAW915j';
 const VAULT_DEVNET = '9qe7TkRxDXHo3dywPKiiY1jwSBnFuSPHmGTWhcP8ttXE';

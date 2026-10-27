@@ -1,5 +1,6 @@
 //! SetInstrumentFees (disc 22) — governance-only instrument fee retune.
 
+use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Instrument, Registry};
 use mgk_common::MgkError;
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
@@ -27,7 +28,7 @@ pub fn process_set_instrument_fees(
     }
 
     let registry =
-        unsafe { &*(registry_account.borrow_data_unchecked().as_ptr() as *const Registry) };
+        unsafe { load_account::<Registry>(registry_account)? };
 
     if registry.governance != *governance_account.key() {
         msg!("Error: Invalid governance");
@@ -40,7 +41,7 @@ pub fn process_set_instrument_fees(
     }
 
     let instrument = unsafe {
-        &mut *(instrument_account.borrow_mut_data_unchecked().as_ptr() as *mut Instrument)
+        load_account_mut::<Instrument>(instrument_account)?
     };
     apply_instrument_fees(instrument, taker_fee_bps, maker_fee_bps);
 
@@ -85,11 +86,8 @@ mod tests {
 
     #[test]
     fn test_fee_field_offsets() {
-        let inst = Instrument::new(0, 1, 1, 100, 50);
-        let base = &inst as *const Instrument as usize;
-        let taker = &inst.taker_fee_bps as *const u16 as usize;
-        let maker = &inst.maker_fee_bps as *const i16 as usize;
-        assert_eq!(taker - base, 52);
-        assert_eq!(maker - base, 54);
+        // Spec 13 / issue 16: +8 for the account header (was 52 / 54).
+        assert_eq!(core::mem::offset_of!(Instrument, taker_fee_bps), 60);
+        assert_eq!(core::mem::offset_of!(Instrument, maker_fee_bps), 62);
     }
 }

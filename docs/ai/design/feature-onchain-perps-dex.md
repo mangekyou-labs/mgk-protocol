@@ -665,7 +665,7 @@ Still open from this list: on-chain CU spike at cap 64 (mainnet bar); formal eve
 
 ## Remaining work
 
-On-chain DFBA path is already on **devnet** (M9.0–M9.6): PostOrder, dual clear, settle mark, liq gate, pause flags, funding skip, keeper crank, scripted dual-fill (`tools/trade-e2e.js`, `mark_valid=1`). Live program IDs: core `C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx`, matcher `7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC`, oracle `CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ`.
+On-chain DFBA path is already on **devnet** (M9.0–M9.6): PostOrder, dual clear, settle mark, liq gate, pause flags, funding skip, keeper crank, scripted dual-fill (`tools/trade-e2e.js`, `mark_valid=1`). Live program IDs: core `C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx`, matcher `7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC`, oracle `CsSqVZMoXixNYstNhTtixeT4pyRgrYnXdpfoXQBgFPqZ`. **Superseded (ADR 0004):** these IDs belong to the abandoned deployment; current IDs live in `deployments/devnet.json`.
 
 This appendix is the source of truth for “working DEX on devnet” vs “mainnet.” Matching is **not** remaining work.
 

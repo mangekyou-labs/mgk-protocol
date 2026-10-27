@@ -15,8 +15,8 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const RPC_URL = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
 // M9 DFBA deploy (2026-08-06) — matches programs/common/src/program_ids.rs
-const CORE_PROGRAM_ID = process.env.CORE_PROGRAM_ID ?? 'C7w2mKz2KQgDroNNhACm9MutXhPiesVr9Gn2x8TDsRYx';
-const MATCHER_PROGRAM_ID = process.env.MATCHER_PROGRAM_ID ?? '7WiZuunbPGciCedsVTguvjezwwzrhmXG5HkdCuHizbNC';
+const CORE_PROGRAM_ID = process.env.CORE_PROGRAM_ID ?? '9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT';
+const MATCHER_PROGRAM_ID = process.env.MATCHER_PROGRAM_ID ?? '68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK';
 const DB_PATH = process.env.DB_PATH ?? 'mgk-indexer.db';
 
 async function main(): Promise<void> {

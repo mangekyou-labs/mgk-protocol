@@ -5,8 +5,8 @@ impl<T> States<T> for TypedStates<'_, '_, T> {
     fn len(&self) -> usize {
         self.0.len()
     }
-    fn get_mut(&mut self, index: usize) -> &mut T {
-        self.0[index]
+    fn get_mut(&mut self, index: usize) -> Result<&mut T, ProgramError> {
+        Ok(self.0[index])
     }
 }
 
@@ -28,7 +28,11 @@ impl Host {
         Self {
             registry,
             vault: Vault::new(),
-            next: Batch::new(0),
+            // A fresh next-batch account is zeroed, header included.
+            next: Batch {
+                header: Default::default(),
+                ..Batch::new(0)
+            },
             slot: 100,
             timestamp: 1000,
             oracle: None,
@@ -56,11 +60,11 @@ impl Host {
     }
 }
 impl Environment for Host {
-    fn registry(&self) -> Registry {
-        self.registry
+    fn registry(&self) -> Result<Registry, ProgramError> {
+        Ok(self.registry)
     }
-    fn vault(&mut self) -> &mut Vault {
-        &mut self.vault
+    fn vault(&mut self) -> Result<&mut Vault, ProgramError> {
+        Ok(&mut self.vault)
     }
     fn validate_book(&self, _: u16) -> ProgramResult {
         self.book_error.map_or(Ok(()), Err)
@@ -78,8 +82,9 @@ impl Environment for Host {
     fn oracle(&self, _: &Pubkey) -> Option<(i64, i64, bool)> {
         self.oracle
     }
-    fn set_batch_counter(&mut self, value: u64) {
+    fn set_batch_counter(&mut self, value: u64) -> ProgramResult {
         self.registry.batch_id_counter = value;
+        Ok(())
     }
     fn next_batch_size(&self) -> usize {
         self.next_size
