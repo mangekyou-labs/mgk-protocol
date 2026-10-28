@@ -157,7 +157,7 @@ fn run_fills(
 }
 
 #[test]
-fn exact_weighted_entry_survives_reduce_then_flip_and_close() {
+fn precision_weighted_entry_survives_reduce_then_flip_and_close() {
     let mut p = Portfolio::new([1; 32]);
     p.equity = 1_000_000_000;
     run_fills(
@@ -174,7 +174,7 @@ fn exact_weighted_entry_survives_reduce_then_flip_and_close() {
             p.positions[0].entry_remainder,
             p.positions[0].entry_denominator
         ),
-        (100_000_000, 1001, 2001)
+        (100_000_000, 500_249_875_063, ENTRY_PRICE_SCALE)
     );
     run_fills(&mut p, &[(1, 2001, 101_000_000, true, 1)], 100_000_000);
     // Independent Python Fraction reference vector: integer VWAP overpays 11 lamports.
@@ -375,26 +375,6 @@ fn exhausted_fund_rejects_payout_without_creating_debt() {
 }
 
 #[test]
-fn rational_entry_exhaustion_returns_checked_error() {
-    let mut p = Portfolio::new([1; 32]);
-    super::apply_fill(&mut p, 0, 1, 100_000_000, true, 100_000_000).unwrap();
-    let mut exhausted = false;
-    for _ in 0..128 {
-        match super::apply_fill(&mut p, 0, 1, 100_000_001, true, 100_000_000) {
-            Ok(_) => {
-                super::apply_fill(&mut p, 0, -1, 100_000_001, true, 100_000_000).unwrap();
-            }
-            Err(error) => {
-                assert_eq!(error, MgkError::Overflow.into());
-                exhausted = true;
-                break;
-            }
-        }
-    }
-    assert!(exhausted);
-}
-
-#[test]
 fn late_errors_preserve_write_order_without_simulating_runtime_rollback() {
     for bad_book in [true, false] {
         let mut host = Host::new();
@@ -485,4 +465,58 @@ fn legacy_commitments_release_deposits_and_slash_pending_only_within_limit() {
     assert_eq!(host.vault.insurance_fund, 21);
     assert_eq!(batch.slashed_deposits, 20);
     assert_eq!(batch.total_settled, 1);
+}
+
+#[test]
+fn ordinary_grow_reduce_lifecycles_remain_settleable() {
+    for side in [0, 1] {
+        let mut p = Portfolio::new([1; 32]);
+        p.equity = 1_000_000_000;
+        run_fills(&mut p, &[(1, 1, 100_000_000, true, side)], 100_000_000);
+        for cycle in 0..1024 {
+            // Alternation never reaches an exact integer weighted entry.
+            let price = 100_000_001 + cycle % 2;
+            let before = p.positions[0];
+            let scale = ENTRY_PRICE_SCALE as i128;
+            let numerator = before.entry_vwap as i128 * scale
+                + before.entry_remainder as i128
+                + price as i128 * scale;
+            let expected = numerator / 2 + i128::from(side == 0 && numerator % 2 != 0);
+            run_fills(
+                &mut p,
+                &[(1, 1, price, true, side), (1, 1, price, true, 1 - side)],
+                100_000_000,
+            );
+            let after = p.positions[0];
+            assert_eq!(after.qty.abs(), 1);
+            assert!(after.entry_denominator == 0 || after.entry_denominator == ENTRY_PRICE_SCALE);
+            assert_eq!(
+                after.entry_vwap as i128 * scale + after.entry_remainder as i128,
+                expected
+            );
+            // Each grow's rounding error is below one scale unit, toward the fund.
+            let error_twice = expected * 2 - numerator;
+            assert!(if side == 0 {
+                (0..2).contains(&error_twice)
+            } else {
+                (-1..=0).contains(&error_twice)
+            });
+        }
+        run_fills(&mut p, &[(1, 1, 100_000_000, true, 1 - side)], 100_000_000);
+        assert_eq!(p.positions_len, 0);
+    }
+}
+
+#[test]
+fn off_grid_position_entry_rejects_instead_of_reinterpreting() {
+    for (remainder, denominator) in [(1, 0), (1, 3), (ENTRY_PRICE_SCALE, ENTRY_PRICE_SCALE)] {
+        let mut p = Portfolio::new([1; 32]);
+        run_fills(&mut p, &[(1, 1, 100_000_000, true, 0)], 100_000_000);
+        p.positions[0].entry_remainder = remainder;
+        p.positions[0].entry_denominator = denominator;
+        assert_eq!(
+            super::apply_fill(&mut p, 0, -1, 100_000_000, true, 100_000_000),
+            Err(MgkError::InvalidAccount.into())
+        );
+    }
 }

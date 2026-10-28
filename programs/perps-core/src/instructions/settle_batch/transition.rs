@@ -3,7 +3,7 @@
 use crate::state::{
     batch::{Batch, BatchStatus, Commitment, CommitmentStatus},
     instrument::Instrument,
-    portfolio::{Portfolio, Position},
+    portfolio::{Portfolio, Position, ENTRY_PRICE_SCALE},
     registry::Registry,
     vault::Vault,
 };
@@ -321,7 +321,9 @@ fn apply_fill(
             return Err(MgkError::InvalidAccount.into());
         }
         let old_d = old.entry_denominator.max(1) as i128;
-        if old.entry_remainder as i128 >= old_d {
+        if !matches!(old.entry_denominator, 0 | ENTRY_PRICE_SCALE)
+            || old.entry_remainder as i128 >= old_d
+        {
             return Err(MgkError::InvalidAccount.into());
         }
         let old_n = add(
@@ -330,22 +332,29 @@ fn apply_fill(
         )?;
         let new_qty = old.qty.checked_add(qty).ok_or(MgkError::Overflow)?;
         if old.qty.signum() == qty.signum() {
-            let numerator = add(
-                mul(old_n, old.qty.unsigned_abs() as i128)?,
-                mul(mul(price as i128, qty.unsigned_abs() as i128)?, old_d)?,
+            let scale = ENTRY_PRICE_SCALE as i128;
+            let old_scaled = add(
+                mul(old.entry_vwap as i128, scale)?,
+                old.entry_remainder as i128,
             )?;
-            let denominator = mul(old_d, new_qty.unsigned_abs() as i128)?;
-            let common = gcd(numerator, denominator);
-            let numerator = numerator / common;
-            let denominator = denominator / common;
+            let numerator = add(
+                mul(old_scaled, old.qty.unsigned_abs() as i128)?,
+                mul(mul(price as i128, scale)?, qty.unsigned_abs() as i128)?,
+            )?;
+            let denominator = new_qty.unsigned_abs() as i128;
+            // Long entries round up and short entries down: either direction
+            // can only reduce a trader's later realized payoff.
+            let scaled = add(
+                numerator / denominator,
+                i128::from(qty > 0 && numerator % denominator != 0),
+            )?;
             p.positions[idx].entry_vwap =
-                i64::try_from(numerator / denominator).map_err(|_| MgkError::Overflow)?;
-            p.positions[idx].entry_remainder =
-                u64::try_from(numerator % denominator).map_err(|_| MgkError::Overflow)?;
-            p.positions[idx].entry_denominator = if numerator % denominator == 0 {
+                i64::try_from(scaled / scale).map_err(|_| MgkError::Overflow)?;
+            p.positions[idx].entry_remainder = (scaled % scale) as u64;
+            p.positions[idx].entry_denominator = if scaled % scale == 0 {
                 0
             } else {
-                u64::try_from(denominator).map_err(|_| MgkError::Overflow)?
+                ENTRY_PRICE_SCALE
             };
             p.positions[idx].qty = new_qty;
         } else {

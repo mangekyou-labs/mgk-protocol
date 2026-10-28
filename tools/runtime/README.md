@@ -70,7 +70,7 @@ without exchanging notional cash, fractional weighted entry, partial reduction,
 flipping, closing, and two opposite auctions within one batch. Conversion prices
 vary independently of fill prices.
 
-After every settlement it compares both portfolios' collateral, exact rational
+After every settlement it compares both portfolios' collateral, quantized
 entry and quantity, cumulative realized USD, cumulative realized lamports, fees,
 and zero funding with the model. It also compares insurance-fund accounting,
 vault balance and physical lamports. Exact fractional realized USD is converted
@@ -90,7 +90,24 @@ runs a child process against RPC.
 The smoke adapter uses Portfolio version 2 (2048 bytes): collateral at byte 48,
 realized USD/lamports at 80/96, fees/funding at 112/128, position count at 208,
 and 40-byte positions at 216. Entry is an integer floor plus an unsigned
-remainder/denominator; a zero denominator denotes an integer entry. Other
+remainder/denominator; a zero denominator denotes an integer entry. Otherwise
+the denominator is exactly 10^12 units per micro-USD (10^-18 USD quantum).
+Grows quantize the weighted average of the stored entry and fill price: ceil
+for longs, floor for shorts. Each grow adds less than one quantum of rounding
+error toward the protocol; reductions retain the entry. The Python Fraction
+ledger implements that policy independently before cashflow conversion.
+
+Five additional matcher-owned cleared-results fixture batches execute 128
+alternating one-lot grow/reduce cycles for both balanced counterparties, then
+close. These fixtures bypass order matching and run public signed SettleBatch
+instructions against the actual SBF program. They cover the previous ~64-cycle
+denominator exhaustion without hundreds of posting transactions. The report
+marks every fixture input as `cleared-results arithmetic fixture`, distinct from
+`observed matcher output` in the seven full matcher lifecycle batches. All
+fixture fills are independently applied to the model, and every settlement
+checks the fixed grid, positions, cumulative cashflows and physical vault.
+
+ Other
 account layouts and instruction encodings remain version 1. Future protocol
 layout changes must update this adapter. This coverage does not complete the
 parent release gate or test insurance exhaustion. All transactions are ephemeral

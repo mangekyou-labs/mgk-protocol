@@ -5,6 +5,35 @@ from reference_model import Fill, Ledger, Position
 
 
 class ReferenceModelTests(unittest.TestCase):
+    def test_entry_grid_known_long_and_short_vectors(self):
+        scale = 10**12
+        for direction, remainder, payout in [(1, 500_249_875_063, 20_009_989), (-1, 500_249_875_062, -20_009_990)]:
+            ledger = Ledger(20_000_000_000, {"A": 1_000_000_000})
+            ledger.apply_fill(Fill("A", direction * 1000, 100_000_000, 100_000_000, True))
+            ledger.apply_fill(Fill("A", direction * 1001, 100_000_001, 100_000_000, True))
+            self.assertEqual(ledger.positions["A"].entry_price, Fraction(100_000_000 * scale + remainder, scale))
+            ledger.apply_fill(Fill("A", -direction * 2001, 101_000_000, 100_000_000, True))
+            self.assertEqual(ledger.realized_lamports["A"], payout)
+
+    def test_repeated_grows_round_toward_protocol_on_fixed_grid(self):
+        scale = 10**12
+        for direction in (1, -1):
+            ledger = Ledger(20_000_000_000, {"A": 1_000_000_000})
+            ledger.apply_fill(Fill("A", direction, 100_000_000, 100_000_000, True))
+            for cycle in range(1024):
+                price = 100_000_001 + cycle % 2
+                weighted = (ledger.positions["A"].entry_price + price) / 2
+                ledger.apply_fill(Fill("A", direction, price, 100_000_000, True))
+                stored = ledger.positions["A"].entry_price
+                self.assertEqual((stored * scale).denominator, 1)
+                error = (stored - weighted) * direction
+                self.assertGreaterEqual(error, 0)
+                self.assertLess(error, Fraction(1, scale))
+                ledger.apply_fill(Fill("A", -direction, price, 100_000_000, True))
+                self.assertEqual(ledger.positions["A"].entry_price, stored)
+            ledger.apply_fill(Fill("A", -direction, 100_000_000, 100_000_000, True))
+            self.assertNotIn("A", ledger.positions)
+
     def test_grow_reduce_flip_close_and_taker_fees(self):
         ledger = Ledger(fund_lamports=20_000_000_000, collateral={"A": 1_000_000_000})
         ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, False))

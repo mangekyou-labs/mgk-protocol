@@ -1,6 +1,9 @@
 use mgk_common::layout::{discriminator, AccountHeader, AccountLayout};
 use pinocchio::pubkey::Pubkey;
 
+/// Entry-price units per micro-USD (one unit is 10^-18 USD).
+pub const ENTRY_PRICE_SCALE: u64 = 1_000_000_000_000;
+
 pub const MAX_POSITIONS: usize = 32;
 pub const MAX_INSTRUMENTS: usize = 32;
 
@@ -78,10 +81,10 @@ const _: () = {
 pub struct Position {
     pub instrument_id: u16,
     pub qty: i64,
-    /// Floor of the exact micro-USD entry price, for display.
+    /// Floor of the stored micro-USD entry price, for display.
     pub entry_vwap: i64,
-    /// Exact entry = entry_vwap + entry_remainder / entry_denominator.
-    /// A zero denominator is the canonical integer-entry representation.
+    /// Stored entry = entry_vwap + entry_remainder / entry_denominator.
+    /// Denominator is ENTRY_PRICE_SCALE, or zero for an integer entry.
     pub entry_remainder: u64,
     pub entry_denominator: u64,
 }

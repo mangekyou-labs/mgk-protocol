@@ -20,7 +20,7 @@ const ix = (discriminator, data, keys, programId = CORE) => new TransactionInstr
 const field = (name, offset, bytes, value, signed = false) => ({ name, offset, bytes, value: String(value), signed });
 
 // Intentionally runs, or fails: absence of candidate artifacts is never a skipped green test.
-test('candidate runtime: exact position settlement and invalid-oracle rollback', { timeout: 180000 }, async t => {
+test('candidate runtime: fixed-precision position settlement and invalid-oracle rollback', { timeout: 180000 }, async t => {
   assert.ok(process.env.MGK_CANDIDATE_MANIFEST, 'MGK_CANDIDATE_MANIFEST is required; see tools/runtime/README.md');
   const candidate = JSON.parse(readFileSync(process.env.MGK_CANDIDATE_MANIFEST, 'utf8'));
   assert.match(candidate.commit, /^[0-9a-f]{40}$/, 'candidate commit required');
@@ -104,16 +104,16 @@ test('candidate runtime: exact position settlement and invalid-oracle rollback',
     meta(MATCHER, false), meta(registry, false), meta(instrument, false)])], [payer]);
   const cleared = await runtime.account(results);
   assert.equal(cleared.data.readUInt16LE(40), 4, 'both DFBA sides produced maker and taker fills');
-  // All expectations come from the independent Fraction ledger, fed only observed fills.
+  // Expectations come from the independent Fraction ledger, fed ordered inputs.
   const observedFills = [];
-  const recordFills = (data, conversionPrice) => {
+  const recordFills = (data, conversionPrice, provenance = 'observed matcher output') => {
     const count = data.readUInt16LE(40);
     const fills = Array.from({ length: count }, (_, index) => {
       const offset = 8 + 34 + index * 58;
       const makerFill = Boolean(data[offset + 56]);
       const bidAuction = data[offset + 57] === 0;
       const quantity = data.readBigUInt64LE(offset + 40);
-      return { account: new PublicKey(data.subarray(offset, offset + 32)).toBase58(),
+      return { provenance, account: new PublicKey(data.subarray(offset, offset + 32)).toBase58(),
         quantity_lots: String(bidAuction === makerFill ? quantity : -quantity),
         fill_price: String(data.readBigInt64LE(offset + 48)), conversion_price: String(conversionPrice), maker: makerFill };
     });
@@ -171,9 +171,12 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
       if (!position) continue;
       const state = (await runtime.account(portfolios[index][0])).data;
       const integer = state.readBigInt64LE(232), remainder = state.readBigUInt64LE(240);
-      const denominator = state.readBigUInt64LE(248) || 1n;
+      const storedDenominator = state.readBigUInt64LE(248);
+      assert.ok(storedDenominator === 0n || storedDenominator === 1_000_000_000_000n, `${label}: fixed entry grid`);
+      assert.ok(remainder < (storedDenominator || 1n), `${label}: canonical remainder`);
+      const denominator = storedDenominator || 1n;
       assert.equal((integer * denominator + remainder) * BigInt(position.denominator),
-        BigInt(position.numerator) * denominator, `${label}: exact rational entry`);
+        BigInt(position.numerator) * denominator, `${label}: quantized reference entry`);
     }
     runtime.report.settlementScenarios ??= [];
     runtime.report.settlementScenarios.push({ label, model, observedFills: [...observedFills] });
@@ -311,7 +314,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   await settleScenario('grow with fractional weighted entry', [{ side: 0, qty: 1001, price: 100_000_001 }], 99_000_000);
   const grownEntry = model.positions[String(maker.publicKey)];
   assert.notEqual(grownEntry.denominator, '1', 'grow fixture produces a fractional entry');
-  await settleScenario('partial reduce preserves exact entry', [{ side: 1, qty: 501, price: 101_000_000 }], 99_000_000);
+  await settleScenario('partial reduce preserves stored entry', [{ side: 1, qty: 501, price: 101_000_000 }], 99_000_000);
   const reducedEntry = model.positions[String(maker.publicKey)];
   assert.equal(reducedEntry.numerator, grownEntry.numerator, 'partial reduce retains entry numerator');
   assert.equal(reducedEntry.denominator, grownEntry.denominator, 'partial reduce retains entry denominator');
@@ -324,6 +327,52 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     { side: 0, qty: 1000, price: 100_000_000 }, { side: 1, qty: 1000, price: 110_000_000 },
   ], 105_000_000);
   assert.deepEqual(model.positions, {}, 'opposite fills close in cleared-results order');
+  // Arithmetic regression fixtures bypass matching only. Both portfolios stay
+  // balanced, and public signed SettleBatch executes every ordered fill in .so.
+  // The report distinguishes these fixture inputs from observed matcher fills.
+  const lifecycle = [];
+  const pair = (side, price) => {
+    lifecycle.push({ index: 0, side, price }, { index: 1, side: 1 - side, price });
+  };
+  pair(0, 100_000_000);
+  for (let cycle = 0; cycle < 128; cycle++) {
+    pair(0, 100_000_001 + cycle % 2);
+    pair(1, 100_000_001 + cycle % 2);
+  }
+  pair(1, 100_000_000);
+  for (let offset = 0; offset < lifecycle.length; offset += 128) {
+    const entries = lifecycle.slice(offset, offset + 128);
+    const label = `fixed-grid lifecycle fixture ${offset / 128}`;
+    batch = nextBatch;
+    [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
+    [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
+    const batchData = Buffer.from((await runtime.account(batch)).data);
+    batchData[16] = 2; // Valid v1 batch header/id, now cleared for the fixture.
+    await runtime.setAccount(batch, { owner: CORE, data: batchData });
+    await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
+    const data = Buffer.alloc(8 + 34 + 128 * 58);
+    data[0] = 8; data[1] = 1; // Matcher-owned BatchResults v1.
+    data.writeUInt16LE(entries.length, 40);
+    entries.forEach(({ index, side, price }, i) => {
+      const off = 42 + i * 58;
+      [maker, taker][index].publicKey.toBuffer().copy(data, off);
+      u64(offset + i).copy(data, off + 32);
+      u64(1).copy(data, off + 40);
+      data.writeBigInt64LE(BigInt(price), off + 48);
+      data[off + 56] = 1; data[off + 57] = side; // Maker buy in bid, sell in ask.
+    });
+    await runtime.setAccount(results, { owner: MATCHER, data });
+    recordFills((await runtime.account(results)).data, 100_000_000, 'cleared-results arithmetic fixture');
+    const fresh = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+    await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+      price: 100_000_000, publishTime: Number(fresh.data.readBigInt64LE(32)), confidence: 12 });
+    await runtime.send(label, [settle(oracle)], [payer]);
+    await assertModel(label);
+    batchId++;
+  }
+  assert.deepEqual(model.positions, {}, '128 lifecycle cycles per direction finish flat');
+  runtime.report.fixedGridCyclesPerDirection = 128;
+  runtime.flushReport();
   const worker = await runtime.launchWorker(process.execPath, ['-e',
     'fetch(process.env.RPC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[]})}).then(r=>r.json()).then(r=>{if(!Number.isInteger(r.result))process.exit(1)})']);
   const [exitCode] = await once(worker, 'exit');
