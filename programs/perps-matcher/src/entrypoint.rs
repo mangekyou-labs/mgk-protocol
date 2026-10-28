@@ -69,11 +69,25 @@ pub fn process_instruction(
             instructions::process_place_resting(program_id, accounts, &instruction_data[1..])
         }
         MatcherInstruction::ConsumeResults => {
-            instructions::process_consume_results(program_id, accounts, &instruction_data[1..])
+            process_consume_results(accounts, &instruction_data[1..])
         }
         MatcherInstruction::InitializeBook => {
             msg!("Instruction: InitializeBook");
             instructions::process_initialize_book(program_id, accounts, &instruction_data[1..])
         }
     }
+}
+
+/// Authenticate and decode the runtime boundary before consuming matcher output.
+fn process_consume_results(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    mgk_common::matcher::validate_authority(authority)?;
+    let results = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if data.len() != 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let batch_id = u64::from_le_bytes(data.try_into().unwrap());
+    mgk_common::matcher::validate_results(results, batch_id)?;
+    let mut raw = results.try_borrow_mut_data()?;
+    instructions::consume_results(&mut raw, batch_id)
 }

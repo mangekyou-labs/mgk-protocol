@@ -303,21 +303,9 @@ fn begin_results(raw: &mut [u8], batch_id: u64) -> ProgramResult {
     body[8] = 0;
     Ok(())
 }
-/// Core consumes only its own batch's unspent results after applying all fills.
-pub fn process_consume_results(
-    _program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    data: &[u8],
-) -> ProgramResult {
-    let accounts = authenticated_accounts(accounts)?;
-    let results = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if data.len() != 8 {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-    let batch_id = u64::from_le_bytes(data.try_into().unwrap());
-    validate_results(results, batch_id)?;
-    let mut raw = results.try_borrow_mut_data()?;
-    mgk_common::matcher::unspent_results(&raw, batch_id)?;
+/// Mark a validated batch's unspent matcher output as consumed.
+pub fn consume_results(raw: &mut [u8], batch_id: u64) -> ProgramResult {
+    mgk_common::matcher::unspent_results(raw, batch_id)?;
     raw[mgk_common::layout::ACCOUNT_HEADER_LEN + 8] = 1;
     Ok(())
 }
