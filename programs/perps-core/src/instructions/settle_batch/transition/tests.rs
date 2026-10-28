@@ -763,3 +763,49 @@ fn second_auction_clips_against_positions_after_first_auction_tail_trimming() {
         assert!(p.orders.iter().all(|order| order.remaining_qty == 0));
     }
 }
+
+#[test]
+fn wide_oracle_risk_settles_affordable_fills_with_conservative_signed_rounding() {
+    for (entry, conversion, expected) in [
+        (
+            1_000_000_000_000_000_000,
+            2_000_000_000_000_000_000,
+            500_000_000,
+        ),
+        (
+            1_000_000_000_000_000_003,
+            2_000_000_000_000_000_001,
+            499_999_999,
+        ),
+    ] {
+        for side in [1i64, -1] {
+            let mut host = Host::new();
+            host.oracle = Some((conversion, 1000, true));
+            let mut batch = clearing_batch();
+            let mut instrument = Instrument::new(0, 1, 1, 2000, 1000);
+            let mut portfolio = Portfolio::new([1; 32]);
+            portfolio.equity = 2_000_000_000;
+            // Open at the limit while the current conversion price is higher.
+            // This costs only 0.2 SOL IM and has an exactly representable PnL.
+            host.settle(
+                &mut batch,
+                &mut instrument,
+                &fills(&[(1, 1000, entry, true, u8::from(side < 0))]),
+                &mut [],
+                &mut [&mut portfolio],
+            )
+            .unwrap();
+            let expected = if side > 0 {
+                expected
+            } else if conversion % 2 == 0 {
+                -expected
+            } else {
+                -expected - 1
+            };
+            assert_eq!(portfolio.risk_pnl, expected);
+            assert_eq!(portfolio.im, 200_000_000);
+            assert_eq!(portfolio.free_collateral, 1_800_000_000 + expected.min(0));
+            assert_eq!(portfolio.health, 1_900_000_000 + expected);
+        }
+    }
+}

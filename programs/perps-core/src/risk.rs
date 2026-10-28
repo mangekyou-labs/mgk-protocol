@@ -59,15 +59,12 @@ pub fn refresh(p: &mut Portfolio, instrument_id: u16, conversion: i64) -> Progra
             .and_then(|x| x.checked_mul(scale))
             .and_then(|x| x.checked_sub(position.entry_remainder as i128))
             .ok_or(MgkError::Overflow)?;
-        let value = (position.qty as i128)
-            .checked_mul(diff)
-            .and_then(|x| x.checked_mul(1_000_000))
-            .ok_or(MgkError::Overflow)?
-            .div_euclid(
-                (conversion as i128)
-                    .checked_mul(scale)
-                    .ok_or(MgkError::Overflow)?,
-            );
+        let signed_diff = if position.qty < 0 { -diff } else { diff };
+        let value = floor_scaled_ratio(
+            signed_diff,
+            (position.qty.unsigned_abs() as u128) * 1_000_000,
+            (conversion as u128) * ENTRY_PRICE_SCALE as u128,
+        )?;
         pnl = pnl.checked_add(value).ok_or(MgkError::Overflow)?;
     }
     p.im = qty.checked_mul(200_000).ok_or(MgkError::Overflow)?;
@@ -75,6 +72,55 @@ pub fn refresh(p: &mut Portfolio, instrument_id: u16, conversion: i64) -> Progra
     p.risk_pnl = pnl;
     p.recalc_margin();
     Ok(())
+}
+
+/// Floor `numerator * multiplier / denominator` without materializing the
+/// potentially wider product. The fractional long division takes at most 84
+/// steps for an i64 lot quantity scaled to lamports. Remainders stay below the
+/// oracle-price/entry-scale denominator, so their doubles fit u128.
+fn floor_scaled_ratio(
+    numerator: i128,
+    multiplier: u128,
+    denominator: u128,
+) -> Result<i128, ProgramError> {
+    let magnitude = numerator.unsigned_abs();
+    let whole = (magnitude / denominator)
+        .checked_mul(multiplier)
+        .ok_or(MgkError::Overflow)?;
+    let fraction = magnitude % denominator;
+    let (quotient, remainder) = if let Some(product) = fraction.checked_mul(multiplier) {
+        (product / denominator, product % denominator)
+    } else {
+        let mut quotient = 0u128;
+        let mut remainder = 0u128;
+        for bit in (0..(u128::BITS - multiplier.leading_zeros())).rev() {
+            remainder = remainder
+                .checked_mul(2)
+                .and_then(|x| {
+                    x.checked_add(if (multiplier >> bit) & 1 != 0 {
+                        fraction
+                    } else {
+                        0
+                    })
+                })
+                .ok_or(MgkError::Overflow)?;
+            quotient = quotient
+                .checked_mul(2)
+                .and_then(|x| x.checked_add(remainder / denominator))
+                .ok_or(MgkError::Overflow)?;
+            remainder %= denominator;
+        }
+        (quotient, remainder)
+    };
+    let rounded = whole
+        .checked_add(quotient)
+        .and_then(|x| x.checked_add(u128::from(numerator < 0 && remainder != 0)))
+        .ok_or(MgkError::Overflow)?;
+    if numerator < 0 && rounded == 1u128 << 127 {
+        return Ok(i128::MIN);
+    }
+    let value = i128::try_from(rounded).map_err(|_| MgkError::Overflow)?;
+    Ok(if numerator < 0 { -value } else { value })
 }
 
 pub fn reservation(

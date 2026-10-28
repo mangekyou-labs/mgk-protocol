@@ -48,9 +48,17 @@ pub struct Portfolio {
 // 128-bit field sits at a 16-aligned offset by construction, and the struct
 // size is a multiple of 16. Checked at compile time for the target being built.
 const _: () = {
-    use core::mem::{offset_of, size_of};
+    use core::mem::{align_of, offset_of, size_of};
     assert!(size_of::<Portfolio>() == 2848);
     assert!(size_of::<Position>() == 40);
+    assert!(offset_of!(Portfolio, reserved_collateral) == 2048);
+    assert!(offset_of!(Portfolio, risk_pnl) == 2064);
+    assert!(offset_of!(Portfolio, orders) == 2080);
+    assert!(size_of::<OrderReservation>() == 64);
+    // SBF aligns u128 to8; all fields still occupy identical byte offsets.
+    assert!(align_of::<OrderReservation>() == align_of::<u128>());
+    assert!(offset_of!(OrderReservation, initial_reserve) == 32);
+    assert!(offset_of!(OrderReservation, instrument_id) == 48);
     assert!(offset_of!(Portfolio, user) == 8);
     assert!(offset_of!(Portfolio, equity) == 48);
     assert!(offset_of!(Portfolio, principal) == 64);

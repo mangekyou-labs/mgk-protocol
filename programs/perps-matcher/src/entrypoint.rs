@@ -74,13 +74,36 @@ pub fn process_instruction(
             process_consume_results(accounts, &instruction_data[1..])
         }
         MatcherInstruction::CancelSettledOrders => {
-            instructions::process_cancel_settled_orders(program_id, accounts, &instruction_data[1..])
+            process_cancel_settled_orders(program_id, accounts, &instruction_data[1..])
         }
         MatcherInstruction::InitializeBook => {
             msg!("Instruction: InitializeBook");
             instructions::process_initialize_book(program_id, accounts, &instruction_data[1..])
         }
     }
+}
+
+/// Authenticate the permissionless settlement CPI and decode its bounded IDs.
+fn process_cancel_settled_orders(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    mgk_common::matcher::validate_authority(authority)?;
+    let book = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
+    mgk_common::validate_writable(book)?;
+    mgk_common::validate_owner(book, program_id)?;
+    let count = *data.first().ok_or(ProgramError::InvalidInstructionData)? as usize;
+    if count > mgk_common::matcher::MAX_SETTLEMENT_ORDERS || data.len() != 1 + count * 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let mut order_ids = [0u64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+    for (id, encoded) in order_ids.iter_mut().zip(data[1..].chunks_exact(8)) {
+        *id = u64::from_le_bytes(encoded.try_into().unwrap());
+    }
+    let mut raw = book.try_borrow_mut_data()?;
+    let state = crate::state::book_state_from_bytes_mut(&mut raw)?;
+    if book.key() != &mgk_common::book::book_pda(program_id, state.book.instrument_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    instructions::cancel_settled_orders(state, &order_ids[..count])
 }
 
 /// Authenticate and decode the runtime boundary before consuming matcher output.
