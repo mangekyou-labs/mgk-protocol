@@ -43,3 +43,25 @@ test('missing validator executable rejects and cleans up without hanging', { tim
     ] }), /ENOENT/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('twelve distinct filled portfolios settle within one legacy transaction packet', t => {
+  const { Keypair, Transaction, TransactionInstruction, ComputeBudgetProgram, SystemProgram } = require('@solana/web3.js');
+  const payer = Keypair.generate();
+  const key = () => Keypair.generate().publicKey;
+  const meta = (pubkey, isWritable = true, isSigner = false) => ({ pubkey, isWritable, isSigner });
+  // Distinct batch, registry, vault, results, instrument, book, oracle, matcher,
+  // twelve portfolio PDAs, and the newly allocated next batch. No key deduplication
+  // beyond the fee payer/System program shared by the next-batch creation path.
+  const instruction = new TransactionInstruction({ programId: key(),
+    data: Buffer.from([8, 0, 0, 12, 0, 255]),
+    keys: [meta(key()), meta(key()), meta(key()), meta(key()), meta(key()),
+      meta(key(), false), meta(key(), false), meta(key(), false),
+      ...Array.from({ length: 12 }, () => meta(key())), meta(key()),
+      meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)] });
+  const transaction = new Transaction({ feePayer: payer.publicKey, recentBlockhash: key().toBase58() })
+    .add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), instruction);
+  transaction.sign(payer);
+  const wire = transaction.serialize();
+  t.diagnostic(`worst-case settlement transaction: ${wire.length}/1232 bytes`);
+  assert.ok(wire.length <= 1232, `${wire.length} bytes exceeds Solana's 1232-byte packet`);
+});

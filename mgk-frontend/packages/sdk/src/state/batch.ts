@@ -34,10 +34,12 @@ export function decodeBatch(data: Uint8Array): BatchState {
 }
 
 /** DFBA dual-clear results account header (matcher DfbaClear output). */
-export const DFBA_RESULTS_HEADER_SIZE = 34;
+export const DFBA_RESULTS_HEADER_SIZE = 43;
 export const DFBA_FILL_SIZE = 58;
 
 export interface DfbaClearResult {
+  batchId: bigint;
+  spent: boolean;
   bidClearingPrice: bigint;
   askClearingPrice: bigint;
   matchedBidQty: bigint;
@@ -53,10 +55,12 @@ export function decodeDfbaResultsHeader(data: Uint8Array): DfbaClearResult {
   }
   const view = new DataView(data.buffer, data.byteOffset, DFBA_RESULTS_HEADER_SIZE);
   return {
-    bidClearingPrice: view.getBigInt64(0, true),
-    askClearingPrice: view.getBigInt64(8, true),
-    matchedBidQty: view.getBigUint64(16, true),
-    matchedAskQty: view.getBigUint64(24, true),
-    numFills: view.getUint16(32, true),
+    batchId: view.getBigUint64(0, true),
+    spent: view.getUint8(8) !== 0,
+    bidClearingPrice: view.getBigInt64(9, true),
+    askClearingPrice: view.getBigInt64(17, true),
+    matchedBidQty: view.getBigUint64(25, true),
+    matchedAskQty: view.getBigUint64(33, true),
+    numFills: view.getUint16(41, true),
   };
 }

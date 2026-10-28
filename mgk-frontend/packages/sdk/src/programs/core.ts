@@ -39,6 +39,8 @@ export const CORE_INSTRUCTION = {
   SetInstrumentOracle: 23,
   /** Governance-only: update D7 funding parameters. */
   SetFundingParams: 24,
+  /** Authenticated matcher book initialization. */
+  InitializeBook: 25,
 } as const;
 
 /** Matcher program discriminators (perps-matcher entrypoint). */
@@ -50,6 +52,8 @@ export const MATCHER_INSTRUCTION = {
   CancelAll: 4,
   DfbaClear: 5,
   PlaceResting: 6,
+  InitializeBook: 7,
+  ConsumeResults: 8,
 } as const;
 export type CoreInstruction =
   (typeof CORE_INSTRUCTION)[keyof typeof CORE_INSTRUCTION];
@@ -195,15 +199,16 @@ export function encodePostOrder(params: PostOrderParams): Uint8Array {
 
 /**
  * Matcher DfbaClear (disc 5).
- * Wire: disc(1) + marginal_size_cap(8) + num_orders(2) [=0 → collect from book]
- * Optional trailing orders if num_orders > 0 (not encoded here for keeper path).
+ * Wire: disc(1) + marginal_size_cap(8) + num_orders(2, always zero) + batch_id(8).
+ * Requires the core registry PDA signer; invoked by Core ClearBatch.
  */
-export function encodeDfbaClear(marginalSizeCap: bigint = BigInt('0xFFFFFFFFFFFFFFFF')): Uint8Array {
-  const buf = new Uint8Array(11);
+export function encodeDfbaClear(batchId: bigint, marginalSizeCap: bigint = BigInt('0xFFFFFFFFFFFFFFFF')): Uint8Array {
+  const buf = new Uint8Array(19);
   const view = new DataView(buf.buffer);
   view.setUint8(0, MATCHER_INSTRUCTION.DfbaClear);
   view.setBigUint64(1, marginalSizeCap, true);
   view.setUint16(9, 0, true); // collect from book
+  view.setBigUint64(11, batchId, true);
   return buf;
 }
 
@@ -461,5 +466,13 @@ export function encodeSetFundingParams(
   view.setBigInt64(1, BigInt(coefficientBps), true);
   view.setBigInt64(9, BigInt(maxRateBps), true);
   view.setBigUint64(17, BigInt(intervalSlots), true);
+  return buf;
+}
+
+/** InitializeBook — disc(1) + instrument_id(u16 LE). */
+export function encodeInitializeBook(instrumentId: number): Uint8Array {
+  const buf = new Uint8Array(3);
+  buf[0] = CORE_INSTRUCTION.InitializeBook;
+  new DataView(buf.buffer).setUint16(1, instrumentId, true);
   return buf;
 }

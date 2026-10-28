@@ -144,14 +144,19 @@ describe('decodeBatch', () => {
 
 describe('decodeDfbaResultsHeader', () => {
   it('decodes dual clear header', () => {
-    const buf = new Uint8Array(34);
-    const view = new DataView(buf.buffer);
+    const buf = new Uint8Array(43);
+    const envelope = new DataView(buf.buffer);
+    envelope.setBigUint64(0, 42n, true);
+    envelope.setUint8(8, 1);
+    const view = new DataView(buf.buffer, 9);
     view.setBigInt64(0, 100n, true);
     view.setBigInt64(8, 110n, true);
     view.setBigUint64(16, 50n, true);
     view.setBigUint64(24, 40n, true);
     view.setUint16(32, 3, true);
     const r = decodeDfbaResultsHeader(buf);
+    expect(r.batchId).toBe(42n);
+    expect(r.spent).toBe(true);
     expect(r.bidClearingPrice).toBe(100n);
     expect(r.askClearingPrice).toBe(110n);
     expect(r.matchedBidQty).toBe(50n);

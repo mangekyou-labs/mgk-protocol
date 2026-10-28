@@ -114,3 +114,30 @@ parent release gate or test insurance exhaustion. All transactions are ephemeral
 local simulation; no external cluster is used. CI builds fresh SBF artifacts,
 records their hashes, runs these tests and uploads the candidate manifest and
 runtime report even when the smoke fails.
+
+Issue #21 integrity coverage executes rejected transactions and compares all
+protected protocol account bytes and lamports afterward. It covers every direct
+matcher discriminator, a forged matcher-owned book, the wrong matcher program,
+a forged results PDA, a thirteenth live order, re-clearing, missing or duplicate
+portfolios, malformed portfolio counts, wrong-batch or spent results, and replay
+of a settled batch. A withdrawal rejects while the batch is Cleared and succeeds
+in simulation after settlement. Rejection transactions use a unique compute-unit
+price so they cannot reuse a prior successful transaction's signature.
+
+Batch status 4 is Cleared; status 2 means ready to clear. Matcher results retain
+the version-1 account header and add a 9-byte envelope before the DFBA payload:
+batch ID at byte 8, spent at byte 16, fill count at byte 49, and 58-byte fills
+starting at byte 51. Clear writes its own batch's results once. Settlement marks
+those results spent through authenticated matcher CPI. The arithmetic fixtures
+explicitly stamp this envelope and Cleared state; their provenance remains
+separate from observed matcher output.
+
+The harness unit suite serializes a signed legacy SettleBatch transaction with
+12 distinct portfolio accounts, the next-batch allocation payer/System accounts,
+and a compute-budget instruction, and asserts it fits the 1232-byte packet limit.
+This is the transaction-size justification for the 12-live-order book cap.
+
+The standalone keeper scripts now derive the batch results PDA and forward its
+allocation payer and writable accounts. Their older account decoding and full
+worker migration remain separate work tracked by issue #28; this runtime test
+executes the candidate instructions directly.

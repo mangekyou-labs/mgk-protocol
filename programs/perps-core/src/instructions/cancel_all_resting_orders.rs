@@ -1,14 +1,7 @@
-use mgk_common::layout::{load_account};
 use crate::state::Portfolio;
-use mgk_common::{MgkError, validate_owner, validate_writable};
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction},
-    msg,
-    program::invoke,
-    pubkey::Pubkey,
-    ProgramResult,
-};
+use mgk_common::layout::load_account;
+use mgk_common::{validate_owner, validate_writable, MgkError};
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
 /// Matcher `CancelAll` discriminator (M7 7.7).
 pub const MATCHER_CANCEL_ALL: u8 = 4;
@@ -40,6 +33,7 @@ pub fn process_cancel_all_resting_orders(
     portfolio_account: &AccountInfo,
     user_account: &AccountInfo,
     matcher_program: &AccountInfo,
+    registry_account: &AccountInfo,
     book_accounts: &[AccountInfo],
 ) -> ProgramResult {
     if !user_account.is_signer() {
@@ -53,9 +47,7 @@ pub fn process_cancel_all_resting_orders(
         validate_writable(book)?;
     }
 
-    let portfolio = unsafe {
-        load_account::<Portfolio>(portfolio_account)?
-    };
+    let portfolio = unsafe { load_account::<Portfolio>(portfolio_account)? };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());
@@ -72,17 +64,13 @@ pub fn process_cancel_all_resting_orders(
     cpi_data[1..33].copy_from_slice(user_account.key().as_ref());
 
     for book in book_accounts {
-        let cpi_instruction = Instruction {
-            program_id: matcher_program.key(),
-            accounts: &[AccountMeta {
-                pubkey: book.key(),
-                is_signer: false,
-                is_writable: true,
-            }],
-            data: &cpi_data,
-        };
-
-        invoke(&cpi_instruction, &[book, matcher_program])?;
+        crate::matcher_cpi::trader(
+            registry_account,
+            user_account,
+            book,
+            matcher_program,
+            &cpi_data,
+        )?;
     }
 
     msg!("CancelAllRestingOrders: CPI to matcher complete");

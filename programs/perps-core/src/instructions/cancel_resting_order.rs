@@ -1,14 +1,7 @@
-use mgk_common::layout::{load_account};
 use crate::state::Portfolio;
-use mgk_common::{MgkError, validate_owner, validate_writable};
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction},
-    msg,
-    program::invoke,
-    pubkey::Pubkey,
-    ProgramResult,
-};
+use mgk_common::layout::load_account;
+use mgk_common::{validate_owner, validate_writable, MgkError};
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
 /// Matcher `CancelResting` discriminator.
 pub const MATCHER_CANCEL_RESTING: u8 = 1;
@@ -28,6 +21,7 @@ pub fn process_cancel_resting_order(
     user_account: &AccountInfo,
     book_account: &AccountInfo,
     matcher_program: &AccountInfo,
+    registry_account: &AccountInfo,
     order_id: u64,
 ) -> ProgramResult {
     if !user_account.is_signer() {
@@ -52,19 +46,12 @@ pub fn process_cancel_resting_order(
     cpi_data[1..33].copy_from_slice(user_account.key().as_ref());
     cpi_data[33..41].copy_from_slice(&order_id.to_le_bytes());
 
-    let cpi_instruction = Instruction {
-        program_id: matcher_program.key(),
-        accounts: &[AccountMeta {
-            pubkey: book_account.key(),
-            is_signer: false,
-            is_writable: true,
-        }],
-        data: &cpi_data,
-    };
-
-    invoke(
-        &cpi_instruction,
-        &[book_account, matcher_program],
+    crate::matcher_cpi::trader(
+        registry_account,
+        user_account,
+        book_account,
+        matcher_program,
+        &cpi_data,
     )?;
 
     msg!("CancelRestingOrder: CPI to matcher complete");
@@ -93,9 +80,6 @@ mod tests {
         buf[33..41].copy_from_slice(&12345u64.to_le_bytes());
         assert_eq!(buf[0], 1);
         assert_eq!(buf[1], 7);
-        assert_eq!(
-            u64::from_le_bytes(buf[33..41].try_into().unwrap()),
-            12345
-        );
+        assert_eq!(u64::from_le_bytes(buf[33..41].try_into().unwrap()), 12345);
     }
 }

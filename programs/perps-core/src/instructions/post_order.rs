@@ -1,16 +1,9 @@
 //! PostOrder (disc 20) — DFBA open limit post (replaces Commit+Reveal for v1).
 
-use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Batch, BatchStatus, Portfolio, Registry};
+use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction},
-    msg,
-    program::invoke,
-    pubkey::Pubkey,
-    ProgramResult,
-};
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
 /// Matcher `PlaceResting` discriminator.
 pub const MATCHER_PLACE_RESTING: u8 = 6;
@@ -46,8 +39,9 @@ pub fn process_post_order(
     instrument_id: u16,
     reduce_only: bool,
 ) -> ProgramResult {
-    let registry =
-        unsafe { load_account::<Registry>(registry_account)? };
+    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_book(matcher_program, book_account, Some(instrument_id))?;
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_trading_paused() || registry.is_posts_paused() {
         msg!("Error: Trading/posts is paused");
         return Err(MgkError::OperationPaused.into());
@@ -76,14 +70,14 @@ pub fn process_post_order(
     }
 
     let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
+    crate::matcher_cpi::validate_batch(program_id, batch_account, batch.batch_id)?;
     // Until T9.3 renames status to Collecting, Committing is the open window.
     if batch.status != BatchStatus::Committing {
         msg!("Error: Batch not open for posts");
         return Err(MgkError::BatchNotOpen.into());
     }
 
-    let portfolio =
-        unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
+    let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());
@@ -128,17 +122,13 @@ pub fn process_post_order(
     cpi_data[51..53].copy_from_slice(&instrument_id.to_le_bytes());
     cpi_data[53] = if reduce_only { 1 } else { 0 };
 
-    let cpi_instruction = Instruction {
-        program_id: matcher_program.key(),
-        accounts: &[AccountMeta {
-            pubkey: book_account.key(),
-            is_signer: false,
-            is_writable: true,
-        }],
-        data: &cpi_data,
-    };
-
-    invoke(&cpi_instruction, &[book_account, matcher_program])?;
+    crate::matcher_cpi::trader(
+        registry_account,
+        user_account,
+        book_account,
+        matcher_program,
+        &cpi_data,
+    )?;
 
     // Count posts for n_min close (reuses total_commitments field).
     batch.total_commitments = batch.total_commitments.saturating_add(1);

@@ -103,4 +103,5 @@ pub enum CoreInstruction {
     /// Controls: coefficient_bps, max_rate_bps, interval_slots.
     /// Resets last_funding_slot to prevent backfill.
     SetFundingParams = 24,
+    InitializeBook = 25,
 }

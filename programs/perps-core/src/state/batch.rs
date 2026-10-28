@@ -14,6 +14,8 @@ pub enum BatchStatus {
     Revealing = 1,
     Clearing = 2,
     Settled = 3,
+    /// Matcher output is immutable and awaits atomic settlement.
+    Cleared = 4,
 }
 
 /// Alias used in DFBA docs: collecting == committing.

@@ -946,6 +946,24 @@ mod tests {
     }
 
     #[test]
+    fn fragmented_counterparties_emit_one_fill_per_order_at_settlement_cap() {
+        const CAP: usize = mgk_common::matcher::MAX_SETTLEMENT_ORDERS;
+        let makers = [o(100, (CAP - 1) as u64, 1, 1)];
+        let takers: [_; CAP - 1] =
+            core::array::from_fn(|i| o(110, 1, (i + 2) as u64, (i + 2) as u8));
+        let clear = compute_clearing(&makers, &takers, AuctionKind::Ask).unwrap();
+        let alloc = compute_allocation(&makers, &takers, AuctionKind::Ask, &clear, u64::MAX);
+        assert_eq!(alloc.matched_qty, (CAP - 1) as u64);
+        assert_eq!(alloc.maker_fill_count, 1);
+        assert_eq!(alloc.maker_fills[0].fill_qty, (CAP - 1) as u64);
+        assert_eq!(alloc.taker_fill_count, CAP - 1);
+        assert_eq!(alloc.maker_fill_count + alloc.taker_fill_count, CAP);
+        assert!(alloc.taker_fills[..alloc.taker_fill_count]
+            .iter()
+            .all(|fill| fill.fill_qty == 1));
+    }
+
+    #[test]
     fn allocation_pro_rata_at_margin() {
         // Two makers at same sell price 100 size 100 each; one taker buy 100 size 100
         // pro-rata → 50 each (if both at clear)

@@ -40,16 +40,45 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   const [book] = pda([Buffer.from('book'), Buffer.alloc(2)], MATCHER);
   let [results] = pda([Buffer.from('results'), u64(0)], MATCHER);
   const oracle = Keypair.generate().publicKey;
+  const rejectUnchanged = async (label, instructions, signers, addresses) => {
+    const snapshot = async address => (await runtime.rpc('getAccountInfo', [String(address),
+      { encoding: 'base64', commitment: 'confirmed' }])).value;
+    const before = await Promise.all(addresses.map(snapshot));
+    const latest = await runtime.connection.getLatestBlockhash('confirmed');
+    const tx = new Transaction({ feePayer: signers[0].publicKey, ...latest }).add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      // Distinct signed bytes avoid reusing an earlier successful transaction's signature.
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: BigInt(runtime.report.integrityRejections?.length ?? 0) + 1n }),
+      ...instructions);
+    tx.sign(...signers);
+    const wire = tx.serialize().toString('base64');
+    const simulation = (await runtime.rpc('simulateTransaction', [wire,
+      { encoding: 'base64', sigVerify: true, commitment: 'confirmed' }])).value;
+    assert.ok(simulation.err, `${label}: simulation must reject`);
+    const signature = await runtime.rpc('sendTransaction', [wire, { encoding: 'base64', skipPreflight: true }]);
+    const deadline = Date.now() + 15000;
+    let status;
+    do {
+      status = (await runtime.rpc('getSignatureStatuses', [[signature], { searchTransactionHistory: true }])).value[0];
+      if (status && ['confirmed', 'finalized'].includes(status.confirmationStatus)) break;
+      assert.ok(Date.now() < deadline, `${label}: rejected transaction confirmation timed out`);
+      await sleep(50);
+    } while (true);
+    assert.ok(status.err, `${label}: submitted transaction must reject`);
+    const after = await Promise.all(addresses.map(snapshot));
+    after.forEach((account, index) => assert.deepEqual(account, before[index],
+      `${label}: ${addresses[index]} account unchanged`));
+    runtime.report.integrityRejections ??= [];
+    runtime.report.integrityRejections.push({ label, signature, error: status.err });
+    runtime.flushReport();
+  };
   const portfolios = [maker, taker].map(user => pda([Buffer.from('portfolio'), user.publicKey.toBuffer()]));
   // Genesis scaffolding supplies zeroed storage for the signed initialization lifecycle.
   // All initialized fields, deposits, orders, clearing and settlement are written by signed program transactions.
   for (const [address, owner, size] of [[registry, CORE, 94], [instrument, CORE, 352], [vault, CORE, 80],
-    [batch, CORE, 176], [nextBatch, CORE, 176], [book, MATCHER, 27712], [results, MATCHER, 8 + 34 + 128 * 58],
+    [batch, CORE, 176], [nextBatch, CORE, 176], [book, MATCHER, 27712],
     ...portfolios.map(([address]) => [address, CORE, 2048])]) {
     const data = Buffer.alloc(size);
-    // The matcher normally stamps this header in InitializeBook. Other accounts
-    // are stamped by their signed initialize instructions below.
-    if (address.equals(book)) { data[0] = 7; data[1] = 1; }
     await runtime.setAccount(address, { owner, data });
   }
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
@@ -73,6 +102,9 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   await runtime.send('initialize', [ix(0, init, [meta(registry), meta(payer.publicKey, true, true), meta(instrument),
     meta(SystemProgram.programId, false), meta(vault)])], [payer]);
   await runtime.assertState([{ address: registry, fields: [field('10-second batch maximum', 72, 8, 25)] }]);
+  await runtime.send('initialize matcher book via core', [ix(25, Buffer.alloc(2),
+    [meta(registry, false), meta(book), meta(payer.publicKey, true, true),
+      meta(SystemProgram.programId, false), meta(MATCHER, false)])], [payer]);
   await runtime.send('create batch', [ix(16, Buffer.from([batchBump]), [meta(batch), meta(registry)])], [payer]);
   for (let index = 0; index < 2; index++) {
     const user = [maker, taker][index], [portfolio, bump] = portfolios[index];
@@ -98,18 +130,65 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
     await runtime.send(`post ${index} ${side}`, [ix(20, data, [meta(portfolios[index][0]), meta(user.publicKey, true, true),
       meta(batch), meta(registry, false), meta(book), meta(MATCHER, false)])], [payer, user]);
   }
+  const forgedBook = Keypair.generate().publicKey;
+  const genuineBook = await runtime.account(book);
+  await runtime.setAccount(forgedBook, { owner: MATCHER, data: genuineBook.data });
+  const spoofPostData = Buffer.alloc(21); spoofPostData[1] = 1;
+  spoofPostData.writeBigInt64LE(1n, 2); u64(1).copy(spoofPostData, 10);
+  for (const [label, bookKey, matcherKey] of [
+    ['wrong book PDA', forgedBook, MATCHER], ['wrong matcher program', book, SystemProgram.programId],
+  ]) await rejectUnchanged(label, [ix(20, spoofPostData, [meta(portfolios[0][0]),
+    meta(maker.publicKey, true, true), meta(batch), meta(registry, false), meta(bookKey), meta(matcherKey, false)])],
+    [payer, maker], [book, forgedBook, batch, portfolios[0][0]]);
+  // The genuine user's signature cannot replace perps-core's PDA signature.
+  for (const discriminator of [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
+    await rejectUnchanged(`direct matcher instruction ${discriminator}`,
+      [ix(discriminator, Buffer.alloc(96), [meta(registry, false), meta(maker.publicKey, false, true),
+        meta(book), meta(results)], MATCHER)], [payer, maker], [book, results, registry]);
+  }
+  // Retained orders count toward the transaction bound, even for one owner.
+  const capAddresses = [book, batch, portfolios[0][0]];
+  const capSnapshot = await Promise.all(capAddresses.map(address => runtime.account(address)));
+  const unmatched = Buffer.alloc(21); unmatched[1] = 1;
+  unmatched.writeBigInt64LE(1n, 2); u64(1).copy(unmatched, 10);
+  const capPost = () => ix(20, unmatched, [meta(portfolios[0][0]), meta(maker.publicKey, true, true),
+    meta(batch), meta(registry, false), meta(book), meta(MATCHER, false)]);
+  for (let index = 4; index < 12; index++) await runtime.send(`order cap fixture ${index + 1}`, [capPost()], [payer, maker]);
+  await rejectUnchanged('thirteenth live order rejected', [capPost()], [payer, maker], capAddresses);
+  for (let index = 0; index < capAddresses.length; index++) await runtime.setAccount(capAddresses[index], {
+    owner: capSnapshot[index].owner, data: capSnapshot[index].data, lamports: Number(capSnapshot[index].lamports) });
   await runtime.advanceSlots(200);
-  await runtime.send('close collecting', [ix(6, Buffer.alloc(0), [meta(batch), meta(registry)])], [payer]);
+  await runtime.send('close collecting' , [ix(6, Buffer.alloc(0), [meta(batch), meta(registry)])], [payer]);
+  const forgedResults = Keypair.generate().publicKey;
+  await runtime.setAccount(forgedResults, { owner: MATCHER, data: Buffer.alloc(8 + 9 + 34 + 128 * 58) });
+  await rejectUnchanged('wrong results PDA', [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]),
+    [meta(batch), meta(book), meta(forgedResults), meta(MATCHER, false), meta(registry), meta(instrument, false),
+      meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])],
+    [payer], [batch, book, forgedResults, results, registry]);
   await runtime.send('clear', [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]), [meta(batch), meta(book), meta(results),
-    meta(MATCHER, false), meta(registry, false), meta(instrument, false)])], [payer]);
+    meta(MATCHER, false), meta(registry), meta(instrument, false),
+      meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])], [payer]);
+  await runtime.assertState([{ address: batch, fields: [field('Cleared', 16, 1, 4)] },
+    { address: results, fields: [field('result batch', 8, 8, 0), field('unspent', 16, 1, 0)] }]);
+  await rejectUnchanged('re-clear rejected', [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]),
+    [meta(batch), meta(book), meta(results), meta(MATCHER, false), meta(registry), meta(instrument, false),
+      meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])],
+    [payer], [batch, book, results, registry]);
+  await rejectUnchanged('reinitialize cannot reset cleared withdrawal lock', [ix(0, init,
+    [meta(registry), meta(payer.publicKey, true, true), meta(instrument),
+      meta(SystemProgram.programId, false), meta(vault)])],
+    [payer], [registry, instrument, vault, batch, results]);
+  await rejectUnchanged('withdrawal globally blocked while cleared', [ix(3, u64(1),
+    [meta(portfolios[0][0]), meta(maker.publicKey, true, true), meta(vault), meta(registry, false)])],
+    [payer, maker], [portfolios[0][0], vault, registry, batch]);
   const cleared = await runtime.account(results);
-  assert.equal(cleared.data.readUInt16LE(40), 4, 'both DFBA sides produced maker and taker fills');
+  assert.equal(cleared.data.readUInt16LE(49), 4, 'both DFBA sides produced maker and taker fills');
   // Expectations come from the independent Fraction ledger, fed ordered inputs.
   const observedFills = [];
   const recordFills = (data, conversionPrice, provenance = 'observed matcher output') => {
-    const count = data.readUInt16LE(40);
+    const count = data.readUInt16LE(49);
     const fills = Array.from({ length: count }, (_, index) => {
-      const offset = 8 + 34 + index * 58;
+      const offset = 8 + 9 + 34 + index * 58;
       const makerFill = Boolean(data[offset + 56]);
       const bidAuction = data[offset + 57] === 0;
       const quantity = data.readBigUInt64LE(offset + 40);
@@ -184,8 +263,27 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     runtime.flushReport();
   };
   const settle = oracleKey => ix(8, Buffer.from([0, 0, 2, 0]), [meta(batch), meta(registry), meta(vault),
-    meta(results, false), meta(instrument), meta(book, false), meta(oracleKey, false), meta(MATCHER, false),
+    meta(results), meta(instrument), meta(book, false), meta(oracleKey, false), meta(MATCHER, false),
     ...portfolios.map(([portfolio]) => meta(portfolio)), meta(nextBatch)]);
+  const integrityClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+  await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+    price: 1_000_000, publishTime: Number(integrityClock.data.readBigInt64LE(32)), confidence: 12 });
+  const integrityAccounts = [batch, registry, vault, instrument, results, nextBatch, ...portfolios.map(([key]) => key)];
+  const incomplete = settle(oracle);
+  incomplete.data.writeUInt16LE(1, 3); incomplete.keys.splice(9, 1);
+  await rejectUnchanged('missing portfolio reverts complete batch', [incomplete], [payer], integrityAccounts);
+  const duplicate = settle(oracle); duplicate.keys[9] = { ...duplicate.keys[8] };
+  await rejectUnchanged('duplicate portfolio reverts complete batch', [duplicate], [payer], integrityAccounts);
+  const malformed = settle(oracle); malformed.data.writeUInt16LE(65535, 3);
+  await rejectUnchanged('malformed portfolio count rejected', [malformed], [payer], integrityAccounts);
+  const originalResults = await runtime.account(results);
+  const wrongBatchResults = Buffer.from(originalResults.data); wrongBatchResults.writeBigUInt64LE(1n, 8);
+  await runtime.setAccount(results, { owner: MATCHER, data: wrongBatchResults, lamports: Number(originalResults.lamports) });
+  await rejectUnchanged('wrong batch result rejected', [settle(oracle)], [payer], integrityAccounts);
+  const spentResults = Buffer.from(originalResults.data); spentResults[16] = 1;
+  await runtime.setAccount(results, { owner: MATCHER, data: spentResults, lamports: Number(originalResults.lamports) });
+  await rejectUnchanged('spent result replay rejected', [settle(oracle)], [payer], integrityAccounts);
+  await runtime.setAccount(results, { owner: MATCHER, data: originalResults.data, lamports: Number(originalResults.lamports) });
   // An actual signed oracle update must preserve the publisher's confidence.
   const update = Buffer.alloc(16);
   update.writeBigInt64LE(1_000_000n); update.writeBigInt64LE(4321n, 8);
@@ -235,7 +333,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   }
   runtime.report.oracleBoundaries = boundaryResults; runtime.flushReport();
   // Submit an invalid transaction too: validator rollback must preserve all risk state.
-  const protectedAccounts = [batch, instrument, vault, nextBatch, ...portfolios.map(([key]) => key)];
+  const protectedAccounts = [batch, registry, results, instrument, vault, nextBatch, ...portfolios.map(([key]) => key)];
   const before = await Promise.all(protectedAccounts.map(key => runtime.account(key)));
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price: 1_000_000, publishTime: now - 61, confidence: 12 });
@@ -267,6 +365,19 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     price: 1_000_000, publishTime: Number(freshClock.data.readBigInt64LE(32)), confidence: 12 });
   await runtime.send('settle', [settle(oracle)], [payer]);
   await assertModel('dual-auction roundtrip and oracle retry');
+  await runtime.assertState([{ address: results, fields: [field('spent after settlement', 16, 1, 1)] }]);
+  await rejectUnchanged('settled batch replay rejected', [settle(oracle)], [payer], integrityAccounts);
+  // A simulated withdrawal proves the lock was released without changing the accounting model fixture.
+  {
+    const latest = await runtime.connection.getLatestBlockhash('confirmed');
+    const tx = new Transaction({ feePayer: payer.publicKey, ...latest }).add(ix(3, u64(1),
+      [meta(portfolios[0][0]), meta(maker.publicKey, true, true), meta(vault), meta(registry, false)]));
+    tx.sign(payer, maker);
+    const simulation = (await runtime.rpc('simulateTransaction', [tx.serialize().toString('base64'),
+      { encoding: 'base64', sigVerify: true, commitment: 'confirmed' }])).value;
+    assert.equal(simulation.err, null, `withdrawal resumes after settlement: ${simulation.logs}`);
+    runtime.report.withdrawalResumedAfterSettlement = true; runtime.flushReport();
+  }
   await runtime.assertState([
     { address: batch, fields: [field('Settled', 16, 1, 3)] },
     { address: portfolios[0][0], fields: [field('maker equity', 48, 16, model.collateral[maker.publicKey], true)] },
@@ -285,7 +396,6 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
     [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
     await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
-    await runtime.setAccount(results, { owner: MATCHER, data: Buffer.alloc(8 + 34 + 128 * 58) });
     for (const { side, qty, price } of orders) {
       for (const index of [0, 1]) {
         const user = [maker, taker][index], data = Buffer.alloc(21);
@@ -299,9 +409,10 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     await runtime.advanceSlots(200);
     await runtime.send(`${label}: close collecting`, [ix(6, Buffer.alloc(0), [meta(batch), meta(registry)])], [payer]);
     await runtime.send(`${label}: clear`, [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]),
-      [meta(batch), meta(book), meta(results), meta(MATCHER, false), meta(registry, false), meta(instrument, false)])], [payer]);
+      [meta(batch), meta(book), meta(results), meta(MATCHER, false), meta(registry), meta(instrument, false),
+      meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])], [payer]);
     const observed = (await runtime.account(results)).data;
-    assert.equal(observed.readUInt16LE(40), orders.length * 2, `${label}: all paired orders filled`);
+    assert.equal(observed.readUInt16LE(49), orders.length * 2, `${label}: all paired orders filled`);
     recordFills(observed, conversionPrice);
     const fresh = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
     await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
@@ -347,14 +458,15 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
     [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
     const batchData = Buffer.from((await runtime.account(batch)).data);
-    batchData[16] = 2; // Valid v1 batch header/id, now cleared for the fixture.
+    batchData[16] = 4; // Valid v1 batch header/id, now cleared for the fixture.
     await runtime.setAccount(batch, { owner: CORE, data: batchData });
     await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
-    const data = Buffer.alloc(8 + 34 + 128 * 58);
+    const data = Buffer.alloc(8 + 9 + 34 + 128 * 58);
     data[0] = 8; data[1] = 1; // Matcher-owned BatchResults v1.
-    data.writeUInt16LE(entries.length, 40);
+    data.writeBigUInt64LE(BigInt(batchId), 8);
+    data.writeUInt16LE(entries.length, 49);
     entries.forEach(({ index, side, price }, i) => {
-      const off = 42 + i * 58;
+      const off = 51 + i * 58;
       [maker, taker][index].publicKey.toBuffer().copy(data, off);
       u64(offset + i).copy(data, off + 32);
       u64(1).copy(data, off + 40);

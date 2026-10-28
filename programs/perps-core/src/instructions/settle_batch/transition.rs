@@ -43,7 +43,7 @@ pub(super) fn settle(
     portfolios: &mut impl States<Portfolio>,
     env: &mut impl Environment,
 ) -> ProgramResult {
-    if batch.status != BatchStatus::Clearing {
+    if batch.status != BatchStatus::Cleared {
         return Err(MgkError::InvalidInstruction.into());
     }
     let clock = env.clock()?;
@@ -87,6 +87,33 @@ pub(super) fn settle(
     };
     if results.len() < base + n * stride {
         return Err(ProgramError::AccountDataTooSmall);
+    }
+    // Validate the complete portfolio set before the first accounting write.
+    // Runtime also checks canonical account addresses, ownership and writability.
+    if portfolios.len() > mgk_common::matcher::MAX_SETTLEMENT_ORDERS {
+        return Err(MgkError::InvalidPortfolio.into());
+    }
+    for i in 0..portfolios.len() {
+        let user = portfolios.get_mut(i)?.user;
+        for j in 0..i {
+            if portfolios.get_mut(j)?.user == user {
+                return Err(MgkError::InvalidPortfolio.into());
+            }
+        }
+    }
+    for i in 0..n {
+        let off = base + i * stride;
+        let user: Pubkey = results[off..off + 32].try_into().unwrap();
+        let mut found = false;
+        for j in 0..portfolios.len() {
+            if portfolios.get_mut(j)?.user == user {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Err(MgkError::InvalidPortfolio.into());
+        }
     }
     let mut total_settled = 0u32;
     let mut total_volume = 0u64;

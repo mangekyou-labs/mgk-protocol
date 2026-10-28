@@ -5,7 +5,7 @@ import type { PillTone } from '@/components/common/Pill';
 /**
  * Pure helpers for rendering the batch phase pill + countdown.
  *
- * DFBA lifecycle (user-facing): Collecting → Clearing → Settled.
+ * DFBA lifecycle (user-facing): Collecting → Clearing → Cleared → Settled.
  * Wire value 0 is still `BatchStatus.Collecting` (== historical Committing).
  * Reveal is not a DFBA phase; wire 1 is labeled "Closed" if ever shown.
  *
@@ -19,6 +19,7 @@ export const PHASE_LABEL: Record<number, string> = {
   [sdk.state.BatchStatus.Collecting]: 'Collecting',
   [sdk.state.BatchStatus.Revealing]: 'Closed', // DFBA skips reveal; rare if shown
   [sdk.state.BatchStatus.Clearing]: 'Clearing',
+  [sdk.state.BatchStatus.Cleared]: 'Cleared',
   [sdk.state.BatchStatus.Settled]: 'Settled',
 };
 
@@ -26,6 +27,7 @@ export const PHASE_TONE: Record<number, PillTone> = {
   [sdk.state.BatchStatus.Collecting]: 'info',
   [sdk.state.BatchStatus.Revealing]: 'neutral',
   [sdk.state.BatchStatus.Clearing]: 'warn',
+  [sdk.state.BatchStatus.Cleared]: 'warn',
   [sdk.state.BatchStatus.Settled]: 'neutral',
 };
 
@@ -194,6 +196,8 @@ export function describeBatchPhase(
         headline: 'Orders closed',
         detail: 'Matching maker and taker flow at uniform prices',
       };
+    case sdk.state.BatchStatus.Cleared:
+      return { headline: 'Fills ready', detail: 'Waiting for settlement' };
     case sdk.state.BatchStatus.Settled:
       return data.markValid && !data.liqPaused
         ? {

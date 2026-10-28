@@ -44,6 +44,7 @@ function buildCancelOrModifyIx(
       { pubkey: publicKey, isSigner: true, isWritable: true },
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: config.matcherProgramId, isSigner: false, isWritable: false },
+      { pubkey: sdk.deriveRegistryPda(config.coreProgramId)[0], isSigner: false, isWritable: false },
     ],
     programId: config.coreProgramId,
     data: Buffer.from(ixData),

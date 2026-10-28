@@ -5,10 +5,7 @@ use crate::state::instrument::Instrument;
 use crate::state::portfolio::Portfolio;
 use crate::state::registry::Registry;
 use crate::state::vault::Vault;
-use mgk_common::book::OrderBook;
-use mgk_common::layout::{
-    self, discriminator, load_account, load_account_mut, AccountLayout, LAYOUT_VERSION_1,
-};
+use mgk_common::layout::{load_account, load_account_mut, AccountLayout};
 use mgk_common::MgkError;
 use pinocchio::{
     account_info::AccountInfo,
@@ -39,7 +36,7 @@ fn read_oracle_price(
 
 #[allow(clippy::too_many_arguments)]
 pub fn process_settle_batch(
-    _program_id: &Pubkey,
+    program_id: &Pubkey,
     batch_account: &AccountInfo,
     registry_account: &AccountInfo,
     vault_account: &AccountInfo,
@@ -52,12 +49,43 @@ pub fn process_settle_batch(
     portfolio_accounts: &[AccountInfo],
     next_batch_account: &AccountInfo,
 ) -> ProgramResult {
+    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_program(matcher_program)?;
     let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
-    if batch.status != BatchStatus::Clearing {
+    if batch.status != BatchStatus::Cleared {
         msg!("Error: Batch not in clearing phase");
         return Err(MgkError::InvalidInstruction.into());
     }
+    crate::matcher_cpi::validate_batch(program_id, batch_account, batch.batch_id)?;
+    mgk_common::matcher::validate_results(results_account, batch.batch_id)?;
     let instrument = unsafe { load_account_mut::<Instrument>(instrument_account)? };
+    crate::matcher_cpi::validate_book(
+        matcher_program,
+        book_account,
+        Some(instrument.instrument_id),
+    )?;
+    if instrument_account.key()
+        != &crate::pda::derive_instrument_pda(instrument.instrument_id, program_id).0
+    {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    if next_batch_account.key()
+        != &crate::pda::derive_batch_pda(
+            batch.batch_id.checked_add(1).ok_or(MgkError::Overflow)?,
+            program_id,
+        )
+        .0
+    {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    for account in portfolio_accounts {
+        mgk_common::validate_owner(account, program_id)?;
+        mgk_common::validate_writable(account)?;
+        let portfolio = unsafe { load_account::<Portfolio>(account)? };
+        if account.key() != &crate::pda::derive_portfolio_pda(&portfolio.user, program_id).0 {
+            return Err(ProgramError::InvalidSeeds);
+        }
+    }
     // Fail closed before any fill, fee, mark, or batch write, including when
     // funding is paused or the batch has no fills.
     mgk_common::oracle::read_price(
@@ -69,7 +97,8 @@ pub fn process_settle_batch(
     let results_raw = results_account
         .try_borrow_data()
         .map_err(|_| MgkError::InvalidAccount)?;
-    let results = layout::body(&results_raw, discriminator::BATCH_RESULTS, LAYOUT_VERSION_1)?;
+    let batch_id = batch.batch_id;
+    let results = mgk_common::matcher::unspent_results(&results_raw, batch_id)?;
     transition::settle(
         batch,
         instrument,
@@ -85,7 +114,23 @@ pub fn process_settle_batch(
             matcher_program,
             next_batch_account,
         },
-    )
+    )?;
+    drop(results_raw);
+    let mut data = [8u8; 9];
+    data[1..].copy_from_slice(&batch_id.to_le_bytes());
+    let metas = [
+        pinocchio::instruction::AccountMeta::readonly_signer(registry_account.key()),
+        pinocchio::instruction::AccountMeta::writable(results_account.key()),
+    ];
+    crate::matcher_cpi::signed(
+        registry_account,
+        matcher_program,
+        &metas,
+        &[registry_account, results_account],
+        &data,
+    )?;
+    unsafe { load_account_mut::<Registry>(registry_account)? }.set_unsettled_batch(false);
+    Ok(())
 }
 
 /// Account casts stay at the runtime boundary. Entrypoint validation and the
@@ -132,21 +177,11 @@ impl transition::Environment for RuntimeEnvironment<'_> {
         Ok(unsafe { load_account_mut::<Vault>(self.vault_account)? })
     }
     fn validate_book(&self, instrument_id: u16) -> ProgramResult {
-        // Book ownership check (still required for funding premium path).
-        let (expected_book_pda, _book_bump) =
-            mgk_common::book::book_pda(self.matcher_program.key(), instrument_id);
-        if self.book_account.key() != &expected_book_pda
-            && self.book_account.owner() != self.matcher_program.key()
-        {
-            msg!("Error: book_account is neither expected PDA nor matcher-owned");
-            return Err(MgkError::InvalidAccount.into());
-        }
-
-        let book = unsafe { load_account::<OrderBook>(self.book_account)? };
-        if book.instrument_id != instrument_id {
-            msg!("Error: book instrument_id does not match instrument");
-            return Err(MgkError::InvalidAccount.into());
-        }
+        crate::matcher_cpi::validate_book(
+            self.matcher_program,
+            self.book_account,
+            Some(instrument_id),
+        )?;
 
         Ok(())
     }
