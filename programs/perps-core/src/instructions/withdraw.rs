@@ -51,13 +51,21 @@ pub fn process_withdraw(
     }
 
     // Transfer SOL from vault to user
+    let vault_lamports = vault_account
+        .lamports()
+        .checked_sub(amount)
+        .ok_or(MgkError::Underflow)?;
+    let user_lamports = user_account
+        .lamports()
+        .checked_add(amount)
+        .ok_or(MgkError::Overflow)?;
     unsafe {
-        *vault_account.borrow_mut_lamports_unchecked() -= amount;
-        *user_account.borrow_mut_lamports_unchecked() += amount;
+        *vault_account.borrow_mut_lamports_unchecked() = vault_lamports;
+        *user_account.borrow_mut_lamports_unchecked() = user_lamports;
     }
 
     // Update state
-    vault.balance = vault.balance.saturating_sub(amount);
+    vault.balance = vault.balance.checked_sub(amount).ok_or(MgkError::Underflow)?;
 
     let amount_i128 = amount as i128;
     portfolio.principal = portfolio
@@ -70,6 +78,7 @@ pub fn process_withdraw(
         .ok_or(MgkError::Underflow)?;
     portfolio.recalc_margin();
 
+    crate::cash::assert_vault_invariant(vault_account, vault)?;
     msg!("Withdraw successful");
     Ok(())
 }

@@ -7,7 +7,25 @@
 use crate::state::portfolio::Portfolio;
 use crate::state::vault::Vault;
 use mgk_common::MgkError;
-use pinocchio::program_error::ProgramError;
+use pinocchio::{
+    account_info::AccountInfo,
+    msg,
+    program_error::ProgramError,
+    sysvars::{rent::Rent, Sysvar},
+    ProgramResult,
+};
+
+/// Revert unless `vault lamports - rent = collateral + fund - uncovered_bad_debt`
+/// holds exactly. Call after every instruction that moves vault lamports.
+pub(crate) fn assert_vault_invariant(vault_account: &AccountInfo, vault: &Vault) -> ProgramResult {
+    let rent = Rent::get()?.minimum_balance(vault_account.data_len());
+    vault
+        .check_lamport_invariant(vault_account.lamports(), rent)
+        .map_err(|e| {
+            msg!("Error: vault balance invariant violated");
+            e.into()
+        })
+}
 
 fn add(a: i128, b: i128) -> Result<i128, ProgramError> {
     a.checked_add(b).ok_or_else(|| MgkError::Overflow.into())

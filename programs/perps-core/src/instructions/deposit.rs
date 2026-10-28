@@ -60,7 +60,7 @@ pub fn process_deposit(
     )?;
 
     // Update state
-    vault.balance = vault.balance.saturating_add(amount);
+    vault.balance = vault.balance.checked_add(amount).ok_or(MgkError::Overflow)?;
 
     let amount_i128 = amount as i128;
     portfolio.principal = portfolio.principal
@@ -71,6 +71,7 @@ pub fn process_deposit(
         .ok_or(MgkError::Overflow)?;
     portfolio.recalc_margin();
 
+    crate::cash::assert_vault_invariant(vault_account, vault)?;
     msg!("Deposit successful");
     Ok(())
 }
