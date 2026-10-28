@@ -95,8 +95,9 @@ fn process_cancel_settled_orders(program_id: &Pubkey, accounts: &[AccountInfo], 
         return Err(ProgramError::InvalidInstructionData);
     }
     let mut order_ids = [0u64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
-    for (id, encoded) in order_ids.iter_mut().zip(data[1..].chunks_exact(8)) {
-        *id = u64::from_le_bytes(encoded.try_into().unwrap());
+    for (index, id) in order_ids.iter_mut().enumerate().take(count) {
+        let start = 1 + index * 8;
+        *id = u64::from_le_bytes(data[start..start + 8].try_into().unwrap());
     }
     let mut raw = book.try_borrow_mut_data()?;
     let state = crate::state::book_state_from_bytes_mut(&mut raw)?;
