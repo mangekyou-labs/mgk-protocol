@@ -12,6 +12,7 @@ pub mod fill_receipt;
 pub mod program_ids;
 pub mod book;
 pub mod oracle;
+pub mod matcher;
 
 #[cfg(test)]
 mod tests;

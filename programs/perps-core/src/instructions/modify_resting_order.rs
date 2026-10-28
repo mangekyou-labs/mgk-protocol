@@ -1,14 +1,7 @@
-use mgk_common::layout::{load_account};
 use crate::state::Portfolio;
-use mgk_common::{MgkError, validate_owner, validate_writable};
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction},
-    msg,
-    program::invoke,
-    pubkey::Pubkey,
-    ProgramResult,
-};
+use mgk_common::layout::load_account;
+use mgk_common::{validate_owner, validate_writable, MgkError};
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
 /// Matcher `ModifyResting` discriminator.
 pub const MATCHER_MODIFY_RESTING: u8 = 2;
@@ -22,12 +15,14 @@ pub const MATCHER_MODIFY_RESTING: u8 = 2;
 /// 3. [] Matcher program
 ///
 /// Data: order_id(8) + new_qty(8)
+#[allow(clippy::too_many_arguments)]
 pub fn process_modify_resting_order(
     program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     user_account: &AccountInfo,
     book_account: &AccountInfo,
     matcher_program: &AccountInfo,
+    registry_account: &AccountInfo,
     order_id: u64,
     new_qty: u64,
 ) -> ProgramResult {
@@ -59,19 +54,12 @@ pub fn process_modify_resting_order(
     cpi_data[33..41].copy_from_slice(&order_id.to_le_bytes());
     cpi_data[41..49].copy_from_slice(&new_qty.to_le_bytes());
 
-    let cpi_instruction = Instruction {
-        program_id: matcher_program.key(),
-        accounts: &[AccountMeta {
-            pubkey: book_account.key(),
-            is_signer: false,
-            is_writable: true,
-        }],
-        data: &cpi_data,
-    };
-
-    invoke(
-        &cpi_instruction,
-        &[book_account, matcher_program],
+    crate::matcher_cpi::trader(
+        registry_account,
+        user_account,
+        book_account,
+        matcher_program,
+        &cpi_data,
     )?;
 
     msg!("ModifyRestingOrder: CPI to matcher complete");

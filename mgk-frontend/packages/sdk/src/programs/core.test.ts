@@ -113,13 +113,14 @@ describe('encodePostOrder', () => {
 });
 
 describe('encodeDfbaClear', () => {
-  it('emits disc 5 + u64 max cap + zero orders', () => {
-    const buf = encodeDfbaClear();
-    expect(buf.length).toBe(11);
+  it('binds disc 5 clearing to its batch with no inline orders', () => {
+    const buf = encodeDfbaClear(42n);
+    expect(buf.length).toBe(19);
     expect(buf[0]).toBe(MATCHER_INSTRUCTION.DfbaClear);
     const view = new DataView(buf.buffer);
     expect(view.getBigUint64(1, true)).toBe(0xffffffffffffffffn);
     expect(view.getUint16(9, true)).toBe(0);
+    expect(view.getBigUint64(11, true)).toBe(42n);
   });
 });
 

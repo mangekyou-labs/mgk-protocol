@@ -32,6 +32,15 @@ pub fn process_create_batch(
     payer_account: Option<&AccountInfo>,
     bump: u8,
 ) -> ProgramResult {
+    crate::matcher_cpi::validate_registry(registry_account)?;
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
+    if registry.has_unsettled_batch() {
+        return Err(MgkError::OperationPaused.into());
+    }
+    let expected = crate::pda::derive_batch_pda(registry.batch_id_counter, program_id).0;
+    if batch_account.key() != &expected {
+        return Err(pinocchio::program_error::ProgramError::InvalidSeeds);
+    }
     validate_writable(batch_account)?;
     validate_writable(registry_account)?;
 
@@ -79,6 +88,7 @@ pub fn process_create_batch(
         msg!("Batch PDA created");
     }
 
+    validate_owner(batch_account, program_id)?;
     // Verify batch is not already initialized: a stamped header (any
     // non-zero discriminator) or a non-zero batch_id means it is in use.
     {
@@ -124,6 +134,10 @@ pub fn process_set_batch_counter(
     governance_account: &AccountInfo,
 ) -> ProgramResult {
     let program_id = registry_account.owner();
+    crate::matcher_cpi::validate_registry(registry_account)?;
+    if unsafe { load_account::<Registry>(registry_account)? }.has_unsettled_batch() {
+        return Err(MgkError::OperationPaused.into());
+    }
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
 
@@ -136,10 +150,7 @@ pub fn process_set_batch_counter(
         return Err(MgkError::Unauthorized.into());
     }
 
-    Registry::write_batch_id_counter(
-        unsafe { registry_account.borrow_mut_data_unchecked() },
-        0,
-    );
+    Registry::write_batch_id_counter(unsafe { registry_account.borrow_mut_data_unchecked() }, 0);
 
     Ok(())
 }

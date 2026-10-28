@@ -1,7 +1,6 @@
 use mgk_common::layout::{load_account, load_account_mut};
 use pinocchio::{
-    account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey,
-    ProgramResult,
+    account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
 
 use crate::instructions::{
@@ -57,6 +56,7 @@ pub fn process_instruction(
         22 => CoreInstruction::SetInstrumentFees,
         23 => CoreInstruction::SetInstrumentOracle,
         24 => CoreInstruction::SetFundingParams,
+        25 => CoreInstruction::InitializeBook,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(MgkError::InvalidInstruction.into());
@@ -64,6 +64,9 @@ pub fn process_instruction(
     };
 
     match instruction {
+        CoreInstruction::InitializeBook => {
+            process_initialize_book_inner(program_id, accounts, &instruction_data[1..])
+        }
         CoreInstruction::Initialize => {
             msg!("Instruction: Initialize");
             process_initialize_inner(program_id, accounts, &instruction_data[1..])
@@ -837,7 +840,7 @@ fn process_clear_batch_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 6 {
+    if accounts.len() < 5 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 6 {
@@ -854,6 +857,9 @@ fn process_clear_batch_inner(
     let num_instruments = u16::from_le_bytes(data[2..4].try_into().unwrap()) as usize;
     let num_portfolios = u16::from_le_bytes(data[4..6].try_into().unwrap()) as usize;
 
+    if accounts.len() < 5 + num_instruments + num_commitments + num_portfolios {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
     let instrument_accounts = &accounts[5..5 + num_instruments];
     let commitment_accounts = &accounts[5 + num_instruments..5 + num_instruments + num_commitments];
     let portfolio_accounts = &accounts[5 + num_instruments + num_commitments
@@ -873,6 +879,14 @@ fn process_clear_batch_inner(
         instrument_accounts,
         commitment_accounts,
         portfolio_accounts,
+        {
+            let end = 5 + num_instruments + num_commitments + num_portfolios;
+            if accounts.len() >= end + 2 {
+                Some((&accounts[end], &accounts[end + 1]))
+            } else {
+                None
+            }
+        },
     )
 }
 
@@ -933,6 +947,10 @@ fn process_settle_batch_inner(
     validate_owner(instrument_account, program_id)?;
     validate_writable(instrument_account)?;
 
+    if accounts.len() < 9 + num_commitments + num_portfolios {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    validate_writable(results_account)?;
     let commitment_accounts = &accounts[8..8 + num_commitments];
     let portfolio_accounts = &accounts[8 + num_commitments..8 + num_commitments + num_portfolios];
     let next_idx = 8 + num_commitments + num_portfolios;
@@ -942,7 +960,7 @@ fn process_settle_batch_inner(
     validate_writable(next_batch_account)?;
 
     // Create next batch PDA if not yet allocated (CPI CreateAccount, 160 bytes).
-    const BATCH_SPACE: usize = 160;
+    const BATCH_SPACE: usize = core::mem::size_of::<crate::state::Batch>();
     if next_batch_account.data_len() < BATCH_SPACE {
         let payer = accounts
             .get(next_idx + 1)
@@ -955,8 +973,7 @@ fn process_settle_batch_inner(
         }
         // next_batch_id = current.batch_id + 1
         let current_batch_id = unsafe {
-            let b =
-                load_account::<crate::state::Batch>(batch_account)?;
+            let b = load_account::<crate::state::Batch>(batch_account)?;
             b.batch_id
         };
         let next_id = current_batch_id.saturating_add(1);
@@ -1088,7 +1105,7 @@ fn process_cancel_resting_order_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 4 {
+    if accounts.len() < 5 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 8 {
@@ -1108,6 +1125,7 @@ fn process_cancel_resting_order_inner(
         user_account,
         book_account,
         matcher_program,
+        &accounts[4],
         order_id,
     )
 }
@@ -1126,7 +1144,7 @@ fn process_modify_resting_order_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 4 {
+    if accounts.len() < 5 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 16 {
@@ -1147,6 +1165,7 @@ fn process_modify_resting_order_inner(
         user_account,
         book_account,
         matcher_program,
+        &accounts[4],
         order_id,
         new_qty,
     )
@@ -1290,7 +1309,7 @@ fn process_cancel_all_resting_orders_inner(
     let matcher_program = &accounts[2];
     let num_books = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;
 
-    if accounts.len() < 3 + num_books {
+    if accounts.len() < 4 + num_books {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
 
@@ -1301,6 +1320,7 @@ fn process_cancel_all_resting_orders_inner(
         portfolio_account,
         user_account,
         matcher_program,
+        &accounts[3 + num_books],
         book_accounts,
     )
 }
@@ -1353,4 +1373,41 @@ fn process_create_portfolio_inner(
     }
     // data[0] = disc, data[1] = bump; inner reads bump from data[1]
     process_create_portfolio(program_id, accounts, data)
+}
+
+/// Initialize a matcher book through the authenticated program boundary.
+/// Accounts: registry, book(w), payer(signer,w), system, matcher.
+fn process_initialize_book_inner(
+    _program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    if accounts.len() < 5 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if data.len() != 2 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let id = u16::from_le_bytes(data.try_into().unwrap());
+    let registry = &accounts[0];
+    let book = &accounts[1];
+    if book.key() != &mgk_common::book::book_pda(&mgk_common::program_ids::PERPS_MATCHER_ID, id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    let metas = [
+        pinocchio::instruction::AccountMeta::readonly_signer(registry.key()),
+        pinocchio::instruction::AccountMeta::writable(book.key()),
+        pinocchio::instruction::AccountMeta::writable_signer(accounts[2].key()),
+        pinocchio::instruction::AccountMeta::readonly(accounts[3].key()),
+    ];
+    let mut cpi_data = [7u8; 4];
+    cpi_data[1..3].copy_from_slice(data);
+    cpi_data[3] = mgk_common::book::book_pda(&mgk_common::program_ids::PERPS_MATCHER_ID, id).1;
+    crate::matcher_cpi::signed(
+        registry,
+        &accounts[4],
+        &metas,
+        &[registry, book, &accounts[2], &accounts[3]],
+        &cpi_data,
+    )
 }

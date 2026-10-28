@@ -260,19 +260,14 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
 
   // --- Phase 2: ClearBatch ---
   if (batch.status === BATCH_CLEARING) {
-    const resultsKP = Keypair.generate();
-    const resultsLamports = await conn.getMinimumBalanceForRentExemption(RESULTS_SIZE);
-    console.log(`  [2/3] ClearBatch (DFBA) → results ${resultsKP.publicKey.toBase58()}`);
+    const [resultsPda] = pda([Buffer.from('results'), le64(batch.batchId)], MATCHER_ID);
+    console.log(`  [2/3] ClearBatch (DFBA) → results ${resultsPda.toBase58()}`);
     const clearTx = new Transaction();
     clearTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: CLEAR_CU_LIMIT }));
-    clearTx.add(SystemProgram.createAccount({
-      fromPubkey: keeper.publicKey, newAccountPubkey: resultsKP.publicKey,
-      lamports: resultsLamports, space: RESULTS_SIZE, programId: MATCHER_ID,
-    }));
-    clearTx.add(buildClearBatchIx(batchPda, bookPDA, resultsKP.publicKey, MATCHER_ID, regPDA, instPDA));
+    clearTx.add(buildClearBatchIx(batchPda, bookPDA, resultsPda, MATCHER_ID, regPDA, instPDA, keeper.publicKey));
     clearTx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
     clearTx.feePayer = keeper.publicKey;
-    clearTx.sign(keeper, resultsKP);
+    clearTx.sign(keeper);
     await sendRawWithRetry(conn, clearTx.serialize(), 'ClearBatch');
 
     // --- Phase 3: SettleBatch with dynamic settlement portfolios ---
@@ -297,7 +292,7 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
     console.log(`  [3/3] SettleBatch → next batch #${nextBatchId} @ ${nextBatchPda.toBase58()}`);
     await sendTx(conn,
       buildSettleBatchIx(
-        batchPda, regPDA, vaultPDA, resultsKP.publicKey, instPDA, bookPDA,
+        batchPda, regPDA, vaultPDA, resultsPda, instPDA, bookPDA,
         oraclePda, MATCHER_ID, nextBatchPda, keeper.publicKey, nextBatchBump,
         portfolios,
       ),
@@ -345,7 +340,7 @@ function buildCloseCollectingIx(batchPda, registryPda) {
   });
 }
 
-function buildClearBatchIx(batchPda, bookPda, resultsPda, matcherId, registryPda, instrumentPda) {
+function buildClearBatchIx(batchPda, bookPda, resultsPda, matcherId, registryPda, instrumentPda, payer) {
   const data = Buffer.alloc(7);
   data[0] = 7;  // disc ClearBatch
   data.writeUInt16LE(0, 1); // num_commitments
@@ -357,8 +352,10 @@ function buildClearBatchIx(batchPda, bookPda, resultsPda, matcherId, registryPda
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: resultsPda, isSigner: false, isWritable: true },
       { pubkey: matcherId, isSigner: false, isWritable: false },
-      { pubkey: registryPda, isSigner: false, isWritable: false },
+      { pubkey: registryPda, isSigner: false, isWritable: true },
       { pubkey: instrumentPda, isSigner: false, isWritable: false },
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: CORE_ID,
     data,
@@ -376,7 +373,7 @@ function buildSettleBatchIx(batchPda, registryPda, vaultPda, resultsPda, instrum
     { pubkey: batchPda, isSigner: false, isWritable: true },
     { pubkey: registryPda, isSigner: false, isWritable: true },
     { pubkey: vaultPda, isSigner: false, isWritable: true },
-    { pubkey: resultsPda, isSigner: false, isWritable: false },
+    { pubkey: resultsPda, isSigner: false, isWritable: true },
     { pubkey: instrumentPda, isSigner: false, isWritable: true },
     { pubkey: bookPda, isSigner: false, isWritable: false },
     { pubkey: oraclePda, isSigner: false, isWritable: false },

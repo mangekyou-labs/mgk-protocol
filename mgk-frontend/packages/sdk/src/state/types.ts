@@ -4,7 +4,7 @@ import { Side } from '../instruction.js';
 /**
  * On-chain batch phase (u8 @ Batch.status).
  *
- * DFBA v1 lifecycle: Collecting → Clearing → Settled.
+ * DFBA v1 lifecycle: Collecting → Clearing → Cleared → Settled.
  * Wire values are stable; names follow DFBA (not commit-reveal).
  * `Committing` / `Revealing` remain as numeric aliases for older callers.
  */
@@ -19,6 +19,8 @@ export const BatchStatus = {
   Clearing: 2,
   /** Fills applied; next batch opened. */
   Settled: 3,
+  /** Immutable auction results ready for atomic settlement. */
+  Cleared: 4,
 } as const;
 export type BatchStatus = (typeof BatchStatus)[keyof typeof BatchStatus];
 

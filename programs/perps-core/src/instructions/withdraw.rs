@@ -1,11 +1,7 @@
-use mgk_common::layout::{load_account};
 use crate::state::{Portfolio, Registry, Vault};
+use mgk_common::layout::load_account;
 use mgk_common::MgkError;
-use pinocchio::{
-    account_info::AccountInfo,
-    msg,
-    ProgramResult,
-};
+use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
 pub fn process_withdraw(
     _portfolio_account: &AccountInfo,
@@ -20,8 +16,9 @@ pub fn process_withdraw(
     // (e.g. oracle outage, suspected bug). Deposits stay open so users
     // can still fund defensive positions during a paused-but-recovering
     // state.
+    crate::matcher_cpi::validate_registry(registry_account)?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
-    if registry.is_withdrawals_paused() {
+    if registry.is_withdrawals_paused() || registry.has_unsettled_batch() {
         msg!("Error: Withdrawals are paused");
         return Err(MgkError::OperationPaused.into());
     }
@@ -63,10 +60,12 @@ pub fn process_withdraw(
     vault.balance = vault.balance.saturating_sub(amount);
 
     let amount_i128 = amount as i128;
-    portfolio.principal = portfolio.principal
+    portfolio.principal = portfolio
+        .principal
         .checked_sub(amount_i128)
         .ok_or(MgkError::Underflow)?;
-    portfolio.equity = portfolio.equity
+    portfolio.equity = portfolio
+        .equity
         .checked_sub(amount_i128)
         .ok_or(MgkError::Underflow)?;
     portfolio.recalc_margin();

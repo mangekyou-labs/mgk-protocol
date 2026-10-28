@@ -8,6 +8,9 @@ use crate::state::{
 };
 use core::alloc::Layout;
 use mgk_common::layout::{discriminator, stamp_body_mut, LAYOUT_VERSION_1};
+use mgk_common::matcher::{
+    validate_authority, validate_results, MAX_SETTLEMENT_ORDERS, RESULTS_ENVELOPE_LEN,
+};
 use pinocchio::{
     account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey, ProgramResult,
 };
@@ -260,12 +263,65 @@ pub fn process_compute_clearing(
     Ok(())
 }
 
+/// Authenticate the core-owned registry PDA before touching matcher state.
+fn authenticated_accounts(accounts: &[AccountInfo]) -> Result<&[AccountInfo], ProgramError> {
+    let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    validate_authority(authority)?;
+    Ok(&accounts[1..])
+}
+fn authenticated_user(accounts: &[AccountInfo]) -> Result<(Pubkey, &[AccountInfo]), ProgramError> {
+    let accounts = authenticated_accounts(accounts)?;
+    let user = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if !user.is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    Ok((*user.key(), &accounts[1..]))
+}
+fn validate_book(book: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
+    if !book.is_writable() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    if book.owner() != program_id {
+        return Err(ProgramError::IllegalOwner);
+    }
+    let raw = book.try_borrow_data()?;
+    let header = mgk_common::layout::load::<mgk_common::book::OrderBook>(&raw)?;
+    if book.key() != &mgk_common::book::book_pda(program_id, header.instrument_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    Ok(())
+}
+fn begin_results(raw: &mut [u8], batch_id: u64) -> ProgramResult {
+    if raw.first().copied() != Some(discriminator::UNINITIALIZED) {
+        return Err(ProgramError::AccountAlreadyInitialized);
+    }
+    let body = stamp_body_mut(raw, discriminator::BATCH_RESULTS, LAYOUT_VERSION_1)?;
+    if body.len() < RESULTS_ENVELOPE_LEN + DFBA_RESULT_HEADER_BYTES {
+        return Err(ProgramError::AccountDataTooSmall);
+    }
+    body[..8].copy_from_slice(&batch_id.to_le_bytes());
+    body[8] = 0;
+    Ok(())
+}
+/// Mark a validated batch's unspent matcher output as consumed.
+pub fn consume_results(raw: &mut [u8], batch_id: u64) -> ProgramResult {
+    mgk_common::matcher::unspent_results(raw, batch_id)?;
+    raw[mgk_common::layout::ACCOUNT_HEADER_LEN + 8] = 1;
+    Ok(())
+}
+
 /// Stamp the `BATCH_RESULTS` account header (spec 13 / issue 16) and return the
 /// bytes after it. Every results wire offset in this file is relative to the
 /// returned body, so the 8-byte header never leaks into the layouts below.
 fn results_body(raw: &mut [u8]) -> Result<&mut [u8], ProgramError> {
     stamp_body_mut(raw, discriminator::BATCH_RESULTS, LAYOUT_VERSION_1)
         .map_err(|_| ProgramError::AccountDataTooSmall)
+}
+
+fn dfba_results_body(raw: &mut [u8]) -> Result<&mut [u8], ProgramError> {
+    let body = results_body(raw)?;
+    body.get_mut(RESULTS_ENVELOPE_LEN..)
+        .ok_or(ProgramError::AccountDataTooSmall)
 }
 
 fn write_empty_result(account: &AccountInfo) -> ProgramResult {
@@ -321,15 +377,11 @@ fn write_results(
 // Wire format (after disc):
 //   marginal_size_cap: u64 LE (8)
 //   num_orders: u16 LE (2)
-//   for each order (58 bytes):
-//     side: u8 (0=Buy, 1=Sell)
-//     is_maker: u8 (0=taker, 1=maker)
-//     price: i64 LE
-//     qty: u64 LE
-//     order_id: u64 LE
-//     user: Pubkey (32)
+//   num_orders must be zero (orders are read exclusively from the book)
+//   batch_id: u64 LE (8)
 //
-// Results account layout:
+// Results account layout (following account header):
+//   batch_id: u64 (8), spent: u8 (1)
 //   bid_clearing_price: i64 (8)
 //   ask_clearing_price: i64 (8)
 //   matched_bid_qty: u64 (8)
@@ -364,6 +416,8 @@ pub fn process_dfba_clear(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    let accounts = authenticated_accounts(accounts)?;
+
     if accounts.is_empty() {
         msg!("Error: DfbaClear requires results account");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -387,6 +441,21 @@ pub fn process_dfba_clear(
     if num_orders > DFBA_MAX_ORDERS {
         msg!("Error: DfbaClear too many orders");
         return Err(ProgramError::InvalidInstructionData);
+    }
+
+    // Only persistent, authenticated orders can enter clearing. Inline orders
+    // carried arbitrary identities and are deliberately unavailable.
+    if num_orders != 0 || data.len() != DFBA_IX_HEADER_BYTES + 8 || !matches!(accounts.len(), 2 | 4)
+    {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let batch_id = u64::from_le_bytes(data[DFBA_IX_HEADER_BYTES..].try_into().unwrap());
+    validate_book(&accounts[1], program_id)?;
+    create_results_if_needed(results_account, batch_id, accounts.get(2), accounts.get(3))?;
+    validate_results(results_account, batch_id)?;
+    {
+        let mut raw = results_account.try_borrow_mut_data()?;
+        begin_results(&mut raw, batch_id)?;
     }
 
     // One contiguous 4-region order buffer (single heap alloc — less waste
@@ -440,60 +509,7 @@ pub fn process_dfba_clear(
         Ok(())
     };
 
-    if num_orders > 0 {
-        let expected = DFBA_IX_HEADER_BYTES
-            .checked_add(
-                num_orders
-                    .checked_mul(DFBA_ORDER_WIRE_BYTES)
-                    .ok_or(ProgramError::InvalidInstructionData)?,
-            )
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        if data.len() < expected {
-            return Err(ProgramError::InvalidInstructionData);
-        }
-        for i in 0..num_orders {
-            let off = DFBA_IX_HEADER_BYTES + i * DFBA_ORDER_WIRE_BYTES;
-            let side = Side::from_u8(data[off]).ok_or(ProgramError::InvalidInstructionData)?;
-            let is_maker = data[off + 1] != 0;
-            let price = i64::from_le_bytes(
-                data[off + 2..off + 10]
-                    .try_into()
-                    .map_err(|_| ProgramError::InvalidInstructionData)?,
-            );
-            let qty = u64::from_le_bytes(
-                data[off + 10..off + 18]
-                    .try_into()
-                    .map_err(|_| ProgramError::InvalidInstructionData)?,
-            );
-            let order_id = u64::from_le_bytes(
-                data[off + 18..off + 26]
-                    .try_into()
-                    .map_err(|_| ProgramError::InvalidInstructionData)?,
-            );
-            let user = Pubkey::from(
-                <[u8; 32]>::try_from(&data[off + 26..off + 58])
-                    .map_err(|_| ProgramError::InvalidInstructionData)?,
-            );
-            push(
-                DfbaOrder {
-                    price,
-                    size: qty,
-                    order_id,
-                    user,
-                },
-                is_maker,
-                side,
-                maker_buys,
-                maker_sells,
-                taker_buys,
-                taker_sells,
-                &mut n_mb,
-                &mut n_ms,
-                &mut n_tb,
-                &mut n_ts,
-            )?;
-        }
-    } else if accounts.len() >= 2 {
+    if accounts.len() >= 2 {
         // Collect from book resting orders.
         let book_account = &accounts[1];
         if book_account.owner() != program_id {
@@ -501,6 +517,13 @@ pub fn process_dfba_clear(
         }
         let mut book_data = book_account.try_borrow_mut_data()?;
         let state = book_state_from_bytes_mut(&mut book_data)?;
+        let live = state.resting[..state.resting_count]
+            .iter()
+            .filter(|r| r.qty > r.filled_qty && r.order_id != u64::MAX)
+            .count();
+        if live > MAX_SETTLEMENT_ORDERS {
+            return Err(ProgramError::InvalidAccountData);
+        }
         for i in 0..state.resting_count {
             let r = &state.resting[i];
             let rem = r.qty.saturating_sub(r.filled_qty);
@@ -545,7 +568,7 @@ pub fn process_dfba_clear(
     // Zero results header; fills written as we go.
     {
         let mut raw = results_account.try_borrow_mut_data()?;
-        let rd = results_body(&mut raw)?;
+        let rd = dfba_results_body(&mut raw)?;
         if rd.len() < DFBA_RESULT_HEADER_BYTES {
             return Err(ProgramError::AccountDataTooSmall);
         }
@@ -617,7 +640,7 @@ pub fn process_dfba_clear(
     // Write dual header.
     {
         let mut raw = results_account.try_borrow_mut_data()?;
-        let rd = results_body(&mut raw)?;
+        let rd = dfba_results_body(&mut raw)?;
         rd[0..8].copy_from_slice(&bid_price.to_le_bytes());
         rd[8..16].copy_from_slice(&ask_price.to_le_bytes());
         rd[16..24].copy_from_slice(&matched_bid.to_le_bytes());
@@ -647,7 +670,7 @@ fn append_alloc_fills(
             }
             {
                 let mut raw = results_account.try_borrow_mut_data()?;
-                let data = results_body(&mut raw)?;
+                let data = dfba_results_body(&mut raw)?;
                 let need = DFBA_RESULT_HEADER_BYTES
                     .checked_add(
                         (w + 1)
@@ -739,7 +762,7 @@ fn apply_dfba_fills_to_book(
 
 fn write_dfba_empty_result(account: &AccountInfo) -> ProgramResult {
     let mut raw = account.try_borrow_mut_data()?;
-    let data = results_body(&mut raw)?;
+    let data = dfba_results_body(&mut raw)?;
     if data.len() < DFBA_RESULT_HEADER_BYTES {
         return Err(ProgramError::AccountDataTooSmall);
     }
@@ -765,7 +788,7 @@ fn write_dfba_results(
         .ok_or(ProgramError::InvalidInstructionData)?;
 
     let mut raw = account.try_borrow_mut_data()?;
-    let data = results_body(&mut raw)?;
+    let data = dfba_results_body(&mut raw)?;
     if data.len() < needed {
         msg!("Error: DfbaClear results account too small");
         return Err(ProgramError::AccountDataTooSmall);
@@ -843,6 +866,61 @@ const SYSTEM_PROGRAM_ID_BYTES: [u8; 32] = [0u8; 32];
 /// Wire after disc: instrument_id(2) + bump(1) = 3 bytes.
 pub const INIT_BOOK_DATA_LEN: usize = 2 + 1;
 
+/// Allocate a fresh batch results PDA when clearing its batch for the first time.
+fn create_results_if_needed(
+    results: &AccountInfo,
+    batch_id: u64,
+    payer: Option<&AccountInfo>,
+    system: Option<&AccountInfo>,
+) -> ProgramResult {
+    if results.key() != &mgk_common::matcher::results_pda(batch_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    if results.data_len() != 0 {
+        return Ok(());
+    }
+    let payer = payer.ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let system = system.ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if !payer.is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    if !payer.is_writable() || !results.is_writable() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    if system.key() != &SYSTEM_PROGRAM_ID_BYTES || results.owner() != &SYSTEM_PROGRAM_ID_BYTES {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    use pinocchio::instruction::{AccountMeta, Instruction, Signer};
+    use pinocchio::program::invoke_signed;
+    use pinocchio::sysvars::{rent::Rent, Sysvar};
+    let space = results_account_space();
+    let lamports = Rent::get()?.minimum_balance(space);
+    let mut data = [0u8; 52];
+    data[4..12].copy_from_slice(&lamports.to_le_bytes());
+    data[12..20].copy_from_slice(&(space as u64).to_le_bytes());
+    data[20..52].copy_from_slice(&mgk_common::program_ids::PERPS_MATCHER_ID);
+    let metas = [
+        AccountMeta::writable_signer(payer.key()),
+        AccountMeta::writable_signer(results.key()),
+    ];
+    let ix = Instruction {
+        program_id: &SYSTEM_PROGRAM_ID_BYTES,
+        accounts: &metas,
+        data: &data,
+    };
+    let id = batch_id.to_le_bytes();
+    let bump = [mgk_common::matcher::results_pda(batch_id).1];
+    let seeds = pinocchio::seeds!(b"results", &id, &bump);
+    invoke_signed::<2>(&ix, &[payer, results], &[Signer::from(&seeds)])
+}
+
+// Each live order belongs to exactly one of the four auction regions. Allocation
+// aggregates quantity by order, so fragmented counterparties still emit at most
+// one receipt per live order across both auctions.
+fn results_account_space() -> usize {
+    mgk_common::layout::ACCOUNT_HEADER_LEN + RESULTS_ENVELOPE_LEN + 34 + MAX_SETTLEMENT_ORDERS * 58
+}
+
 /// Create and zero-init a book PDA.
 ///
 /// Accounts:
@@ -857,6 +935,8 @@ pub fn process_initialize_book(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    let accounts = authenticated_accounts(accounts)?;
+
     if accounts.len() < 3 {
         msg!("Error: InitializeBook needs book, payer, system_program");
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -953,14 +1033,16 @@ fn stamp_new_book(book_account: &AccountInfo, instrument_id: u16) -> ProgramResu
 // PlaceResting (disc 6) — DFBA open post CPI target
 // =============================================================================
 
-/// Wire: user(32) + side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2)
+/// Wire: reserved identity padding(32) + side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2)
 ///        + reduce_only(1) = 53 bytes
 pub const PLACE_RESTING_DATA_LEN: usize = 32 + 1 + 1 + 8 + 8 + 2 + 1;
 
 /// Place a resting order on the book with DFBA maker/taker role.
 ///
 /// Accounts:
-/// 0. `[writable]` Book account (matcher-owned)
+/// 0. `[signer]` Core registry PDA
+/// 1. `[signer]` Verified trader
+/// 2. `[writable]` Book account (matcher-owned)
 ///
 /// Data: see `PLACE_RESTING_DATA_LEN`. Writes 8-byte `order_id` LE at the start
 /// of the book account's unused region is not done — order_id is in book state
@@ -970,11 +1052,14 @@ pub fn process_place_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    let (user, accounts) = authenticated_user(accounts)?;
+
     if accounts.is_empty() {
         msg!("Error: PlaceResting requires book account");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
+    validate_book(book_account, program_id)?;
     if !book_account.is_writable() {
         return Err(ProgramError::InvalidAccountData);
     }
@@ -985,9 +1070,7 @@ pub fn process_place_resting(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let user = Pubkey::from(
-        <[u8; 32]>::try_from(&data[0..32]).map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
+    // The first 32 payload bytes are reserved compatibility padding; identity comes from the signer.
     let side = Side::from_u8(data[32]).ok_or(ProgramError::InvalidInstructionData)?;
     let is_maker = data[33] != 0;
     let price = i64::from_le_bytes(
@@ -1017,6 +1100,16 @@ pub fn process_place_resting(
 
     let mut book_data = book_account.try_borrow_mut_data()?;
     let state = book_state_from_bytes_mut(&mut book_data)?;
+    if state.book.instrument_id != instrument_id {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    let live = state.resting[..state.resting_count]
+        .iter()
+        .filter(|r| r.qty > r.filled_qty && r.order_id != u64::MAX)
+        .count();
+    if live >= MAX_SETTLEMENT_ORDERS {
+        return Err(ProgramError::InvalidAccountData);
+    }
     let _order_id = place_resting(state, &order).map_err(|_| ProgramError::InvalidAccountData)?;
     msg!("PlaceResting: order placed");
     Ok(())
@@ -1027,7 +1120,7 @@ pub fn process_place_resting(
 // =============================================================================
 //
 // Both instructions take the instrument's book account (writable, owned by
-// this matcher program) plus a `user` pubkey and an `order_id`. They
+// this matcher program) plus an authenticated signer and an `order_id`. They
 // deserialize the `BookState`, mutate it, and serialize back.
 
 const CANCEL_DATA_LEN: usize = 32 + 8; // user(32) + order_id(8)
@@ -1039,17 +1132,20 @@ const MODIFY_DATA_LEN: usize = 32 + 8 + 8; // user(32) + order_id(8) + new_qty(8
 /// 0. `[writable]` Book account (PDA: `["book", instrument_id_le]`)
 /// 1. [] Matcher program (for ownership check, optional)
 ///
-/// Data: user(32) + order_id(8) = 40 bytes
+/// Data: reserved identity padding(32) + order_id(8) = 40 bytes
 pub fn process_cancel_resting(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    let (user, accounts) = authenticated_user(accounts)?;
+
     if accounts.is_empty() {
         msg!("Error: CancelResting requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
+    validate_book(book_account, program_id)?;
     if !book_account.is_writable() {
         msg!("Error: Book account must be writable");
         return Err(ProgramError::InvalidAccountData);
@@ -1063,9 +1159,7 @@ pub fn process_cancel_resting(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let user = Pubkey::from(
-        <[u8; 32]>::try_from(&data[0..32]).map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
+    // The first 32 payload bytes are reserved compatibility padding; identity comes from the signer.
     let order_id = u64::from_le_bytes(
         data[32..40]
             .try_into()
@@ -1087,17 +1181,20 @@ pub fn process_cancel_resting(
 /// Accounts:
 /// 0. `[writable]` Book account
 ///
-/// Data: user(32) + order_id(8) + new_qty(8) = 48 bytes
+/// Data: reserved identity padding(32) + order_id(8) + new_qty(8) = 48 bytes
 pub fn process_modify_resting(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    let (user, accounts) = authenticated_user(accounts)?;
+
     if accounts.is_empty() {
         msg!("Error: ModifyResting requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
+    validate_book(book_account, program_id)?;
     if !book_account.is_writable() {
         msg!("Error: Book account must be writable");
         return Err(ProgramError::InvalidAccountData);
@@ -1111,9 +1208,7 @@ pub fn process_modify_resting(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let user = Pubkey::from(
-        <[u8; 32]>::try_from(&data[0..32]).map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
+    // The first 32 payload bytes are reserved compatibility padding; identity comes from the signer.
     let order_id = u64::from_le_bytes(
         data[32..40]
             .try_into()
@@ -1143,11 +1238,11 @@ pub fn process_modify_resting(
 /// Accounts:
 /// 0. `[writable]` Book account (PDA: `["book", instrument_id_le]`)
 ///
-/// Data: user(32) = 32 bytes
+/// Data: reserved identity padding(32) = 32 bytes; user comes from signer account
 ///
 /// Behavior:
 /// - Linear scan of `state.resting[0..resting_count]` for live orders
-///   (`qty > 0`) whose `user` matches the payload.
+///   (`qty > 0`) whose `user` matches the authenticated signer.
 /// - Each match is removed via `remove_at_offset`, which clears the slot
 ///   in place and updates the level head / count / best-price.
 /// - Returns silently when no orders match (empty book is not an error).
@@ -1156,11 +1251,14 @@ pub fn process_cancel_all(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
+    let (user, accounts) = authenticated_user(accounts)?;
+
     if accounts.is_empty() {
         msg!("Error: CancelAll requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
+    validate_book(book_account, program_id)?;
     if !book_account.is_writable() {
         msg!("Error: Book account must be writable");
         return Err(ProgramError::InvalidAccountData);
@@ -1174,9 +1272,7 @@ pub fn process_cancel_all(
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    let user = Pubkey::from(
-        <[u8; 32]>::try_from(&data[0..32]).map_err(|_| ProgramError::InvalidInstructionData)?,
-    );
+    // The first 32 payload bytes are reserved compatibility padding; identity comes from the signer.
 
     // Borrow BookState from the account buffer — no 27 KB stack copy.
     let mut book_data = book_account.try_borrow_mut_data()?;
@@ -1481,11 +1577,33 @@ mod results_header_tests {
     use mgk_common::layout::{discriminator, ACCOUNT_HEADER_LEN, LAYOUT_VERSION_1};
 
     #[test]
+    fn results_can_only_be_written_once_even_after_consumption() {
+        let mut raw = [0u8; 128];
+        begin_results(&mut raw, 7).unwrap();
+        assert!(begin_results(&mut raw, 7).is_err());
+        raw[ACCOUNT_HEADER_LEN + 8] = 1;
+        assert!(begin_results(&mut raw, 7).is_err());
+        assert!(begin_results(&mut raw, 8).is_err());
+    }
+
+    #[test]
     fn results_body_stamps_batch_results_header_and_skips_it() {
         let mut raw = [0xAAu8; 64];
         let body = results_body(&mut raw).unwrap();
         assert_eq!(body.len(), 64 - ACCOUNT_HEADER_LEN);
-        assert_eq!(&raw[..8], &[discriminator::BATCH_RESULTS, LAYOUT_VERSION_1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            &raw[..8],
+            &[
+                discriminator::BATCH_RESULTS,
+                LAYOUT_VERSION_1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            ]
+        );
         assert_eq!(raw[8], 0xAA, "body bytes are left untouched");
     }
 
@@ -1496,6 +1614,23 @@ mod results_header_tests {
             results_body(&mut raw).err(),
             Some(ProgramError::AccountDataTooSmall)
         );
+    }
+
+    #[test]
+    fn dfba_fills_preserve_the_batch_envelope() {
+        let mut raw = [0u8; ACCOUNT_HEADER_LEN
+            + RESULTS_ENVELOPE_LEN
+            + DFBA_RESULT_HEADER_BYTES
+            + DFBA_FILL_WIRE_BYTES];
+        begin_results(&mut raw, 42).unwrap();
+        let body = dfba_results_body(&mut raw).unwrap();
+        encode_dfba_fill(body, 0, &[7; 32], 5, 11, 100, true, 1);
+        let payload = mgk_common::matcher::unspent_results(&raw, 42).unwrap();
+        assert_eq!(
+            &payload[DFBA_RESULT_HEADER_BYTES..DFBA_RESULT_HEADER_BYTES + 32],
+            &[7; 32]
+        );
+        assert!(mgk_common::matcher::unspent_results(&raw, 41).is_err());
     }
 
     #[test]

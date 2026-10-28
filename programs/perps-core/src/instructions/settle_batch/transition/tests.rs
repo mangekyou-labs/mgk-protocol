@@ -131,7 +131,7 @@ fn position_open_moves_no_notional_and_charges_sol_fee() {
 
 fn clearing_batch() -> Batch {
     let mut batch = Batch::new(7);
-    batch.status = BatchStatus::Clearing;
+    batch.status = BatchStatus::Cleared;
     batch
 }
 
@@ -270,7 +270,7 @@ fn invalid_conversion_rejects_before_any_transition_write_and_can_retry() {
             .is_err());
         assert_eq!(p.equity, 1_000_000_000);
         assert_eq!(p.positions_len, 0);
-        assert_eq!(batch.status, BatchStatus::Clearing);
+        assert_eq!(batch.status, BatchStatus::Cleared);
         assert_eq!(host.vault.insurance_fund, 0);
         let counter = host.registry.batch_id_counter;
         assert_eq!(counter, 0);
@@ -371,7 +371,7 @@ fn exhausted_fund_rejects_payout_without_creating_debt() {
     assert_eq!(host.vault.insurance_fund, 0);
     assert_eq!(host.vault.uncovered_bad_debt, 0);
     // This pure adapter deliberately does not emulate Solana transaction rollback.
-    assert_eq!(batch.status, BatchStatus::Clearing);
+    assert_eq!(batch.status, BatchStatus::Cleared);
 }
 
 #[test]
@@ -415,7 +415,7 @@ fn malformed_results_fail_before_writes_and_oversized_next_batch_fails_late() {
         host.settle(&mut batch, &mut instrument, &results, &mut [], &mut []),
         Err(ProgramError::AccountDataTooSmall)
     );
-    assert_eq!(batch.status, BatchStatus::Clearing);
+    assert_eq!(batch.status, BatchStatus::Cleared);
     host.next_size += 1;
     results[32..34].fill(0);
     assert_eq!(
@@ -519,4 +519,25 @@ fn off_grid_position_entry_rejects_instead_of_reinterpreting() {
             Err(MgkError::InvalidAccount.into())
         );
     }
+}
+
+#[test]
+fn duplicate_portfolio_identity_rejects_before_applying_any_fill() {
+    let mut host = Host::new();
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
+    let mut first = Portfolio::new([1; 32]);
+    let mut duplicate = Portfolio::new([1; 32]);
+    first.equity = 1_000_000_000;
+    duplicate.equity = 1_000_000_000;
+    let result = host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[(1, 1000, 100_000_000, false, 1)]),
+        &mut [],
+        &mut [&mut first, &mut duplicate],
+    );
+    assert_eq!(result, Err(MgkError::InvalidPortfolio.into()));
+    assert_eq!(first.equity, 1_000_000_000);
+    assert_eq!(first.positions_len, 0);
 }

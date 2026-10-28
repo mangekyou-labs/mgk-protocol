@@ -1,11 +1,10 @@
-use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Batch, BatchStatus, Registry};
+use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::MgkError;
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{AccountMeta, Instruction},
     msg,
-    program::invoke,
     program_error::ProgramError,
     pubkey::Pubkey,
     ProgramResult,
@@ -61,18 +60,31 @@ pub fn process_clear_batch(
     _instrument_accounts: &[AccountInfo],
     _commitment_accounts: &[AccountInfo],
     _portfolio_accounts: &[AccountInfo],
+    creation_accounts: Option<(&AccountInfo, &AccountInfo)>,
 ) -> ProgramResult {
-    let registry =
-        unsafe { load_account::<Registry>(registry_account)? };
+    crate::matcher_cpi::validate_registry(registry_account)?;
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_trading_paused() || registry.is_clears_paused() {
         msg!("Error: Trading/clears is paused");
         return Err(MgkError::OperationPaused.into());
     }
 
+    if registry.has_unsettled_batch() {
+        return Err(MgkError::InvalidInstruction.into());
+    }
     let batch = unsafe { load_account::<Batch>(batch_account)? };
 
+    crate::matcher_cpi::validate_batch(_program_id, batch_account, batch.batch_id)?;
+    crate::matcher_cpi::validate_book(matcher_program, book_account, None)?;
+    if results_account.key() != &mgk_common::matcher::results_pda(batch.batch_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    if results_account.data_len() > 0 {
+        mgk_common::matcher::validate_results(results_account, batch.batch_id)?;
+    }
+    mgk_common::validate_writable(registry_account)?;
     // DFBA: close_collecting lands in Clearing; also accept legacy Revealing.
-    if batch.status != BatchStatus::Clearing && batch.status != BatchStatus::Revealing {
+    if batch.status != BatchStatus::Clearing {
         msg!("Error: Batch not ready to clear");
         return Err(MgkError::InvalidInstruction.into());
     }
@@ -87,14 +99,16 @@ pub fn process_clear_batch(
     }
 
     // CPI: disc 5 DfbaClear — marginal_size_cap(8) + num_orders(2)=0 → collect from book
-    let mut cpi_data = [0u8; 1 + 10];
+    let mut cpi_data = [0u8; 1 + 10 + 8];
     cpi_data[0] = MATCHER_DFBA_CLEAR;
     cpi_data[1..9].copy_from_slice(&u64::MAX.to_le_bytes()); // no marginal size cap
     cpi_data[9..11].copy_from_slice(&0u16.to_le_bytes()); // collect from book
 
+    cpi_data[11..19].copy_from_slice(&batch.batch_id.to_le_bytes());
     let cpi_instruction = Instruction {
         program_id: matcher_program.key(),
         accounts: &[
+            AccountMeta::readonly_signer(registry_account.key()),
             AccountMeta {
                 pubkey: results_account.key(),
                 is_signer: false,
@@ -109,10 +123,36 @@ pub fn process_clear_batch(
         data: &cpi_data,
     };
 
-    invoke(
-        &cpi_instruction,
-        &[results_account, book_account, matcher_program],
-    )?;
+    if let Some((payer, system)) = creation_accounts {
+        let metas = [
+            cpi_instruction.accounts[0].clone(),
+            cpi_instruction.accounts[1].clone(),
+            cpi_instruction.accounts[2].clone(),
+            AccountMeta::writable_signer(payer.key()),
+            AccountMeta::readonly(system.key()),
+        ];
+        crate::matcher_cpi::signed(
+            registry_account,
+            matcher_program,
+            &metas,
+            &[
+                registry_account,
+                results_account,
+                book_account,
+                payer,
+                system,
+            ],
+            &cpi_data,
+        )?;
+    } else {
+        crate::matcher_cpi::signed(
+            registry_account,
+            matcher_program,
+            cpi_instruction.accounts,
+            &[registry_account, results_account, book_account],
+            &cpi_data,
+        )?;
+    }
 
     // Read DFBA results header into batch.
     let results_raw = results_account
@@ -120,11 +160,7 @@ pub fn process_clear_batch(
         .map_err(|_| MgkError::InvalidAccount)?;
     // The matcher stamps the BATCH_RESULTS header on every write; reject
     // anything else before reading the payload.
-    let results_data = mgk_common::layout::body(
-        &results_raw,
-        mgk_common::layout::discriminator::BATCH_RESULTS,
-        mgk_common::layout::LAYOUT_VERSION_1,
-    )?;
+    let results_data = mgk_common::matcher::unspent_results(&results_raw, batch.batch_id)?;
     if results_data.len() < DFBA_RESULTS_HEADER {
         return Err(ProgramError::AccountDataTooSmall);
     }
@@ -134,8 +170,7 @@ pub fn process_clear_batch(
     let matched_bid = u64::from_le_bytes(results_data[16..24].try_into().unwrap());
     let matched_ask = u64::from_le_bytes(results_data[24..32].try_into().unwrap());
 
-    let batch_mut =
-        unsafe { load_account_mut::<Batch>(batch_account)? };
+    let batch_mut = unsafe { load_account_mut::<Batch>(batch_account)? };
     batch_mut.bid_clearing_price = bid;
     batch_mut.ask_clearing_price = ask;
     batch_mut.matched_bid_qty = matched_bid;
@@ -153,7 +188,8 @@ pub fn process_clear_batch(
         batch_mut.clearing_price = 0;
     }
 
-    batch_mut.status = BatchStatus::Clearing;
+    batch_mut.status = BatchStatus::Cleared;
+    unsafe { load_account_mut::<Registry>(registry_account)? }.set_unsettled_batch(true);
 
     msg!("ClearBatch: DFBA dual clear complete");
     Ok(())

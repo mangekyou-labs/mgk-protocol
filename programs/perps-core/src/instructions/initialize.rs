@@ -66,6 +66,14 @@ pub fn process_initialize(
     vault_account: &AccountInfo,
     vault_bump: u8,
 ) -> ProgramResult {
+    // Initialization is one-shot: resetting the registry would erase the
+    // global unsettled-batch lock and permit withdrawal before settlement.
+    if registry_account.key() != &find_program_address(&[b"registry"], program_id).0 {
+        return Err(pinocchio::program_error::ProgramError::InvalidSeeds);
+    }
+    if registry_account.try_borrow_data()?.iter().any(|byte| *byte != 0) {
+        return Err(mgk_common::MgkError::AlreadyInitialized.into());
+    }
     Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
     msg!("INIT_RUST_V3");
 

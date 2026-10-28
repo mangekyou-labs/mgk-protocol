@@ -24,7 +24,7 @@ pub const PAUSE_RESERVED_MASK: u8 = 0b_1100_0000; // bits 6..7 must be 0
 #[derive(Clone, Copy)]
 pub struct Registry {
     /// Account discriminator + layout version (spec 13 / issue 16).
-    pub header: AccountHeader,      // offset 0 (8 bytes)
+    pub header: AccountHeader, // offset 0 (8 bytes)
     pub governance: Pubkey,         // offset 8 (32 bytes)
     pub instrument_count: u16,      // offset 40 (2 bytes)
     pub volatility_multiplier: u16, // offset 42 (2 bytes)
@@ -54,6 +54,14 @@ unsafe impl AccountLayout for Registry {
 }
 
 impl Registry {
+    /// The global settlement lock occupies an existing reserved byte.
+    pub fn has_unsettled_batch(&self) -> bool {
+        self._padding[0] != 0
+    }
+    pub fn set_unsettled_batch(&mut self, locked: bool) {
+        self._padding[0] = u8::from(locked);
+    }
+
     /// Byte offset of `batch_id_counter` within the account. Used by the raw
     /// byte writers that work around SBF packed-field stores.
     pub const BATCH_ID_COUNTER_OFFSET: usize = core::mem::offset_of!(Registry, batch_id_counter);
