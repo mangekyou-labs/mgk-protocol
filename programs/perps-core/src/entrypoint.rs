@@ -1090,6 +1090,8 @@ fn process_liquidate_user_inner(
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
     validate_owner(registry_account, program_id)?;
+    // Writable so an exhausted fund can pause trading and withdrawals.
+    validate_writable(registry_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
     validate_owner(batch_account, program_id)?;

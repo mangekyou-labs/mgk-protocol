@@ -14,16 +14,30 @@ use mgk_common::{
     math::{calculate_im, calculate_mm},
     MgkError,
 };
-use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, sysvars::{clock::Clock, Sysvar}, ProgramResult};
+use crate::cash::settle_cash;
+use pinocchio::{
+    account_info::AccountInfo,
+    msg,
+    program_error::ProgramError,
+    pubkey::Pubkey,
+    sysvars::{clock::Clock, Sysvar},
+    ProgramResult,
+};
 
 /// Liquidate an underwater portfolio (M7 7.7).
 ///
 /// Replaces the pre-7.7 full-flat path with an iterative reduction
 /// (decision D4): up to `DEFAULT_MAX_ROUNDS` rounds × `DEFAULT_FRACTION_BPS`
 /// each, recomputing `health` after every round. If the portfolio is still
-/// underwater after the loop, falls back to full-flat. Then claims
-/// insurance; if insurance runs out, the uncovered balance is flagged on
-/// `vault.adl_pending` for the keeper (no real ADL yet).
+/// underwater after the loop, falls back to full-flat.
+///
+/// Realized PnL moves lamports through the same capped helper as settlement
+/// (`crate::cash`): a gain is credited in full from the insurance fund, a loss
+/// collects only the portfolio's collateral, so equity never goes negative and
+/// the vault balance equation stays exact. If the fund cannot cover a gain the
+/// shortfall is recorded as `vault.uncovered_bad_debt` and trading and
+/// withdrawals are paused (issue #23). Open interest follows every reduction.
+/// Taking over the position is out of scope (#24).
 ///
 /// Marking uses `instrument.mark_price` (composite from M7 7.5) with a
 /// fallback to the oracle price when `mark_price == 0` (first batch, stale
@@ -32,8 +46,8 @@ use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, sysvars::{clock:
 ///
 /// Accounts (fixed + variable):
 /// - index 0: writable Portfolio PDA
-/// - index 1: read-only Registry (M7 7.8: required for
-///   `liquidations_paused` check)
+/// - index 1: writable Registry (M7 7.8: `liquidations_paused` check; written
+///   to pause trading and withdrawals when the fund is exhausted)
 /// - index 2: writable Vault PDA
 /// - index 3: signer Liquidator
 /// - index 4: read-only Batch (latest settled; DFBA `mark_valid` / `liq_paused`)
@@ -172,6 +186,57 @@ pub fn process_liquidate_user(
         }
     }
 
+    let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
+    let shortfall = reduce_portfolio(
+        portfolio,
+        vault,
+        &Marks {
+            prices: mark_prices,
+            contract_sizes,
+            imr_bps: imr_bps_table,
+            mmr_bps: mmr_bps_table,
+        },
+    )?;
+
+    if shortfall > 0 {
+        // The fund could not pay a winner in full: the shortfall is already on
+        // `vault.uncovered_bad_debt`; stop trading and withdrawals until an
+        // admin recovers the vault.
+        unsafe { load_account_mut::<Registry>(registry_account)? }
+            .pause_trading_and_withdrawals();
+        msg!("Insurance fund exhausted: trading and withdrawals paused");
+    }
+
+    msg!("LiquidateUser: complete");
+    Ok(())
+}
+
+/// Per-instrument mark and margin tables, indexed by `instrument_id`.
+struct Marks {
+    prices: [i64; MAX_INSTRUMENTS],
+    contract_sizes: [u64; MAX_INSTRUMENTS],
+    imr_bps: [u16; MAX_INSTRUMENTS],
+    mmr_bps: [u16; MAX_INSTRUMENTS],
+}
+
+/// Realized amount of reducing a position from `old_qty` to `new_qty` at
+/// `mark`: the signed closed quantity times `mark - entry`. This matches
+/// `full_flat` (`qty * (mark - entry)`); the pre-#23 reduction used the
+/// opposite sign, which paid a losing liquidatee out of the fund.
+fn reduction_pnl(old_qty: i64, new_qty: i64, mark: i64, entry: i64) -> i128 {
+    let closed = (old_qty as i128) - (new_qty as i128);
+    closed.saturating_mul((mark as i128) - (entry as i128))
+}
+
+/// Run the iterative reduction (then full-flat fallback) on `portfolio`,
+/// moving lamports and open interest through the vault. Returns the total
+/// payout shortfall (fund could not cover a credited gain).
+fn reduce_portfolio(
+    portfolio: &mut Portfolio,
+    vault: &mut Vault,
+    marks: &Marks,
+) -> Result<u128, ProgramError> {
+    let mut shortfall: u128 = 0;
     for _round in 0..DEFAULT_MAX_ROUNDS {
         if portfolio.health >= 0 {
             break;
@@ -179,8 +244,8 @@ pub fn process_liquidate_user(
         let top_idx = match find_top_position(
             &portfolio.positions,
             portfolio.positions_len as usize,
-            &mark_prices,
-            &contract_sizes,
+            &marks.prices,
+            &marks.contract_sizes,
         ) {
             Some(i) => i,
             None => break,
@@ -190,11 +255,12 @@ pub fn process_liquidate_user(
             apply_reduction(&portfolio.positions[top_idx], DEFAULT_FRACTION_BPS);
 
         let inst_id = portfolio.positions[top_idx].instrument_id as usize;
-        let mark = mark_prices.get(inst_id).copied().unwrap_or(0);
+        let mark = marks.prices.get(inst_id).copied().unwrap_or(0);
         let entry = portfolio.positions[top_idx].entry_vwap;
-        let closed_signed = (new_qty - old_qty) as i128;
-        let delta_pnl = closed_signed.saturating_mul((mark as i128) - (entry as i128));
-        portfolio.equity = portfolio.equity.saturating_add(delta_pnl);
+        let delta_pnl = reduction_pnl(old_qty, new_qty, mark, entry);
+
+        vault.apply_position_change(old_qty, new_qty)?;
+        shortfall = shortfall.saturating_add(settle_cash(portfolio, vault, delta_pnl, 0)?);
 
         portfolio.positions[top_idx].qty = new_qty;
 
@@ -207,63 +273,21 @@ pub fn process_liquidate_user(
             portfolio.positions_len = portfolio.positions_len.saturating_sub(1);
         }
 
-        recompute_margin(
-            portfolio,
-            &mark_prices,
-            &contract_sizes,
-            &imr_bps_table,
-            &mmr_bps_table,
-        );
+        recompute_margin(portfolio, marks);
     }
 
     if portfolio.health < 0 && portfolio.positions_len > 0 {
-        full_flat(portfolio, &mark_prices);
-        recompute_margin(
-            portfolio,
-            &mark_prices,
-            &contract_sizes,
-            &imr_bps_table,
-            &mmr_bps_table,
-        );
+        shortfall = shortfall.saturating_add(full_flat(portfolio, vault, &marks.prices)?);
+        recompute_margin(portfolio, marks);
     }
-
-    let mut uncovered_bad_debt: u128 = 0;
-    if portfolio.equity < 0 {
-        let bad_debt = portfolio.equity.unsigned_abs();
-        let vault =
-            unsafe { load_account_mut::<Vault>(vault_account)? };
-        let payout = bad_debt.min(vault.insurance_fund);
-        if payout > 0 {
-            vault.insurance_fund = vault.insurance_fund.saturating_sub(payout);
-            portfolio.equity = portfolio.equity.saturating_add(payout as i128);
-            uncovered_bad_debt = bad_debt.saturating_sub(payout);
-            if uncovered_bad_debt > 0 {
-                vault.uncovered_bad_debt =
-                    vault.uncovered_bad_debt.saturating_add(uncovered_bad_debt);
-            }
-            portfolio.recalc_margin();
-            msg!("Insurance claim processed");
-        }
-    }
-
-    if uncovered_bad_debt > 0 {
-        let vault =
-            unsafe { load_account_mut::<Vault>(vault_account)? };
-        vault.mark_adl_pending(uncovered_bad_debt);
-        msg!("ADL pending: keeper observation required");
-    }
-
-    msg!("LiquidateUser: complete");
-    Ok(())
+    Ok(shortfall)
 }
 
-fn recompute_margin(
-    portfolio: &mut Portfolio,
-    mark_prices: &[i64; MAX_INSTRUMENTS],
-    contract_sizes: &[u64; MAX_INSTRUMENTS],
-    imr_bps: &[u16; MAX_INSTRUMENTS],
-    mmr_bps: &[u16; MAX_INSTRUMENTS],
-) {
+fn recompute_margin(portfolio: &mut Portfolio, marks: &Marks) {
+    let mark_prices = &marks.prices;
+    let contract_sizes = &marks.contract_sizes;
+    let imr_bps = &marks.imr_bps;
+    let mmr_bps = &marks.mmr_bps;
     let mut total_im: u128 = 0;
     let mut total_mm: u128 = 0;
     let count = portfolio.positions_len as usize;
@@ -286,7 +310,11 @@ fn recompute_margin(
     portfolio.recalc_margin();
 }
 
-fn full_flat(portfolio: &mut Portfolio, mark_prices: &[i64; MAX_INSTRUMENTS]) {
+fn full_flat(
+    portfolio: &mut Portfolio,
+    vault: &mut Vault,
+    mark_prices: &[i64; MAX_INSTRUMENTS],
+) -> Result<u128, ProgramError> {
     let mut total_pnl: i128 = 0;
     let count = portfolio.positions_len as usize;
     for i in 0..count.min(MAX_INSTRUMENTS) {
@@ -299,7 +327,10 @@ fn full_flat(portfolio: &mut Portfolio, mark_prices: &[i64; MAX_INSTRUMENTS]) {
         let pnl = (pos.qty as i128) * ((mark as i128) - (pos.entry_vwap as i128));
         total_pnl = total_pnl.saturating_add(pnl);
     }
-    portfolio.equity = portfolio.equity.saturating_add(total_pnl);
+    for i in 0..count.min(MAX_INSTRUMENTS) {
+        vault.apply_position_change(portfolio.positions[i].qty, 0)?;
+    }
+    let shortfall = settle_cash(portfolio, vault, total_pnl, 0)?;
 
     for i in 0..count.min(MAX_INSTRUMENTS) {
         portfolio.positions[i].qty = 0;
@@ -309,6 +340,7 @@ fn full_flat(portfolio: &mut Portfolio, mark_prices: &[i64; MAX_INSTRUMENTS]) {
     portfolio.im = 0;
     portfolio.mm = 0;
     portfolio.recalc_margin();
+    Ok(shortfall)
 }
 
 #[cfg(test)]
@@ -327,6 +359,89 @@ mod tests {
         inst.contract_size = cs;
         inst.mark_price = mark;
         inst
+    }
+
+    fn marks(mark: i64) -> Marks {
+        let mut m = Marks {
+            prices: [0; MAX_INSTRUMENTS],
+            contract_sizes: [1; MAX_INSTRUMENTS],
+            imr_bps: [0; MAX_INSTRUMENTS],
+            mmr_bps: [0; MAX_INSTRUMENTS],
+        };
+        m.prices[0] = mark;
+        m.imr_bps[0] = 1_000;
+        m.mmr_bps[0] = 5_000;
+        m
+    }
+
+    /// An underwater long of 1000 lots entered at `entry`, marked at `mark`,
+    /// with `equity` collateral fully backed in the vault ledger.
+    fn underwater(entry: i64, equity: i128, fund: u128) -> (Portfolio, Vault) {
+        let mut p = Portfolio::new(user_pubkey(1));
+        p.equity = equity;
+        p.positions[0] = Position {
+            instrument_id: 0,
+            qty: 1_000,
+            entry_vwap: entry,
+            ..Position::default()
+        };
+        p.positions_len = 1;
+        p.health = -1;
+        let mut vault = Vault::new();
+        vault.balance = equity as u64;
+        vault.insurance_fund = fund;
+        vault.open_interest_long = 1_000;
+        (p, vault)
+    }
+
+    fn ledger(vault: &Vault) -> i128 {
+        vault.balance as i128 + vault.insurance_fund as i128 - vault.uncovered_bad_debt as i128
+    }
+
+    #[test]
+    fn liquidation_loss_collects_only_the_collateral_and_never_goes_negative() {
+        // Mark below entry: a long closing at a loss owes more than it holds.
+        let (mut p, mut vault) = underwater(110, 1_000, 0);
+        let before = ledger(&vault);
+        let shortfall = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert_eq!(shortfall, 0);
+        assert_eq!(p.equity, 0);
+        assert_eq!(vault.balance as i128, p.equity);
+        assert_eq!(vault.insurance_fund, 1_000);
+        assert_eq!(vault.uncovered_bad_debt, 0);
+        assert_eq!(ledger(&vault), before);
+    }
+
+    #[test]
+    fn liquidation_gain_beyond_the_fund_records_debt_and_reports_shortfall() {
+        // Mark above entry: a long closing at a profit is paid from the fund.
+        let (mut p, mut vault) = underwater(90, 1_000, 1_000);
+        let before = ledger(&vault);
+        let shortfall = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert!(shortfall > 0);
+        assert_eq!(vault.insurance_fund, 0);
+        assert_eq!(vault.uncovered_bad_debt, shortfall);
+        assert_eq!(vault.balance as i128, p.equity);
+        assert_eq!(ledger(&vault), before);
+    }
+
+    #[test]
+    fn liquidation_reduces_open_interest_to_zero_when_the_position_is_flattened() {
+        let (mut p, mut vault) = underwater(100, 1_000, 1_000_000);
+        reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert_eq!(p.positions_len, 0);
+        assert_eq!(vault.open_interest_long, 0);
+        assert_eq!(vault.open_interest_short, 0);
+    }
+
+    #[test]
+    fn healthy_portfolio_is_left_untouched_by_the_reduction() {
+        let (mut p, mut vault) = underwater(100, 1_000, 1_000);
+        p.health = 0;
+        let shortfall = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert_eq!(shortfall, 0);
+        assert_eq!(p.positions_len, 1);
+        assert_eq!(vault.open_interest_long, 1_000);
     }
 
     #[test]
@@ -398,36 +513,26 @@ mod tests {
         assert_eq!(u.as_ref()[0], 7);
     }
 
+    // The realized amount of a reduction is (closed qty) * (mark - entry), so a
+    // long closing below its entry, or a short closing above it, loses.
     #[test]
     fn test_realized_pnl_sign_long_loss() {
-        let old_qty: i64 = 10;
-        let new_qty: i64 = 7;
-        let entry: i64 = 100;
-        let mark: i64 = 90;
-        let closed_signed = (new_qty - old_qty) as i128;
-        let delta_pnl = closed_signed * ((mark as i128) - (entry as i128));
-        assert_eq!(delta_pnl, 30);
+        assert_eq!(reduction_pnl(10, 7, 90, 100), -30);
     }
 
     #[test]
     fn test_realized_pnl_sign_short_loss() {
-        let old_qty: i64 = -10;
-        let new_qty: i64 = -7;
-        let entry: i64 = 100;
-        let mark: i64 = 110;
-        let closed_signed = (new_qty - old_qty) as i128;
-        let delta_pnl = closed_signed * ((mark as i128) - (entry as i128));
-        assert_eq!(delta_pnl, 30);
+        assert_eq!(reduction_pnl(-10, -7, 110, 100), -30);
     }
 
     #[test]
     fn test_realized_pnl_sign_long_profit() {
-        let old_qty: i64 = 10;
-        let new_qty: i64 = 7;
-        let entry: i64 = 100;
-        let mark: i64 = 110;
-        let closed_signed = (new_qty - old_qty) as i128;
-        let delta_pnl = closed_signed * ((mark as i128) - (entry as i128));
-        assert_eq!(delta_pnl, -30);
+        assert_eq!(reduction_pnl(10, 7, 110, 100), 30);
     }
+
+    #[test]
+    fn test_realized_pnl_sign_short_profit() {
+        assert_eq!(reduction_pnl(-10, -7, 90, 100), 30);
+    }
+
 }

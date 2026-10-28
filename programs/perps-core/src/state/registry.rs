@@ -166,6 +166,14 @@ impl Registry {
         self.pause_flags = flags & !PAUSE_RESERVED_MASK;
     }
 
+    /// Set the trading and withdrawals bits, keeping every other flag. Used
+    /// when the insurance fund cannot cover a payout (uncovered bad debt).
+    /// Only `Unpause` clears them again.
+    #[inline]
+    pub fn pause_trading_and_withdrawals(&mut self) {
+        self.set_pause_flags(self.pause_flags | PAUSE_TRADING | PAUSE_WITHDRAWALS);
+    }
+
     #[cfg(test)]
     pub fn new(governance: Pubkey) -> Self {
         let mut r = Self {
@@ -292,6 +300,18 @@ mod tests {
         assert_eq!(r.pause_flags, 0x3F);
         assert!(r.is_posts_paused());
         assert!(r.is_clears_paused());
+    }
+
+    /// Fund exhaustion pauses trading and withdrawals and leaves other flags.
+    #[test]
+    fn test_pause_trading_and_withdrawals_keeps_other_flags() {
+        let mut r = Registry::new(Pubkey::from([5u8; 32]));
+        r.set_pause_flags(PAUSE_FUNDING);
+        r.pause_trading_and_withdrawals();
+        assert!(r.is_trading_paused());
+        assert!(r.is_withdrawals_paused());
+        assert!(r.is_funding_paused());
+        assert!(!r.is_liquidations_paused());
     }
 
     /// M7 7.8: clearing all bits must reset to zero and the helpers

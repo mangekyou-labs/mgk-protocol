@@ -162,7 +162,6 @@ pub fn validate_instrument_coverage(
 mod tests {
     use super::*;
     use crate::state::portfolio::{Portfolio, MAX_INSTRUMENTS};
-    use crate::state::vault::Vault;
     use mgk_common::math::{calculate_im, calculate_mm};
     use pinocchio::pubkey::Pubkey;
 
@@ -365,65 +364,6 @@ mod tests {
         // Slot 1 still has the original pos[1].
         assert_eq!(portfolio.positions[1].instrument_id, 1);
         assert_eq!(portfolio.positions[1].qty, 100);
-    }
-
-    #[test]
-    fn test_scenario_adl_stub_fires_when_insurance_empty() {
-        // Scenario: insurance_fund = 0, equity deeply negative after
-        // liquidation. ADL stub should set vault.adl_pending = true and
-        // accumulate vault.adl_debt.
-        let mut vault = Vault::new();
-        vault.insurance_fund = 0;
-        vault.balance = 1_000_000;
-
-        // Simulate the post-liquidation uncovered bad-debt path.
-        let uncovered = 500u128;
-        vault.uncovered_bad_debt = vault.uncovered_bad_debt.saturating_add(uncovered);
-        vault.mark_adl_pending(uncovered);
-
-        assert!(vault.adl_pending);
-        assert_eq!(vault.adl_debt, 500);
-        assert_eq!(vault.uncovered_bad_debt, 500);
-        assert_eq!(vault.insurance_fund, 0); // unchanged
-    }
-
-    #[test]
-    fn test_scenario_adl_stub_accumulates_across_multiple_liquidations() {
-        // If two liquidations both exceed insurance, the ADL stub
-        // accumulates the debt rather than overwriting.
-        let mut vault = Vault::new();
-        vault.insurance_fund = 0;
-        vault.balance = 1_000_000;
-
-        // First liquidation: 300 uncovered.
-        vault.uncovered_bad_debt = vault.uncovered_bad_debt.saturating_add(300);
-        vault.mark_adl_pending(300);
-        assert!(vault.adl_pending);
-        assert_eq!(vault.adl_debt, 300);
-
-        // Second liquidation: 200 more uncovered.
-        vault.uncovered_bad_debt = vault.uncovered_bad_debt.saturating_add(200);
-        vault.mark_adl_pending(200);
-        assert!(vault.adl_pending);
-        assert_eq!(vault.adl_debt, 500);
-        assert_eq!(vault.uncovered_bad_debt, 500);
-    }
-
-    #[test]
-    fn test_scenario_adl_stub_clears_when_debt_resolved() {
-        // A future ADL implementation would call clear_adl_pending
-        // once bad debt is absorbed. Verify the helper exists and works.
-        let mut vault = Vault::new();
-        vault.mark_adl_pending(750);
-        assert!(vault.adl_pending);
-        assert_eq!(vault.adl_debt, 750);
-
-        vault.clear_adl_pending();
-        assert!(!vault.adl_pending);
-        assert_eq!(vault.adl_debt, 0);
-        // uncovered_bad_debt is NOT cleared — it's the historical
-        // accumulator and persists for accounting.
-        assert_eq!(vault.uncovered_bad_debt, 0);
     }
 
     /// Mirror of the production `mark_prices[id]` build: composite mark

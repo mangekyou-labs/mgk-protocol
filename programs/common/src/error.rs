@@ -89,6 +89,21 @@ pub enum MgkError {
     /// T9.10.7: Reduce-only order violates position constraints.
     /// Flat position, wrong side, or qty exceeds absolute position.
     ReduceOnlyViolation = 606,
+    // Reserve and insurance errors (607-612) — issue 23 / ADR 0003.
+    /// `vault lamports - rent != total collateral + fund - uncovered_bad_debt`
+    /// after a lamport move (zero tolerance).
+    VaultInvariantViolated = 607,
+    /// An exposure-adding order would take a portfolio past 10 SOL.
+    PositionCapExceeded = 608,
+    /// An exposure-adding order would take a side past 50 SOL of open interest.
+    OpenInterestCapExceeded = 609,
+    /// Risk-off: fund is below 0.4 x (larger side open interest + order qty).
+    RiskOffFundBelowReserve = 610,
+    /// Fund withdrawal exceeds the surplus above the required reserve.
+    FundWithdrawalExceedsSurplus = 611,
+    /// Unpause needs `uncovered_bad_debt == 0` and the fund at the reserve,
+    /// and trading may only be unpaused with withdrawals.
+    RecoveryConditionsNotMet = 612,
 }
 
 impl From<MgkError> for u64 {
@@ -121,6 +136,17 @@ mod tests {
         assert_eq!(MgkError::DfbaCapExceeded as u32, 603);
         assert_eq!(MgkError::MarkInvalidForLiquidation as u32, 604);
         assert_eq!(MgkError::BatchNotSettled as u32, 605);
+    }
+
+    /// Issue 23: pin the reserve and insurance error discriminators.
+    #[test]
+    fn test_reserve_and_insurance_error_codes_pinned() {
+        assert_eq!(MgkError::VaultInvariantViolated as u32, 607);
+        assert_eq!(MgkError::PositionCapExceeded as u32, 608);
+        assert_eq!(MgkError::OpenInterestCapExceeded as u32, 609);
+        assert_eq!(MgkError::RiskOffFundBelowReserve as u32, 610);
+        assert_eq!(MgkError::FundWithdrawalExceedsSurplus as u32, 611);
+        assert_eq!(MgkError::RecoveryConditionsNotMet as u32, 612);
     }
 
     /// T9.10.7: Pin the ReduceOnlyViolation discriminator.

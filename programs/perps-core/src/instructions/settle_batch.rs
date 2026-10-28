@@ -211,6 +211,12 @@ impl transition::Environment for RuntimeEnvironment<'_> {
         Registry::write_batch_id_counter(data, value);
         Ok(())
     }
+    fn pause_trading_and_withdrawals(&mut self) -> ProgramResult {
+        // The registry is writable for settlement (also used for the batch counter).
+        unsafe { load_account_mut::<Registry>(self.registry_account)? }
+            .pause_trading_and_withdrawals();
+        Ok(())
+    }
     fn next_batch_size(&self) -> usize {
         self.next_batch_account.data_len()
     }
