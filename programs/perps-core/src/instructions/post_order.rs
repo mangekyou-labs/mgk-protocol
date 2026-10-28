@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_reduce_only_long_position_sell_accepted() {
         let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: 100, entry_vwap: 50_000_000 };
+        p.positions[0] = Position { instrument_id: 0, qty: 100, entry_vwap: 50_000_000, ..Position::default() };
         p.positions_len = 1;
         assert!(validate_reduce_only(&p, 0, 1, 100).is_ok()); // sell, qty=100 exact
     }
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn test_reduce_only_long_position_oversized_rejected() {
         let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: 50, entry_vwap: 50_000_000 };
+        p.positions[0] = Position { instrument_id: 0, qty: 50, entry_vwap: 50_000_000, ..Position::default() };
         p.positions_len = 1;
         assert_eq!(validate_reduce_only(&p, 0, 1, 51), Err(MgkError::ReduceOnlyViolation));
     }
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn test_reduce_only_long_position_wrong_side_rejected() {
         let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: 100, entry_vwap: 50_000_000 };
+        p.positions[0] = Position { instrument_id: 0, qty: 100, entry_vwap: 50_000_000, ..Position::default() };
         p.positions_len = 1;
         assert_eq!(validate_reduce_only(&p, 0, 0, 100), Err(MgkError::ReduceOnlyViolation)); // buy
     }
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_reduce_only_short_position_buy_accepted() {
         let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: -100, entry_vwap: 50_000_000 };
+        p.positions[0] = Position { instrument_id: 0, qty: -100, entry_vwap: 50_000_000, ..Position::default() };
         p.positions_len = 1;
         assert!(validate_reduce_only(&p, 0, 0, 100).is_ok()); // buy, qty=100 exact
     }
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn test_reduce_only_short_position_oversized_rejected() {
         let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: -50, entry_vwap: 50_000_000 };
+        p.positions[0] = Position { instrument_id: 0, qty: -50, entry_vwap: 50_000_000, ..Position::default() };
         p.positions_len = 1;
         assert_eq!(validate_reduce_only(&p, 0, 0, 51), Err(MgkError::ReduceOnlyViolation));
     }
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn test_reduce_only_short_position_wrong_side_rejected() {
         let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: -100, entry_vwap: 50_000_000 };
+        p.positions[0] = Position { instrument_id: 0, qty: -100, entry_vwap: 50_000_000, ..Position::default() };
         p.positions_len = 1;
         assert_eq!(validate_reduce_only(&p, 0, 1, 100), Err(MgkError::ReduceOnlyViolation)); // sell
     }

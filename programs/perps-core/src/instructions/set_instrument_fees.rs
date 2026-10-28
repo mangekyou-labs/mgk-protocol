@@ -1,7 +1,7 @@
 //! SetInstrumentFees (disc 22) — governance-only instrument fee retune.
 
-use mgk_common::layout::{load_account, load_account_mut};
 use crate::state::{Instrument, Registry};
+use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::MgkError;
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
@@ -27,8 +27,7 @@ pub fn process_set_instrument_fees(
         return Err(MgkError::Unauthorized.into());
     }
 
-    let registry =
-        unsafe { load_account::<Registry>(registry_account)? };
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
 
     if registry.governance != *governance_account.key() {
         msg!("Error: Invalid governance");
@@ -40,19 +39,23 @@ pub fn process_set_instrument_fees(
         return Err(MgkError::InvalidInstruction.into());
     }
 
-    let instrument = unsafe {
-        load_account_mut::<Instrument>(instrument_account)?
-    };
-    apply_instrument_fees(instrument, taker_fee_bps, maker_fee_bps);
+    let instrument = unsafe { load_account_mut::<Instrument>(instrument_account)? };
+    apply_instrument_fees(instrument, taker_fee_bps, maker_fee_bps)?;
 
     msg!("SetInstrumentFees: fees updated");
     Ok(())
 }
 
-/// Locked D3 writes: taker stays a u16 fee; maker is signed (0 = free, negative = rebate).
-pub fn apply_instrument_fees(instrument: &mut Instrument, taker_fee_bps: u16, maker_fee_bps: i16) {
+/// Restricted demo schedule: 5 bps taker, zero maker; reject all retunes.
+pub fn apply_instrument_fees(
+    instrument: &mut Instrument,
+    taker_fee_bps: u16,
+    maker_fee_bps: i16,
+) -> ProgramResult {
+    Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
     instrument.taker_fee_bps = taker_fee_bps;
     instrument.maker_fee_bps = maker_fee_bps;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -64,24 +67,26 @@ mod tests {
         let mut inst = Instrument::new(0, 1, 1, 100, 50);
         inst.maker_fee_bps = -2;
         inst.taker_fee_bps = 5;
-        apply_instrument_fees(&mut inst, 5, 0);
+        apply_instrument_fees(&mut inst, 5, 0).unwrap();
         assert_eq!(inst.taker_fee_bps, 5);
         assert_eq!(inst.maker_fee_bps, 0);
     }
 
     #[test]
-    fn test_set_instrument_fees_keeps_signed_maker_field() {
+    fn restricted_demo_rejects_every_other_fee_schedule() {
         let mut inst = Instrument::new(0, 1, 1, 100, 50);
-        apply_instrument_fees(&mut inst, 5, -2);
-        assert_eq!(inst.maker_fee_bps, -2);
-        apply_instrument_fees(&mut inst, 7, 3);
-        assert_eq!(inst.taker_fee_bps, 7);
-        assert_eq!(inst.maker_fee_bps, 3);
+        for (taker, maker) in [(5, -2), (7, 0), (5, 3)] {
+            assert!(apply_instrument_fees(&mut inst, taker, maker).is_err());
+            assert_eq!((inst.taker_fee_bps, inst.maker_fee_bps), (5, 0));
+        }
     }
 
     #[test]
     fn test_set_instrument_fees_discriminator_is_22() {
-        assert_eq!(crate::instructions::CoreInstruction::SetInstrumentFees as u8, 22);
+        assert_eq!(
+            crate::instructions::CoreInstruction::SetInstrumentFees as u8,
+            22
+        );
     }
 
     #[test]

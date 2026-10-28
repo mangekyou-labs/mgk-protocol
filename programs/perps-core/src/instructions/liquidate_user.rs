@@ -335,6 +335,7 @@ mod tests {
             instrument_id: 0,
             qty: 100,
             entry_vwap: 1_000_000,
+            ..Position::default()
         };
         for _ in 0..3 {
             let (nq, _r) = apply_reduction(&p, 2_500);
@@ -349,6 +350,7 @@ mod tests {
             instrument_id: 0,
             qty: 100,
             entry_vwap: 1_000_000,
+            ..Position::default()
         };
         let (nq, _) = apply_reduction(&p, 10_000);
         assert_eq!(nq, 0);

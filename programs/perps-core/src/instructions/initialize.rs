@@ -66,6 +66,7 @@ pub fn process_initialize(
     vault_account: &AccountInfo,
     vault_bump: u8,
 ) -> ProgramResult {
+    Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
     msg!("INIT_RUST_V3");
 
     // ── Create registry PDA if needed ────────────────────────────────────────
@@ -178,24 +179,24 @@ pub fn process_initialize(
         instrument.initialize_in_place(
             instrument_id,
             sym,
-            1,    // contract_size
+            1, // contract_size
             tick_size,
             lot_size,
             imr_bps,
             mmr_bps,
             taker_fee_bps,
             maker_fee_bps,
-            10,   // max_leverage
+            10, // max_leverage
             oracle_addr,
-            100,  // funding_interval_slots
+            100,   // funding_interval_slots
             1_000, // mark_reference_qty
-            150,  // mark_decay_window_slots
+            150,   // mark_decay_window_slots
             instrument_bump,
             10_000, // funding_coefficient_bps (D7: 1x)
-            0,    // _reserved_deviation_cap
-            50,   // max_funding_rate_bps (D7: 50 bps cap)
-            0,    // _reserved_sample_qty
-            0,    // _reserved_sma_window
+            0,      // _reserved_deviation_cap
+            50,     // max_funding_rate_bps (D7: 50 bps cap)
+            0,      // _reserved_sample_qty
+            0,      // _reserved_sma_window
         );
     }
     msg!("Default instrument initialized");

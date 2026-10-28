@@ -125,7 +125,10 @@ mod tests {
         assert!(header.validate());
         assert_eq!(header.seqno, 0);
         assert_eq!(header.header.layout_version, 1);
-        assert_eq!(header.header.discriminator, crate::layout::discriminator::SLAB);
+        assert_eq!(
+            header.header.discriminator,
+            crate::layout::discriminator::SLAB
+        );
     }
 
     #[test]
@@ -143,23 +146,26 @@ mod tests {
             0,
         );
         let n = core::mem::size_of::<SlabHeader>();
-        let as_bytes = |h: &SlabHeader| -> [u8; 256] {
-            let mut b = [0u8; 256];
-            let src = unsafe { core::slice::from_raw_parts(h as *const SlabHeader as *const u8, n) };
-            b[..n].copy_from_slice(src);
+        #[repr(align(16))]
+        struct Aligned([u8; 256]);
+        let as_bytes = |h: &SlabHeader| -> Aligned {
+            let mut b = Aligned([0u8; 256]);
+            let src =
+                unsafe { core::slice::from_raw_parts(h as *const SlabHeader as *const u8, n) };
+            b.0[..n].copy_from_slice(src);
             b
         };
-        assert!(load::<SlabHeader>(&as_bytes(&header)[..n]).is_ok());
+        assert!(load::<SlabHeader>(&as_bytes(&header).0[..n]).is_ok());
         header.header = AccountHeader::new(discriminator::BATCH, 1);
         assert!(!header.validate());
         assert_eq!(
-            load::<SlabHeader>(&as_bytes(&header)[..n]).err(),
+            load::<SlabHeader>(&as_bytes(&header).0[..n]).err(),
             Some(MgkError::InvalidAccountDiscriminator)
         );
         header.header = AccountHeader::new(discriminator::SLAB, 2);
         assert!(!header.validate());
         assert_eq!(
-            load::<SlabHeader>(&as_bytes(&header)[..n]).err(),
+            load::<SlabHeader>(&as_bytes(&header).0[..n]).err(),
             Some(MgkError::UnsupportedLayoutVersion)
         );
     }

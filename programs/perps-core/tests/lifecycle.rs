@@ -479,7 +479,7 @@ fn seed_valid_oracle(pt: &mut ProgramTest, key: Pubkey, instrument: Pubkey) {
 /// Stamp the account header (discriminator + layout version) onto a fixture.
 fn stamp_header(data: &mut [u8], disc: u8) {
     data[0] = disc;
-    data[1] = LAYOUT_VERSION_1;
+    data[1] = if disc == discriminator::PORTFOLIO { 2 } else { LAYOUT_VERSION_1 };
 }
 
 /// Pre-built Portfolio account data for a single-position underwater
@@ -3855,7 +3855,7 @@ async fn test_e2e_wrong_account_header_is_rejected_with_distinct_errors() {
         (
             "correct header",
             discriminator::PORTFOLIO,
-            LAYOUT_VERSION_1,
+            2,
             None,
         ),
     ];

@@ -12,6 +12,8 @@ LAMPORTS_PER_SOL = 1_000_000_000
 LOTS_PER_SOL = 1_000
 TAKER_FEE_BPS = 5
 BPS = 10_000
+# Fixed entry quantum: 10^-12 micro-USD = 10^-18 USD.
+ENTRY_PRICE_SCALE = 10**12
 
 
 def _ceil(value: Fraction) -> int:
@@ -107,7 +109,11 @@ class Ledger:
         elif old.quantity_lots * qty > 0:
             total = abs(old.quantity_lots) + abs(qty)
             entry = (abs(old.quantity_lots) * old.entry_price + abs(qty) * fill.fill_price) / total
-            self.positions[fill.account] = Position(old.quantity_lots + qty, entry)
+            # Quantize the independently computed Fraction once per grow.
+            # Raising a long basis or lowering a short basis favors the fund.
+            scaled = entry * ENTRY_PRICE_SCALE
+            rounded = _ceil(scaled) if qty > 0 else _credit(scaled)
+            self.positions[fill.account] = Position(old.quantity_lots + qty, Fraction(rounded, ENTRY_PRICE_SCALE))
         else:
             closed = min(abs(old.quantity_lots), abs(qty))
             sign = 1 if old.quantity_lots > 0 else -1
