@@ -226,8 +226,23 @@ mod tests {
         const LAYOUT_VERSION: u8 = 3;
     }
 
-    fn probe_bytes(disc: u8, version: u8, value: u64) -> [u8; 16] {
-        let mut b = [0u8; 16];
+    // Typed loads require the same alignment as real account storage.
+    #[repr(align(16))]
+    struct Aligned([u8; 16]);
+    impl core::ops::Deref for Aligned {
+        type Target = [u8];
+        fn deref(&self) -> &[u8] {
+            &self.0
+        }
+    }
+    impl core::ops::DerefMut for Aligned {
+        fn deref_mut(&mut self) -> &mut [u8] {
+            &mut self.0
+        }
+    }
+
+    fn probe_bytes(disc: u8, version: u8, value: u64) -> Aligned {
+        let mut b = Aligned([0u8; 16]);
         b[0] = disc;
         b[1] = version;
         b[8..16].copy_from_slice(&value.to_le_bytes());
@@ -246,8 +261,16 @@ mod tests {
     fn discriminators_are_unique_and_nonzero() {
         use discriminator::*;
         let all = [
-            REGISTRY, BATCH, COMMITMENT, PORTFOLIO, VAULT, INSTRUMENT, ORDER_BOOK,
-            BATCH_RESULTS, PRICE_ORACLE, SLAB,
+            REGISTRY,
+            BATCH,
+            COMMITMENT,
+            PORTFOLIO,
+            VAULT,
+            INSTRUMENT,
+            ORDER_BOOK,
+            BATCH_RESULTS,
+            PRICE_ORACLE,
+            SLAB,
         ];
         for (i, a) in all.iter().enumerate() {
             assert_ne!(*a, UNINITIALIZED);
@@ -307,9 +330,15 @@ mod tests {
 
     #[test]
     fn load_rejects_short_data() {
-        assert_eq!(load::<Probe>(&[200, 3]).err(), Some(MgkError::InvalidAccount));
+        assert_eq!(
+            load::<Probe>(&[200, 3]).err(),
+            Some(MgkError::InvalidAccount)
+        );
         let b = probe_bytes(200, 3, 1);
-        assert_eq!(load::<Probe>(&b[..12]).err(), Some(MgkError::InvalidAccount));
+        assert_eq!(
+            load::<Probe>(&b[..12]).err(),
+            Some(MgkError::InvalidAccount)
+        );
     }
 
     #[test]
@@ -332,7 +361,7 @@ mod tests {
 
     #[test]
     fn write_header_stamps_account_and_clears_reserved() {
-        let mut b = [0xFFu8; 16];
+        let mut b = Aligned([0xFFu8; 16]);
         write_header(&mut b, 200, 3).unwrap();
         assert_eq!(&b[..8], &[200, 3, 0, 0, 0, 0, 0, 0]);
         assert_eq!(&b[8..], &[0xFF; 8]);
@@ -355,7 +384,10 @@ mod tests {
             body(&b, 200, 2).err(),
             Some(MgkError::UnsupportedLayoutVersion)
         );
-        assert_eq!(body(&[200, 3], 200, 3).err(), Some(MgkError::InvalidAccount));
+        assert_eq!(
+            body(&[200, 3], 200, 3).err(),
+            Some(MgkError::InvalidAccount)
+        );
     }
 
     #[test]
@@ -376,7 +408,7 @@ mod tests {
 
     #[test]
     fn init_mut_stamps_header_and_returns_typed_body() {
-        let mut b = [0xFFu8; 16];
+        let mut b = Aligned([0xFFu8; 16]);
         {
             let p = init_mut::<Probe>(&mut b).unwrap();
             p.value = 5;

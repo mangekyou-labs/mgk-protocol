@@ -134,9 +134,12 @@ mod tests {
         use mgk_common::layout::{discriminator, load, load_mut};
 
         let oracle = PriceOracle::new(Pubkey::default(), Pubkey::default(), 5, 1);
-        let mut buf = [0u8; PRICE_ORACLE_SIZE];
-        unsafe { *(buf.as_mut_ptr() as *mut PriceOracle) = oracle };
-        assert_eq!(load::<PriceOracle>(&buf).unwrap().price, 5);
+        #[repr(align(16))]
+        #[derive(Clone, Copy)]
+        struct Aligned([u8; PRICE_ORACLE_SIZE]);
+        let mut buf = Aligned([0u8; PRICE_ORACLE_SIZE]);
+        unsafe { *(buf.0.as_mut_ptr() as *mut PriceOracle) = oracle };
+        assert_eq!(load::<PriceOracle>(&buf.0).unwrap().price, 5);
 
         // Zeroed (uninitialised) account.
         let zeroed = [0u8; PRICE_ORACLE_SIZE];
@@ -147,17 +150,17 @@ mod tests {
 
         // Another account type's discriminator.
         let mut wrong_disc = buf;
-        wrong_disc[0] = discriminator::REGISTRY;
+        wrong_disc.0[0] = discriminator::REGISTRY;
         assert_eq!(
-            load_mut::<PriceOracle>(&mut wrong_disc).err(),
+            load_mut::<PriceOracle>(&mut wrong_disc.0).err(),
             Some(MgkError::InvalidAccountDiscriminator)
         );
 
         // Unsupported layout version.
         let mut wrong_ver = buf;
-        wrong_ver[1] = 2;
+        wrong_ver.0[1] = 2;
         assert_eq!(
-            load::<PriceOracle>(&wrong_ver).err(),
+            load::<PriceOracle>(&wrong_ver.0).err(),
             Some(MgkError::UnsupportedLayoutVersion)
         );
     }
