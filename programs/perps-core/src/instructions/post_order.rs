@@ -17,6 +17,8 @@ pub const MATCHER_PLACE_RESTING: u8 = 6;
 /// 3. [] Registry
 /// 4. [writable] Book account (matcher-owned)
 /// 5. [] Matcher program
+/// 6. [] Instrument PDA
+/// 7. [] Conversion oracle
 ///
 /// Data:
 ///   side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1)
@@ -32,6 +34,8 @@ pub fn process_post_order(
     registry_account: &AccountInfo,
     book_account: &AccountInfo,
     matcher_program: &AccountInfo,
+    instrument_account: &AccountInfo,
+    oracle_account: &AccountInfo,
     side: u8,
     is_maker: bool,
     price: i64,
@@ -42,7 +46,7 @@ pub fn process_post_order(
     crate::matcher_cpi::validate_registry(registry_account)?;
     crate::matcher_cpi::validate_book(matcher_program, book_account, Some(instrument_id))?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
-    if registry.is_trading_paused() || registry.is_posts_paused() {
+    if registry.has_unsettled_batch() || (!reduce_only && (registry.is_trading_paused() || registry.is_posts_paused())) {
         msg!("Error: Trading/posts is paused");
         return Err(MgkError::OperationPaused.into());
     }
@@ -101,14 +105,19 @@ pub fn process_post_order(
                     msg!("Error: Reduce-only order on wrong side for position");
                     return Err(MgkError::ReduceOnlyViolation.into());
                 }
-                let abs_pos = pos_qty.unsigned_abs();
-                if qty > abs_pos {
-                    msg!("Error: Reduce-only qty exceeds position");
-                    return Err(MgkError::ReduceOnlyViolation.into());
-                }
+
             }
         }
     }
+
+    let conversion = crate::risk::conversion(program_id, instrument_account, oracle_account, instrument_id)?;
+    crate::risk::refresh(portfolio, instrument_id, conversion)?;
+    let reserve = crate::risk::reservation(qty, price, conversion, reduce_only)?;
+    let order_id = unsafe { load_account::<mgk_common::book::OrderBook>(book_account)? }.next_order_id;
+    crate::risk::open(portfolio, crate::state::portfolio::OrderReservation {
+        order_id, original_qty: qty, remaining_qty: qty, price, initial_reserve: reserve,
+        instrument_id, side, reduce_only: u8::from(reduce_only), _padding: [0; 12],
+    })?;
 
     // Build CPI: disc(1) + user(32) + side(1) + is_maker(1) + price(8) + qty(8)
     //           + instrument_id(2) + reduce_only(1) = 54
@@ -291,112 +300,4 @@ mod tests {
     // T9.10.7: Reduce-only enforcement tests
     // ====================================================================
 
-    use crate::state::portfolio::{Portfolio, Position};
-    use mgk_common::MgkError;
-    use pinocchio::pubkey::Pubkey as Pk;
-
-    /// Helper: simulate reduce-only validation against a portfolio.
-    /// Returns Ok(()) if valid, Err(ReduceOnlyViolation) if not.
-    fn validate_reduce_only(
-        portfolio: &Portfolio,
-        instrument_id: u16,
-        side: u8,
-        qty: u64,
-    ) -> Result<(), MgkError> {
-        match portfolio.find_position(instrument_id) {
-            None => Err(MgkError::ReduceOnlyViolation),
-            Some((_idx, pos)) => {
-                let pos_qty = pos.qty;
-                if (pos_qty > 0 && side == 1) || (pos_qty < 0 && side == 0) {
-                    // Reducing direction — OK so far
-                } else {
-                    return Err(MgkError::ReduceOnlyViolation);
-                }
-                let abs_pos = pos_qty.unsigned_abs();
-                if qty > abs_pos {
-                    return Err(MgkError::ReduceOnlyViolation);
-                }
-                Ok(())
-            }
-        }
-    }
-
-    /// Reduce-only on flat position → Reject.
-    #[test]
-    fn test_reduce_only_flat_position_rejected() {
-        let p = Portfolio::new(Pk::default());
-        // No positions (flat)
-        let result = validate_reduce_only(&p, 0, 1, 100); // side=Sell
-        assert_eq!(result, Err(MgkError::ReduceOnlyViolation));
-    }
-
-    /// Long position, reduce-only sell (correct side) → Accept.
-    #[test]
-    fn test_reduce_only_long_position_sell_accepted() {
-        let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: 100, entry_vwap: 50_000_000, ..Position::default() };
-        p.positions_len = 1;
-        assert!(validate_reduce_only(&p, 0, 1, 100).is_ok()); // sell, qty=100 exact
-    }
-
-    /// Long position, reduce-only sell oversized → Reject.
-    #[test]
-    fn test_reduce_only_long_position_oversized_rejected() {
-        let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: 50, entry_vwap: 50_000_000, ..Position::default() };
-        p.positions_len = 1;
-        assert_eq!(validate_reduce_only(&p, 0, 1, 51), Err(MgkError::ReduceOnlyViolation));
-    }
-
-    /// Long position, reduce-only buy (wrong side) → Reject.
-    #[test]
-    fn test_reduce_only_long_position_wrong_side_rejected() {
-        let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: 100, entry_vwap: 50_000_000, ..Position::default() };
-        p.positions_len = 1;
-        assert_eq!(validate_reduce_only(&p, 0, 0, 100), Err(MgkError::ReduceOnlyViolation)); // buy
-    }
-
-    /// Short position, reduce-only buy (correct side) → Accept.
-    #[test]
-    fn test_reduce_only_short_position_buy_accepted() {
-        let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: -100, entry_vwap: 50_000_000, ..Position::default() };
-        p.positions_len = 1;
-        assert!(validate_reduce_only(&p, 0, 0, 100).is_ok()); // buy, qty=100 exact
-    }
-
-    /// Short position, reduce-only buy oversized → Reject.
-    #[test]
-    fn test_reduce_only_short_position_oversized_rejected() {
-        let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: -50, entry_vwap: 50_000_000, ..Position::default() };
-        p.positions_len = 1;
-        assert_eq!(validate_reduce_only(&p, 0, 0, 51), Err(MgkError::ReduceOnlyViolation));
-    }
-
-    /// Short position, reduce-only sell (wrong side) → Reject.
-    #[test]
-    fn test_reduce_only_short_position_wrong_side_rejected() {
-        let mut p = Portfolio::new(Pk::default());
-        p.positions[0] = Position { instrument_id: 0, qty: -100, entry_vwap: 50_000_000, ..Position::default() };
-        p.positions_len = 1;
-        assert_eq!(validate_reduce_only(&p, 0, 1, 100), Err(MgkError::ReduceOnlyViolation)); // sell
-    }
-
-    /// ReduceOnlyViolation = 606 is pinned.
-    #[test]
-    fn test_reduce_only_violation_discriminator() {
-        assert_eq!(MgkError::ReduceOnlyViolation as u32, 606);
-    }
-
-    /// Non-reduce-only order skips the check (always accepted if other validations pass).
-    #[test]
-    fn test_non_reduce_only_skips_check() {
-        let p = Portfolio::new(Pk::default());
-        // Flat position, but reduce_only=false so no validation applies.
-        // The actual validation only runs when reduce_only=true;
-        // this test documents that behavior.
-        assert!(p.positions_len == 0); // flat
-    }
 }

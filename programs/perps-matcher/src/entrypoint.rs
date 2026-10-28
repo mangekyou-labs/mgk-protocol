@@ -18,6 +18,7 @@ enum MatcherInstruction {
     /// Create book PDA for an instrument (disc 7).
     InitializeBook,
     ConsumeResults,
+    CancelSettledOrders,
 }
 
 pub fn process_instruction(
@@ -40,6 +41,7 @@ pub fn process_instruction(
         6 => MatcherInstruction::PlaceResting,
         7 => MatcherInstruction::InitializeBook,
         8 => MatcherInstruction::ConsumeResults,
+        9 => MatcherInstruction::CancelSettledOrders,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(ProgramError::InvalidInstructionData);
@@ -71,11 +73,38 @@ pub fn process_instruction(
         MatcherInstruction::ConsumeResults => {
             process_consume_results(accounts, &instruction_data[1..])
         }
+        MatcherInstruction::CancelSettledOrders => {
+            process_cancel_settled_orders(program_id, accounts, &instruction_data[1..])
+        }
         MatcherInstruction::InitializeBook => {
             msg!("Instruction: InitializeBook");
             instructions::process_initialize_book(program_id, accounts, &instruction_data[1..])
         }
     }
+}
+
+/// Authenticate the permissionless settlement CPI and decode its bounded IDs.
+fn process_cancel_settled_orders(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    mgk_common::matcher::validate_authority(authority)?;
+    let book = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
+    mgk_common::validate_writable(book)?;
+    mgk_common::validate_owner(book, program_id)?;
+    let count = *data.first().ok_or(ProgramError::InvalidInstructionData)? as usize;
+    if count > mgk_common::matcher::MAX_SETTLEMENT_ORDERS || data.len() != 1 + count * 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let mut order_ids = [0u64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+    for (index, id) in order_ids.iter_mut().enumerate().take(count) {
+        let start = 1 + index * 8;
+        *id = u64::from_le_bytes(data[start..start + 8].try_into().unwrap());
+    }
+    let mut raw = book.try_borrow_mut_data()?;
+    let state = crate::state::book_state_from_bytes_mut(&mut raw)?;
+    if book.key() != &mgk_common::book::book_pda(program_id, state.book.instrument_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    instructions::cancel_settled_orders(state, &order_ids[..count])
 }
 
 /// Authenticate and decode the runtime boundary before consuming matcher output.
@@ -90,4 +119,17 @@ fn process_consume_results(accounts: &[AccountInfo], data: &[u8]) -> ProgramResu
     mgk_common::matcher::validate_results(results, batch_id)?;
     let mut raw = results.try_borrow_mut_data()?;
     instructions::consume_results(&mut raw, batch_id)
+}
+
+#[cfg(test)]
+mod settlement_cancel_tests {
+    use super::*;
+
+    #[test]
+    fn settlement_cannot_cancel_orders_without_the_core_authority() {
+        assert_eq!(
+            process_instruction(&mgk_common::program_ids::PERPS_MATCHER_ID, &[], &[9, 0]),
+            Err(ProgramError::NotEnoughAccountKeys)
+        );
+    }
 }

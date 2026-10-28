@@ -1126,6 +1126,18 @@ pub fn process_place_resting(
 const CANCEL_DATA_LEN: usize = 32 + 8; // user(32) + order_id(8)
 const MODIFY_DATA_LEN: usize = 32 + 8 + 8; // user(32) + order_id(8) + new_qty(8)
 
+/// Cancel validated settlement order IDs; missing IDs were fully filled.
+pub fn cancel_settled_orders(state: &mut crate::state::BookState, order_ids: &[u64]) -> ProgramResult {
+    for &id in order_ids {
+        if let Some(order) = state.resting[..state.resting_count]
+            .iter().find(|order| order.qty > 0 && order.order_id == id) {
+            let user = order.user;
+            cancel_resting_by_id(state, id, &user)?;
+        }
+    }
+    Ok(())
+}
+
 /// Cancel a single resting order by `order_id`.
 ///
 /// Accounts:

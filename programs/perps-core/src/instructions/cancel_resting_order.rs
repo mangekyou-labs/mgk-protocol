@@ -1,5 +1,5 @@
 use crate::state::Portfolio;
-use mgk_common::layout::load_account;
+use mgk_common::layout::load_account_mut;
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
@@ -33,11 +33,16 @@ pub fn process_cancel_resting_order(
     validate_writable(portfolio_account)?;
     validate_writable(book_account)?;
 
-    let portfolio = unsafe { load_account::<Portfolio>(portfolio_account)? };
+    let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());
     }
+
+    crate::risk::unlocked(registry_account)?;
+    let index = portfolio.orders.iter().position(|o| o.remaining_qty != 0 && o.order_id == order_id)
+        .ok_or(MgkError::InvalidOrder)?;
+    crate::matcher_cpi::validate_book(matcher_program, book_account, Some(portfolio.orders[index].instrument_id))?;
 
     // Build CPI to matcher's CancelResting (disc 1).
     // Wire: discriminator(1) + user(32) + order_id(8) = 41 bytes
@@ -53,6 +58,8 @@ pub fn process_cancel_resting_order(
         matcher_program,
         &cpi_data,
     )?;
+
+    crate::risk::release(portfolio, index, portfolio.orders[index].remaining_qty)?;
 
     msg!("CancelRestingOrder: CPI to matcher complete");
     Ok(())

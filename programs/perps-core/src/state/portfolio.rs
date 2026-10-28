@@ -39,15 +39,26 @@ pub struct Portfolio {
     pub _padding: [u8; 7],
     /// Explicit tail padding so the size is a multiple of 16 on every target.
     pub _pad_tail: [u8; 8],
+    pub reserved_collateral: u128,
+    pub risk_pnl: i128,
+    pub orders: [OrderReservation; 12],
 }
 
 // Host (u128 align 16) and SBF (u128 align 8) must agree on this layout: every
 // 128-bit field sits at a 16-aligned offset by construction, and the struct
 // size is a multiple of 16. Checked at compile time for the target being built.
 const _: () = {
-    use core::mem::{offset_of, size_of};
-    assert!(size_of::<Portfolio>() == 2048);
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(size_of::<Portfolio>() == 2848);
     assert!(size_of::<Position>() == 40);
+    assert!(offset_of!(Portfolio, reserved_collateral) == 2048);
+    assert!(offset_of!(Portfolio, risk_pnl) == 2064);
+    assert!(offset_of!(Portfolio, orders) == 2080);
+    assert!(size_of::<OrderReservation>() == 64);
+    // SBF aligns u128 to8; all fields still occupy identical byte offsets.
+    assert!(align_of::<OrderReservation>() == align_of::<u128>());
+    assert!(offset_of!(OrderReservation, initial_reserve) == 32);
+    assert!(offset_of!(OrderReservation, instrument_id) == 48);
     assert!(offset_of!(Portfolio, user) == 8);
     assert!(offset_of!(Portfolio, equity) == 48);
     assert!(offset_of!(Portfolio, principal) == 64);
@@ -89,10 +100,33 @@ pub struct Position {
     pub entry_denominator: u64,
 }
 
+/// Reservation provenance survives tentative matching until settlement consumes it.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct OrderReservation {
+    pub order_id: u64,
+    pub original_qty: u64,
+    pub remaining_qty: u64,
+    pub price: i64,
+    pub initial_reserve: u128,
+    pub instrument_id: u16,
+    pub side: u8,
+    pub reduce_only: u8,
+    pub _padding: [u8; 12],
+}
+impl OrderReservation {
+    pub fn reserved(&self) -> u128 {
+        if self.remaining_qty == 0 { return 0; }
+        (self.initial_reserve / self.original_qty as u128) * self.remaining_qty as u128
+            + ((self.initial_reserve % self.original_qty as u128) * self.remaining_qty as u128)
+                .div_ceil(self.original_qty as u128)
+    }
+}
+
 // SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
 unsafe impl AccountLayout for Portfolio {
     const DISCRIMINATOR: u8 = discriminator::PORTFOLIO;
-    const LAYOUT_VERSION: u8 = 2;
+    const LAYOUT_VERSION: u8 = 3;
 }
 
 impl Portfolio {
@@ -120,11 +154,15 @@ impl Portfolio {
         self.bump = bump;
         self._padding = [0; 7];
         self._pad_tail = [0; 8];
+        self.reserved_collateral = 0;
+        self.risk_pnl = 0;
+        self.orders = [OrderReservation::default(); 12];
     }
 
     pub fn recalc_margin(&mut self) {
-        self.free_collateral = self.equity - self.im as i128;
-        self.health = self.equity - self.mm as i128;
+        self.free_collateral = self.equity.saturating_add(self.risk_pnl.min(0))
+            .saturating_sub(self.im as i128).saturating_sub(self.reserved_collateral as i128);
+        self.health = self.equity.saturating_add(self.risk_pnl).saturating_sub(self.mm as i128);
     }
 
     /// Returns `true` if the portfolio is underwater (`health < 0`) and
@@ -180,6 +218,9 @@ impl Portfolio {
             bump: 0,
             _padding: [0; 7],
             _pad_tail: [0; 8],
+            reserved_collateral: 0,
+            risk_pnl: 0,
+            orders: [OrderReservation::default(); 12],
         };
         p.recalc_margin();
         p
@@ -196,7 +237,7 @@ mod tests {
         use mgk_common::MgkError;
         let p = Portfolio::new(Pubkey::from([4u8; 32]));
         assert_eq!(p.header.discriminator, discriminator::PORTFOLIO);
-        assert_eq!(p.header.layout_version, 2);
+        assert_eq!(p.header.layout_version, 3);
 
         let words = core::mem::size_of::<Portfolio>().div_ceil(16);
         let mut buf = std::vec![0u128; words];
