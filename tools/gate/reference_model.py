@@ -14,6 +14,9 @@ TAKER_FEE_BPS = 5
 BPS = 10_000
 # Fixed entry quantum: 10^-12 micro-USD = 10^-18 USD.
 ENTRY_PRICE_SCALE = 10**12
+# Exposure limits from the reserve and insurance contract, in 0.001 SOL lots.
+POSITION_CAP_LOTS = 10 * LOTS_PER_SOL
+OPEN_INTEREST_CAP_LOTS = 50 * LOTS_PER_SOL
 
 
 def _ceil(value: Fraction) -> int:
@@ -133,12 +136,12 @@ class Ledger:
             self._charge_fee(fill.account, fee)
 
     def _charge_fee(self, account: str, fee: int) -> None:
+        # Settlement never rejects a fill: only collectible lamports move.
         available = self.collateral.get(account, 0)
-        if fee > available:
-            raise ValueError("insufficient collateral for fee")
-        self.collateral[account] = available - fee
-        self.fees_lamports[account] = self.fees_lamports.get(account, 0) + fee
-        self._inflow(fee)
+        collected = min(fee, available)
+        self.collateral[account] = available - collected
+        self.fees_lamports[account] = self.fees_lamports.get(account, 0) + collected
+        self._inflow(collected)
 
     def liquidate(self, account: str, liquidator: str, quantity_lots: int, conversion_price: int) -> None:
         next_state = deepcopy(self)
@@ -201,6 +204,61 @@ class Ledger:
         if larger_side_open_interest_lots < 0:
             raise ValueError("negative open interest")
         return _ceil(Fraction(larger_side_open_interest_lots * LAMPORTS_PER_SOL * 2, LOTS_PER_SOL * 5))
+
+    def open_interest(self) -> tuple[int, int]:
+        """Open interest in lots as (long side, short side), from positions."""
+        long_side = sum(p.quantity_lots for p in self.positions.values() if p.quantity_lots > 0)
+        short_side = sum(-p.quantity_lots for p in self.positions.values() if p.quantity_lots < 0)
+        return long_side, short_side
+
+    def reserve_requirement(self) -> int:
+        return self.required_reserve(max(self.open_interest()))
+
+    def check_post(self, account: str, quantity_lots: int, reduce_only: bool = False,
+                   resting_lots: int = 0) -> None:
+        """Raise ValueError if posting/modifying this order must be rejected.
+
+        `quantity_lots` is signed (buy positive). `resting_lots` is the
+        account's same-side resting exposure-adding quantity. Reduce-only
+        orders add no exposure and are always accepted.
+        """
+        if quantity_lots == 0 or resting_lots < 0:
+            raise ValueError("invalid order")
+        if reduce_only:
+            return
+        if self.trading_paused:
+            raise ValueError("trading paused")
+        quantity = abs(quantity_lots)
+        direction = 1 if quantity_lots > 0 else -1
+        position = self.positions.get(account)
+        held = position.quantity_lots if position is not None else 0
+        if abs(held + direction * (resting_lots + quantity)) > POSITION_CAP_LOTS:
+            raise ValueError("position cap exceeded")
+        long_side, short_side = self.open_interest()
+        side_after = (long_side if direction > 0 else short_side) + quantity
+        if side_after > OPEN_INTEREST_CAP_LOTS:
+            raise ValueError("open interest cap exceeded")
+        if self.fund_lamports < self.required_reserve(max(long_side, short_side) + quantity):
+            raise ValueError("risk-off: fund below required reserve")
+
+    def withdraw_fund(self, amount: int) -> int:
+        """Admin withdrawal, limited to the surplus above the required reserve."""
+        surplus = self.fund_lamports - self.reserve_requirement()
+        if self.uncovered_bad_debt or amount <= 0 or amount > surplus:
+            raise ValueError("fund withdrawal exceeds surplus")
+        self.fund_lamports -= amount
+        return amount
+
+    def unpause(self, withdrawals: bool = False, trading: bool = False) -> None:
+        """Admin recovery: debt 0 and reserve met; withdrawals before trading."""
+        if self.uncovered_bad_debt or self.fund_lamports < self.reserve_requirement():
+            raise ValueError("recovery conditions not met")
+        withdrawals_after = self.withdrawals_paused and not withdrawals
+        if trading and withdrawals_after:
+            raise ValueError("withdrawals must be unpaused before trading")
+        self.withdrawals_paused = withdrawals_after
+        if trading:
+            self.trading_paused = False
 
     def withdraw(self, account: str, amount: int, conversion_price: int | None = None,
                  reservations: int = 0) -> int:

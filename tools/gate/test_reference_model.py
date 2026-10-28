@@ -112,14 +112,14 @@ class ReferenceModelTests(unittest.TestCase):
             ledger.withdraw("B", 70_909_091, 110_000_000)
         self.assertEqual(ledger.collateral["B"], 100_000_000)
 
-    def test_fee_rejection_preserves_entire_ledger(self):
-        ledger = Ledger(fund_lamports=1_000_000, collateral={"A": 0})
-        before = ledger.vault_liability_lamports()
-        with self.assertRaises(ValueError):
-            ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, False))
-        self.assertNotIn("A", ledger.positions)
-        self.assertEqual(ledger.fund_lamports, 1_000_000)
-        self.assertEqual(ledger.vault_liability_lamports(), before)
+    def test_taker_fee_is_capped_at_available_collateral_and_never_rejects_the_fill(self):
+        ledger = Ledger(fund_lamports=1_000_000, collateral={"A": 20_000})
+        ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, False))
+        self.assertEqual(ledger.positions["A"].quantity_lots, 100)
+        self.assertEqual(ledger.collateral["A"], 0)
+        self.assertEqual(ledger.fees_lamports["A"], 20_000)
+        self.assertEqual(ledger.fund_lamports, 1_020_000)
+        self.assertEqual(ledger.vault_liability_lamports(), 1_020_000)
 
     def test_uncollectible_loss_does_not_remove_unmoved_vault_lamports(self):
         ledger = Ledger(fund_lamports=20_000_000, collateral={"A": 1_000_000})
@@ -159,6 +159,156 @@ class ReferenceModelTests(unittest.TestCase):
         self.assertEqual(ledger.collateral["L"], 1_000_250_000)
         self.assertEqual(ledger.fund_lamports, 20_000_250_000)
         self.assertEqual(ledger.collateral["A"], 999_500_000)
+
+
+def _balanced_book(fund, per_side_accounts=2, lots=10_000):
+    """Longs L0.. and shorts S0.. each holding `lots`, opened with maker fills."""
+    collateral = {}
+    for i in range(per_side_accounts):
+        collateral[f"L{i}"] = 10_000_000_000
+        collateral[f"S{i}"] = 10_000_000_000
+    ledger = Ledger(fund_lamports=fund, collateral=collateral)
+    for i in range(per_side_accounts):
+        ledger.apply_fill(Fill(f"L{i}", lots, 100_000_000, 100_000_000, True))
+        ledger.apply_fill(Fill(f"S{i}", -lots, 100_000_000, 100_000_000, True))
+    return ledger
+
+
+def _exhausted_ledger():
+    ledger = Ledger(fund_lamports=5_000_000, collateral={"A": 0, "B": 100_000_000})
+    ledger.apply_fill(Fill("A", 100, 100_000_000, 110_000_000, True))
+    ledger.apply_fill(Fill("B", -100, 100_000_000, 110_000_000, True))
+    ledger.apply_fill(Fill("A", -100, 110_000_000, 110_000_000, True))
+    return ledger
+
+
+class InsuranceFundLimitTests(unittest.TestCase):
+    def test_open_interest_is_tracked_per_side_from_positions(self):
+        ledger = _balanced_book(fund=0, per_side_accounts=2, lots=300)
+        self.assertEqual(ledger.open_interest(), (600, 600))
+        ledger.apply_fill(Fill("L0", -100, 100_000_000, 100_000_000, True))
+        self.assertEqual(ledger.open_interest(), (500, 600))
+        self.assertEqual(ledger.reserve_requirement(), Ledger.required_reserve(600))
+
+    def test_position_cap_is_ten_sol_per_portfolio(self):
+        ledger = Ledger(fund_lamports=1_000_000_000_000, collateral={"A": 10_000_000_000})
+        ledger.check_post("A", 10_000)
+        ledger.check_post("A", -10_000)
+        with self.assertRaises(ValueError):
+            ledger.check_post("A", 10_001)
+        ledger.apply_fill(Fill("A", 9_000, 100_000_000, 100_000_000, True))
+        ledger.check_post("A", 1_000)
+        with self.assertRaises(ValueError):
+            ledger.check_post("A", 1_001)
+        # Same-side resting orders count toward the worst case.
+        with self.assertRaises(ValueError):
+            ledger.check_post("A", 600, resting_lots=401)
+        ledger.check_post("A", 600, resting_lots=400)
+        # Reducing is never an exposure add.
+        ledger.check_post("A", -9_000, reduce_only=True)
+
+    def test_open_interest_cap_is_fifty_sol_per_side(self):
+        ledger = _balanced_book(fund=1_000_000_000_000, per_side_accounts=4, lots=10_000)
+        self.assertEqual(ledger.open_interest(), (40_000, 40_000))
+        ledger.apply_fill(Fill("L4", 9_999, 100_000_000, 100_000_000, True))
+        ledger.apply_fill(Fill("S4", -9_999, 100_000_000, 100_000_000, True))
+        ledger.check_post("M", 1)
+        with self.assertRaises(ValueError):
+            ledger.check_post("M", 2)
+        with self.assertRaises(ValueError):
+            ledger.check_post("M", -2)
+        ledger.check_post("M", 2, reduce_only=True)
+
+    def test_risk_off_requires_fund_for_larger_side_plus_order(self):
+        ledger = _balanced_book(fund=10_000_000_000, per_side_accounts=2, lots=10_000)
+        self.assertEqual(ledger.reserve_requirement(), 8_000_000_000)
+        ledger.check_post("M", 5_000)
+        with self.assertRaises(ValueError):
+            ledger.check_post("M", 5_001)
+        with self.assertRaises(ValueError):
+            ledger.check_post("M", -5_001)
+        # Closing orders keep working while the fund is short of the reserve.
+        thin = _balanced_book(fund=1, per_side_accounts=2, lots=10_000)
+        with self.assertRaises(ValueError):
+            thin.check_post("M", 1)
+        thin.check_post("L0", -10_000, reduce_only=True)
+
+    def test_paused_trading_rejects_only_exposure_adding_orders(self):
+        ledger = _exhausted_ledger()
+        with self.assertRaises(ValueError):
+            ledger.check_post("B", -1)
+        ledger.check_post("B", 100, reduce_only=True)
+
+    def test_fund_withdrawal_is_limited_to_surplus_above_required_reserve(self):
+        ledger = _balanced_book(fund=10_000_000_000, per_side_accounts=2, lots=10_000)
+        before = ledger.vault_liability_lamports()
+        with self.assertRaises(ValueError):
+            ledger.withdraw_fund(2_000_000_001)
+        with self.assertRaises(ValueError):
+            ledger.withdraw_fund(0)
+        self.assertEqual(ledger.fund_lamports, 10_000_000_000)
+        self.assertEqual(ledger.withdraw_fund(2_000_000_000), 2_000_000_000)
+        self.assertEqual(ledger.fund_lamports, 8_000_000_000)
+        self.assertEqual(ledger.vault_liability_lamports(), before - 2_000_000_000)
+        with self.assertRaises(ValueError):
+            ledger.withdraw_fund(1)
+
+    def test_fund_withdrawal_is_blocked_while_debt_is_outstanding(self):
+        ledger = _exhausted_ledger()
+        with self.assertRaises(ValueError):
+            ledger.withdraw_fund(1)
+
+    def test_exhausted_fund_credits_winner_in_full_and_pauses_everything(self):
+        ledger = _exhausted_ledger()
+        self.assertEqual(ledger.collateral["A"], 9_090_909)
+        self.assertEqual((ledger.fund_lamports, ledger.uncovered_bad_debt), (0, 4_090_909))
+        self.assertTrue(ledger.trading_paused and ledger.withdrawals_paused)
+        self.assertEqual(ledger.vault_liability_lamports(), 9_090_909 + 100_000_000 - 4_090_909)
+
+    def test_unpause_requires_zero_debt_and_met_reserve_with_withdrawals_first(self):
+        ledger = _exhausted_ledger()
+        with self.assertRaises(ValueError):
+            ledger.unpause(withdrawals=True)
+        # A top-up that only clears the debt leaves the fund below the reserve.
+        ledger.top_up(4_090_909)
+        self.assertEqual((ledger.fund_lamports, ledger.uncovered_bad_debt), (0, 0))
+        self.assertEqual(ledger.open_interest(), (0, 100))
+        self.assertEqual(ledger.reserve_requirement(), 40_000_000)
+        with self.assertRaises(ValueError):
+            ledger.unpause(withdrawals=True)
+        ledger.top_up(40_000_000)
+        with self.assertRaises(ValueError):
+            ledger.unpause(trading=True)
+        self.assertTrue(ledger.trading_paused and ledger.withdrawals_paused)
+        ledger.unpause(withdrawals=True)
+        self.assertFalse(ledger.withdrawals_paused)
+        self.assertTrue(ledger.trading_paused)
+        ledger.unpause(trading=True)
+        self.assertFalse(ledger.trading_paused)
+
+    def test_unpause_can_clear_both_flags_in_one_call(self):
+        ledger = _exhausted_ledger()
+        ledger.apply_fill(Fill("B", 100, 110_000_000, 120_000_000, True))
+        ledger.top_up(1)
+        ledger.unpause(withdrawals=True, trading=True)
+        self.assertFalse(ledger.trading_paused or ledger.withdrawals_paused)
+
+    def test_top_up_repays_debt_before_the_fund(self):
+        ledger = _exhausted_ledger()
+        ledger.top_up(1_000_000)
+        self.assertEqual((ledger.fund_lamports, ledger.uncovered_bad_debt), (0, 3_090_909))
+        ledger.top_up(4_000_000)
+        self.assertEqual((ledger.fund_lamports, ledger.uncovered_bad_debt), (909_091, 0))
+
+    def test_winner_withdraws_profit_while_loser_position_stays_open(self):
+        ledger = Ledger(fund_lamports=20_000_000_000, collateral={"A": 0, "B": 100_000_000})
+        ledger.apply_fill(Fill("A", 100, 100_000_000, 110_000_000, True))
+        ledger.apply_fill(Fill("B", -100, 100_000_000, 110_000_000, True))
+        ledger.apply_fill(Fill("A", -100, 110_000_000, 110_000_000, True))
+        before = ledger.vault_liability_lamports()
+        self.assertEqual(ledger.withdraw("A", 9_090_909), 9_090_909)
+        self.assertEqual(ledger.vault_liability_lamports(), before - 9_090_909)
+        self.assertEqual(ledger.open_interest(), (0, 100))
 
 
 if __name__ == "__main__":
