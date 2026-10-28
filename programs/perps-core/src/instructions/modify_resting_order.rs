@@ -1,5 +1,5 @@
 use crate::state::Portfolio;
-use mgk_common::layout::load_account;
+use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
@@ -13,6 +13,9 @@ pub const MATCHER_MODIFY_RESTING: u8 = 2;
 /// 1. [signer, writable] User wallet
 /// 2. [writable] Book account (PDA: `["book", instrument_id_le]`, matcher-owned)
 /// 3. [] Matcher program
+/// 4. [] Registry
+/// 5. [] Instrument PDA
+/// 6. [] Conversion oracle
 ///
 /// Data: order_id(8) + new_qty(8)
 #[allow(clippy::too_many_arguments)]
@@ -23,6 +26,8 @@ pub fn process_modify_resting_order(
     book_account: &AccountInfo,
     matcher_program: &AccountInfo,
     registry_account: &AccountInfo,
+    instrument_account: &AccountInfo,
+    oracle_account: &AccountInfo,
     order_id: u64,
     new_qty: u64,
 ) -> ProgramResult {
@@ -40,11 +45,32 @@ pub fn process_modify_resting_order(
     validate_writable(portfolio_account)?;
     validate_writable(book_account)?;
 
-    let portfolio = unsafe { load_account::<Portfolio>(portfolio_account)? };
+    let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());
     }
+
+    crate::risk::unlocked(registry_account)?;
+    let index = portfolio.orders.iter().position(|o| o.remaining_qty != 0 && o.order_id == order_id)
+        .ok_or(MgkError::InvalidOrder)?;
+    let mut order = portfolio.orders[index];
+    crate::matcher_cpi::validate_book(matcher_program, book_account, Some(order.instrument_id))?;
+    let conversion = crate::risk::conversion(program_id, instrument_account, oracle_account, order.instrument_id)?;
+    crate::risk::refresh(portfolio, order.instrument_id, conversion)?;
+    let registry = unsafe { load_account::<crate::state::Registry>(registry_account)? };
+    if order.reduce_only == 0 && (registry.is_trading_paused() || registry.is_posts_paused()) {
+        return Err(MgkError::OperationPaused.into());
+    }
+    if order.reduce_only != 0 {
+        let qty = portfolio.find_position(order.instrument_id).map_or(0, |(_, p)| p.qty);
+        if qty == 0 || (qty > 0) == (order.side == 0) { return Err(MgkError::ReduceOnlyViolation.into()); }
+    }
+    crate::risk::release(portfolio, index, order.remaining_qty)?;
+    order.original_qty = new_qty;
+    order.remaining_qty = new_qty;
+    order.initial_reserve = crate::risk::reservation(new_qty, order.price, conversion, order.reduce_only != 0)?;
+    crate::risk::open(portfolio, order)?;
 
     // Build CPI to matcher's ModifyResting (disc 2).
     // Wire: discriminator(1) + user(32) + order_id(8) + new_qty(8) = 49 bytes

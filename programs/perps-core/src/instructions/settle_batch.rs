@@ -78,6 +78,7 @@ pub fn process_settle_batch(
     {
         return Err(ProgramError::InvalidSeeds);
     }
+    mgk_common::validate_writable(book_account)?;
     for account in portfolio_accounts {
         mgk_common::validate_owner(account, program_id)?;
         mgk_common::validate_writable(account)?;
@@ -170,6 +171,18 @@ struct RuntimeEnvironment<'a> {
     next_batch_account: &'a AccountInfo,
 }
 impl transition::Environment for RuntimeEnvironment<'_> {
+    fn cancel_order(&mut self, order_id: u64) -> ProgramResult {
+        let mut data = [0u8; 10];
+        data[0] = 9;
+        data[1] = 1;
+        data[2..].copy_from_slice(&order_id.to_le_bytes());
+        let metas = [
+            pinocchio::instruction::AccountMeta::readonly_signer(self.registry_account.key()),
+            pinocchio::instruction::AccountMeta::writable(self.book_account.key()),
+        ];
+        crate::matcher_cpi::signed(self.registry_account, self.matcher_program, &metas,
+            &[self.registry_account, self.book_account], &data)
+    }
     fn registry(&self) -> Result<Registry, ProgramError> {
         Ok(unsafe { *load_account::<Registry>(self.registry_account)? })
     }

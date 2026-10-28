@@ -1,5 +1,5 @@
 use crate::state::Portfolio;
-use mgk_common::layout::load_account;
+use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
@@ -47,7 +47,7 @@ pub fn process_cancel_all_resting_orders(
         validate_writable(book)?;
     }
 
-    let portfolio = unsafe { load_account::<Portfolio>(portfolio_account)? };
+    let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     if portfolio.user != *user_account.key() {
         msg!("Error: Portfolio does not belong to user");
         return Err(MgkError::Unauthorized.into());
@@ -58,12 +58,16 @@ pub fn process_cancel_all_resting_orders(
         return Err(MgkError::InvalidInstruction.into());
     }
 
+    crate::risk::unlocked(registry_account)?;
+
     // Build the CPI data once — same user for every book.
     let mut cpi_data = [0u8; 1 + 32];
     cpi_data[0] = MATCHER_CANCEL_ALL;
     cpi_data[1..33].copy_from_slice(user_account.key().as_ref());
 
     for book in book_accounts {
+        crate::matcher_cpi::validate_book(matcher_program, book, None)?;
+        let id = unsafe { load_account::<mgk_common::book::OrderBook>(book)? }.instrument_id;
         crate::matcher_cpi::trader(
             registry_account,
             user_account,
@@ -71,6 +75,11 @@ pub fn process_cancel_all_resting_orders(
             matcher_program,
             &cpi_data,
         )?;
+        for i in 0..portfolio.orders.len() {
+            if portfolio.orders[i].remaining_qty != 0 && portfolio.orders[i].instrument_id == id {
+                crate::risk::release(portfolio, i, portfolio.orders[i].remaining_qty)?;
+            }
+        }
     }
 
     msg!("CancelAllRestingOrders: CPI to matcher complete");

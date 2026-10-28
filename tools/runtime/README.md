@@ -65,7 +65,7 @@ The smoke seeds zeroed account storage, then executes the candidate oracle and
 signed initialize, portfolio creation, deposit, order posting, batch closing,
 clearing and settlement instructions. Each batch decodes the actual matcher
 fills in cleared-results order and passes them to the independent issue-14
-Python `Fraction` ledger. Seven batches cover a same-price roundtrip, opening
+Python `Fraction` ledger. Nine batches cover a same-price roundtrip, opening
 without exchanging notional cash, fractional weighted entry, partial reduction,
 flipping, closing, and two opposite auctions within one batch. Conversion prices
 vary independently of fill prices.
@@ -87,7 +87,7 @@ compares all protected account bytes and lamports after rollback, and successful
 retries with a fresh oracle. It also checks deliberate mismatch rejection and
 runs a child process against RPC.
 
-The smoke adapter uses Portfolio version 2 (2048 bytes): collateral at byte 48,
+The smoke adapter uses Portfolio version 3 (2848 bytes): collateral at byte 48,
 realized USD/lamports at 80/96, fees/funding at 112/128, position count at 208,
 and 40-byte positions at 216. Entry is an integer floor plus an unsigned
 remainder/denominator; a zero denominator denotes an integer entry. Otherwise
@@ -97,17 +97,35 @@ for longs, floor for shorts. Each grow adds less than one quantum of rounding
 error toward the protocol; reductions retain the entry. The Python Fraction
 ledger implements that policy independently before cashflow conversion.
 
-Five additional matcher-owned cleared-results fixture batches execute 128
-alternating one-lot grow/reduce cycles for both balanced counterparties, then
-close. These fixtures bypass order matching and run public signed SettleBatch
-instructions against the actual SBF program. They cover the previous ~64-cycle
-denominator exhaustion without hundreds of posting transactions. The report
-marks every fixture input as `cleared-results arithmetic fixture`, distinct from
-`observed matcher output` in the seven full matcher lifecycle batches. All
-fixture fills are independently applied to the model, and every settlement
-checks the fixed grid, positions, cumulative cashflows and physical vault.
+Portfolio version 3 appends total reserved collateral at byte 2048, oracle-priced
+unrealized PnL at 2064, and twelve 64-byte order reservation records at 2080.
+Each record stores order ID, original/remaining quantity, limit price, original
+reservation, instrument, side and reduce-only flag. This provenance survives
+matching and is consumed by settlement; old version-2 portfolios must be
+recreated for the restricted demo.
 
- Other
+PostOrder (20) appends readonly Instrument and Oracle accounts after Matcher
+(indices 6 and 7). ModifyRestingOrder (12) uses Portfolio, User, Book, Matcher,
+Registry, Instrument and Oracle in that order. Withdraw (3) appends Instrument
+and Oracle after Registry when a position or reservation is present; flat
+portfolios without orders can withdraw without oracle accounts. Cancellation
+releases the recorded reservation without requiring a fresh oracle.
+
+IM is 20% and MM is 10% at the conversion price. Non-reduce-only orders reserve
+IM on quantity times the greater of limit and conversion price, plus the worst
+5-bps fee; reduce-only orders reserve only that fee. Remaining reservations
+round upward after proportional release. Withdrawable collateral deducts
+unrealized losses, position IM and reservations; unrealized gains contribute
+only to maintenance health. Settlement clips reduce-only quantities in fill
+order and trims the opposing auction side to conserve base quantity. Excess
+reduce-only quantity and its resting remainder are cancelled.
+
+Synthetic cleared-results fixtures without reservation provenance are rejected
+by the runtime. Long grow/reduce arithmetic stress remains covered through the
+native transition seam; signed runtime coverage uses authenticated posted
+orders and matcher output.
+
+Other
 account layouts and instruction encodings remain version 1. Future protocol
 layout changes must update this adapter. This coverage does not complete the
 parent release gate or test insurance exhaustion. All transactions are ephemeral
@@ -128,9 +146,7 @@ Batch status 4 is Cleared; status 2 means ready to clear. Matcher results retain
 the version-1 account header and add a 9-byte envelope before the DFBA payload:
 batch ID at byte 8, spent at byte 16, fill count at byte 49, and 58-byte fills
 starting at byte 51. Clear writes its own batch's results once. Settlement marks
-those results spent through authenticated matcher CPI. The arithmetic fixtures
-explicitly stamp this envelope and Cleared state; their provenance remains
-separate from observed matcher output.
+those results spent through authenticated matcher CPI. Settlement also authenticates each fill against its recorded order reservation.
 
 The harness unit suite serializes a signed legacy SettleBatch transaction with
 12 distinct portfolio accounts, the next-batch allocation payer/System accounts,

@@ -20,7 +20,7 @@ const ix = (discriminator, data, keys, programId = CORE) => new TransactionInstr
 const field = (name, offset, bytes, value, signed = false) => ({ name, offset, bytes, value: String(value), signed });
 
 // Intentionally runs, or fails: absence of candidate artifacts is never a skipped green test.
-test('candidate runtime: fixed-precision position settlement and invalid-oracle rollback', { timeout: 180000 }, async t => {
+test('candidate runtime: oracle risk, order reservations, reduce-only clipping and rollback', { timeout: 180000 }, async t => {
   assert.ok(process.env.MGK_CANDIDATE_MANIFEST, 'MGK_CANDIDATE_MANIFEST is required; see tools/runtime/README.md');
   const candidate = JSON.parse(readFileSync(process.env.MGK_CANDIDATE_MANIFEST, 'utf8'));
   assert.match(candidate.commit, /^[0-9a-f]{40}$/, 'candidate commit required');
@@ -77,7 +77,7 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   // All initialized fields, deposits, orders, clearing and settlement are written by signed program transactions.
   for (const [address, owner, size] of [[registry, CORE, 94], [instrument, CORE, 352], [vault, CORE, 80],
     [batch, CORE, 176], [nextBatch, CORE, 176], [book, MATCHER, 27712],
-    ...portfolios.map(([address]) => [address, CORE, 2048])]) {
+    ...portfolios.map(([address]) => [address, CORE, 2848])]) {
     const data = Buffer.alloc(size);
     await runtime.setAccount(address, { owner, data });
   }
@@ -97,7 +97,7 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   u64(1_000_000).copy(init, 44); init.writeUInt32LE(1, 52);
   u64(10).copy(init, 56); u64(25).copy(init, 64); u64(25).copy(init, 72);
   u64(1).copy(init, 82); u64(1).copy(init, 90);
-  init.writeUInt16LE(1000, 98); init.writeUInt16LE(500, 100); init.writeUInt16LE(5, 102);
+  init.writeUInt16LE(2000, 98); init.writeUInt16LE(1000, 100); init.writeUInt16LE(5, 102);
   oracle.toBuffer().copy(init, 106); init[138] = regBump; init[139] = instBump;
   await runtime.send('initialize', [ix(0, init, [meta(registry), meta(payer.publicKey, true, true), meta(instrument),
     meta(SystemProgram.programId, false), meta(vault)])], [payer]);
@@ -124,11 +124,14 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   seededVault.writeBigUInt64LE(2_000_000_000n + initialFund, 8);
   await runtime.setAccount(vault, { owner: CORE, data: seededVault,
     lamports: Number(vaultBefore.lamports + initialFund) });
+  const postClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+  await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+    price: 1_000_000, publishTime: Number(postClock.data.readBigInt64LE(32)), confidence: 12 });
   for (const [index, side, isMaker] of [[0, 0, true], [0, 1, true], [1, 1, false], [1, 0, false]]) {
     const user = [maker, taker][index], data = Buffer.alloc(21);
     data[0] = side; data[1] = Number(isMaker); data.writeBigInt64LE(1_000_000n, 2); u64(1).copy(data, 10);
     await runtime.send(`post ${index} ${side}`, [ix(20, data, [meta(portfolios[index][0]), meta(user.publicKey, true, true),
-      meta(batch), meta(registry, false), meta(book), meta(MATCHER, false)])], [payer, user]);
+      meta(batch), meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false)])], [payer, user]);
   }
   const forgedBook = Keypair.generate().publicKey;
   const genuineBook = await runtime.account(book);
@@ -138,7 +141,7 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   for (const [label, bookKey, matcherKey] of [
     ['wrong book PDA', forgedBook, MATCHER], ['wrong matcher program', book, SystemProgram.programId],
   ]) await rejectUnchanged(label, [ix(20, spoofPostData, [meta(portfolios[0][0]),
-    meta(maker.publicKey, true, true), meta(batch), meta(registry, false), meta(bookKey), meta(matcherKey, false)])],
+    meta(maker.publicKey, true, true), meta(batch), meta(registry, false), meta(bookKey), meta(matcherKey, false), meta(instrument, false), meta(oracle, false)])],
     [payer, maker], [book, forgedBook, batch, portfolios[0][0]]);
   // The genuine user's signature cannot replace perps-core's PDA signature.
   for (const discriminator of [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
@@ -152,7 +155,7 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
   const unmatched = Buffer.alloc(21); unmatched[1] = 1;
   unmatched.writeBigInt64LE(1n, 2); u64(1).copy(unmatched, 10);
   const capPost = () => ix(20, unmatched, [meta(portfolios[0][0]), meta(maker.publicKey, true, true),
-    meta(batch), meta(registry, false), meta(book), meta(MATCHER, false)]);
+    meta(batch), meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false)]);
   for (let index = 4; index < 12; index++) await runtime.send(`order cap fixture ${index + 1}`, [capPost()], [payer, maker]);
   await rejectUnchanged('thirteenth live order rejected', [capPost()], [payer, maker], capAddresses);
   for (let index = 0; index < capAddresses.length; index++) await runtime.setAccount(capAddresses[index], {
@@ -201,6 +204,7 @@ test('candidate runtime: fixed-precision position settlement and invalid-oracle 
     observedFills.push(...fills);
     return fills;
   };
+  let riskPrice = 1_000_000;
   const reference = () => JSON.parse(execFileSync('python3', ['-B', '-c', `
 import json, sys
 from fractions import Fraction
@@ -216,14 +220,22 @@ for fill in request['fills']:
     delta = ledger.realized_micro_usd.get(account, Fraction(0)) - before
     # The i128 display counter quantizes each event toward the protocol; conversion above stays exact.
     usd_totals[account] = usd_totals.get(account, 0) + delta.numerator // delta.denominator
+risk = {}
+for account, collateral in ledger.collateral.items():
+    position = ledger.positions.get(account)
+    quantity = position.quantity_lots if position else 0
+    pnl = Fraction(quantity) * (int(request['risk_price']) - position.entry_price) * 1_000_000 / int(request['risk_price']) if position else Fraction(0)
+    pnl = pnl.numerator // pnl.denominator
+    im, mm = abs(quantity) * 200_000, abs(quantity) * 100_000
+    risk[account] = {'im': str(im), 'mm': str(mm), 'free': str(collateral + min(pnl, 0) - im), 'health': str(collateral + pnl - mm)}
 positions = {account: {'qty': str(p.quantity_lots), 'entry': str(p.entry_price.numerator // p.entry_price.denominator),
     'numerator': str(p.entry_price.numerator), 'denominator': str(p.entry_price.denominator)} for account, p in ledger.positions.items()}
 print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()}, 'fund': str(ledger.fund_lamports),
     'liability': str(ledger.vault_liability_lamports()), 'positions': positions,
     'realized_usd': {a: str(v) for a, v in usd_totals.items()},
     'realized_lamports': {a: str(v) for a, v in ledger.realized_lamports.items()},
-    'fees': {a: str(v) for a, v in ledger.fees_lamports.items()}}))
-`, resolve(__dirname, '../gate')], { input: JSON.stringify({ fund: String(initialFund), collateral: {
+    'risk': risk, 'fees': {a: str(v) for a, v in ledger.fees_lamports.items()}}))
+`, resolve(__dirname, '../gate')], { input: JSON.stringify({ risk_price: riskPrice, fund: String(initialFund), collateral: {
     [maker.publicKey]: '1000000000', [taker.publicKey]: '1000000000' }, fills: observedFills }), encoding: 'utf8' }));
   recordFills(cleared.data, 1_000_000);
   let model = reference();
@@ -231,12 +243,17 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     model = reference();
     const expected = portfolios.map(([address], index) => {
       const account = String([maker, taker][index].publicKey), position = model.positions[account];
-      return { address, fields: [field('portfolio version', 1, 1, 2),
+      return { address, fields: [field('portfolio version', 1, 1, 3),
         field(`${label}: collateral`, 48, 16, model.collateral[account], true),
         field(`${label}: realized USD`, 80, 16, model.realized_usd[account] ?? 0, true),
         field(`${label}: realized lamports`, 96, 16, model.realized_lamports[account] ?? 0, true),
         field(`${label}: fees paid`, 112, 16, model.fees[account] ?? 0, true),
         field(`${label}: funding off`, 128, 16, 0, true),
+        field(`${label}: initial margin`, 144, 16, model.risk[account].im),
+        field(`${label}: maintenance margin`, 160, 16, model.risk[account].mm),
+        field(`${label}: free collateral`, 176, 16, model.risk[account].free, true),
+        field(`${label}: health`, 192, 16, model.risk[account].health, true),
+        field(`${label}: reservations released`, 2048, 16, 0),
         field(`${label}: position count`, 208, 2, position ? 1 : 0),
         field(`${label}: quantity`, 224, 8, position?.qty ?? 0, true),
         field(`${label}: entry floor`, 232, 8, position?.entry ?? 0, true)] };
@@ -263,7 +280,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     runtime.flushReport();
   };
   const settle = oracleKey => ix(8, Buffer.from([0, 0, 2, 0]), [meta(batch), meta(registry), meta(vault),
-    meta(results), meta(instrument), meta(book, false), meta(oracleKey, false), meta(MATCHER, false),
+    meta(results), meta(instrument), meta(book), meta(oracleKey, false), meta(MATCHER, false),
     ...portfolios.map(([portfolio]) => meta(portfolio)), meta(nextBatch)]);
   const integrityClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
@@ -391,19 +408,23 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   // Each later batch uses genuine signed post/clear/settle instructions. The oracle
   // conversion deliberately differs from the fill price, exposing spot-cashflow and unit bugs.
   let batchId = 1;
-  const settleScenario = async (label, orders, conversionPrice) => {
+  const settleScenario = async (label, orders, conversionPrice, acceptedQuantities) => {
     batch = nextBatch;
     [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
     [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
     await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
-    for (const { side, qty, price } of orders) {
+    const postClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
+    await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+      price: conversionPrice, publishTime: Number(postClock.data.readBigInt64LE(32)), confidence: 12 });
+    for (const { side, qty, price, reduceOnly = false } of orders) {
       for (const index of [0, 1]) {
         const user = [maker, taker][index], data = Buffer.alloc(21);
         data[0] = index === 0 ? side : 1 - side; data[1] = Number(index === 0);
         data.writeBigInt64LE(BigInt(price), 2); u64(qty).copy(data, 10);
+        data[20] = Number(reduceOnly && index === 0);
         await runtime.send(`${label}: post ${index} ${side}`, [ix(20, data,
           [meta(portfolios[index][0]), meta(user.publicKey, true, true), meta(batch),
-            meta(registry, false), meta(book), meta(MATCHER, false)])], [payer, user]);
+            meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false)])], [payer, user]);
       }
     }
     await runtime.advanceSlots(200);
@@ -413,12 +434,25 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
       meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])], [payer]);
     const observed = (await runtime.account(results)).data;
     assert.equal(observed.readUInt16LE(49), orders.length * 2, `${label}: all paired orders filled`);
-    recordFills(observed, conversionPrice);
+    riskPrice = conversionPrice;
+    const accepted = Buffer.from(observed);
+    if (acceptedQuantities) {
+      assert.equal(acceptedQuantities.length, observed.readUInt16LE(49));
+      acceptedQuantities.forEach((quantity, i) => u64(quantity).copy(accepted, 51 + i * 58 + 40));
+    }
+    recordFills(accepted, conversionPrice, acceptedQuantities ? 'independently capped expected executions from matcher output' : 'observed matcher output');
     const fresh = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
     await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
       price: conversionPrice, publishTime: Number(fresh.data.readBigInt64LE(32)), confidence: 12 });
     await runtime.send(`${label}: settle`, [settle(oracle)], [payer]);
     await assertModel(label);
+    if (label === 'open without cash exchange') {
+      const free = BigInt(model.risk[String(maker.publicKey)].free);
+      assert.ok(free < BigInt(model.collateral[String(maker.publicKey)]), 'oracle loss and IM reduce withdrawability');
+      await rejectUnchanged('withdrawal cannot spend oracle loss or position IM', [ix(3, u64(free + 1n),
+        [meta(portfolios[0][0]), meta(maker.publicKey, true, true), meta(vault), meta(registry, false),
+          meta(instrument, false), meta(oracle, false)])], [payer, maker], [portfolios[0][0], vault, registry]);
+    }
     batchId++;
   };
   await settleScenario('open without cash exchange', [{ side: 0, qty: 1000, price: 100_000_000 }], 99_000_000);
@@ -438,53 +472,12 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     { side: 0, qty: 1000, price: 100_000_000 }, { side: 1, qty: 1000, price: 110_000_000 },
   ], 105_000_000);
   assert.deepEqual(model.positions, {}, 'opposite fills close in cleared-results order');
-  // Arithmetic regression fixtures bypass matching only. Both portfolios stay
-  // balanced, and public signed SettleBatch executes every ordered fill in .so.
-  // The report distinguishes these fixture inputs from observed matcher fills.
-  const lifecycle = [];
-  const pair = (side, price) => {
-    lifecycle.push({ index: 0, side, price }, { index: 1, side: 1 - side, price });
-  };
-  pair(0, 100_000_000);
-  for (let cycle = 0; cycle < 128; cycle++) {
-    pair(0, 100_000_001 + cycle % 2);
-    pair(1, 100_000_001 + cycle % 2);
-  }
-  pair(1, 100_000_000);
-  for (let offset = 0; offset < lifecycle.length; offset += 128) {
-    const entries = lifecycle.slice(offset, offset + 128);
-    const label = `fixed-grid lifecycle fixture ${offset / 128}`;
-    batch = nextBatch;
-    [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
-    [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
-    const batchData = Buffer.from((await runtime.account(batch)).data);
-    batchData[16] = 4; // Valid v1 batch header/id, now cleared for the fixture.
-    await runtime.setAccount(batch, { owner: CORE, data: batchData });
-    await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
-    const data = Buffer.alloc(8 + 9 + 34 + 128 * 58);
-    data[0] = 8; data[1] = 1; // Matcher-owned BatchResults v1.
-    data.writeBigUInt64LE(BigInt(batchId), 8);
-    data.writeUInt16LE(entries.length, 49);
-    entries.forEach(({ index, side, price }, i) => {
-      const off = 51 + i * 58;
-      [maker, taker][index].publicKey.toBuffer().copy(data, off);
-      u64(offset + i).copy(data, off + 32);
-      u64(1).copy(data, off + 40);
-      data.writeBigInt64LE(BigInt(price), off + 48);
-      data[off + 56] = 1; data[off + 57] = side; // Maker buy in bid, sell in ask.
-    });
-    await runtime.setAccount(results, { owner: MATCHER, data });
-    recordFills((await runtime.account(results)).data, 100_000_000, 'cleared-results arithmetic fixture');
-    const fresh = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
-    await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
-      price: 100_000_000, publishTime: Number(fresh.data.readBigInt64LE(32)), confidence: 12 });
-    await runtime.send(label, [settle(oracle)], [payer]);
-    await assertModel(label);
-    batchId++;
-  }
-  assert.deepEqual(model.positions, {}, '128 lifecycle cycles per direction finish flat');
-  runtime.report.fixedGridCyclesPerDirection = 128;
-  runtime.flushReport();
+  await settleScenario('reduce-only fixture opens paired positions', [{ side: 0, qty: 1000, price: 100_000_000 }], 100_000_000);
+  await settleScenario('concurrent reduce-only closes cancel balanced excess', [
+    { side: 1, qty: 750, price: 100_000_000, reduceOnly: true },
+    { side: 1, qty: 750, price: 100_000_000, reduceOnly: true },
+  ], 100_000_000, [750, 250, 750, 250]);
+  assert.deepEqual(model.positions, {}, 'both sides remain flat after clipping 1500 tentative lots to1000');
   const worker = await runtime.launchWorker(process.execPath, ['-e',
     'fetch(process.env.RPC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[]})}).then(r=>r.json()).then(r=>{if(!Number.isInteger(r.result))process.exit(1)})']);
   const [exitCode] = await once(worker, 'exit');

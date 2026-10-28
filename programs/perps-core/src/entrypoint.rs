@@ -186,7 +186,7 @@ fn process_post_order_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 6 {
+    if accounts.len() < 8 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 21 {
@@ -207,6 +207,8 @@ fn process_post_order_inner(
         &accounts[3],
         &accounts[4],
         &accounts[5],
+        &accounts[6],
+        &accounts[7],
         side,
         is_maker,
         price,
@@ -562,7 +564,8 @@ fn process_deposit_inner(
     )
 }
 
-/// Withdraw SOL collateral
+/// Withdraw SOL collateral (Instrument and Oracle at indices 4/5 are required
+/// while positions or open order reservations exist).
 ///
 /// Accounts:
 /// 0. [writable] Portfolio PDA
@@ -597,6 +600,18 @@ fn process_withdraw_inner(
 
     let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
+    if portfolio.positions_len != 0 || portfolio.reserved_collateral != 0 {
+        let instrument = accounts.get(4).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let oracle = accounts.get(5).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let id = unsafe { load_account::<crate::state::Instrument>(instrument)? }.instrument_id;
+        let price = crate::risk::conversion(program_id, instrument, oracle, id)?;
+        crate::risk::refresh(portfolio, id, price)?;
+    } else {
+        portfolio.risk_pnl = 0;
+        portfolio.im = 0;
+        portfolio.mm = 0;
+        portfolio.recalc_margin();
+    }
 
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
 
@@ -1144,7 +1159,7 @@ fn process_modify_resting_order_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 5 {
+    if accounts.len() < 7 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 16 {
@@ -1166,6 +1181,8 @@ fn process_modify_resting_order_inner(
         book_account,
         matcher_program,
         &accounts[4],
+        &accounts[5],
+        &accounts[6],
         order_id,
         new_qty,
     )

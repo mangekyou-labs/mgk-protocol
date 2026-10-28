@@ -1126,6 +1126,40 @@ pub fn process_place_resting(
 const CANCEL_DATA_LEN: usize = 32 + 8; // user(32) + order_id(8)
 const MODIFY_DATA_LEN: usize = 32 + 8 + 8; // user(32) + order_id(8) + new_qty(8)
 
+/// Cancel reduce-only remainders selected by core while applying a cleared
+/// batch. Unlike a trader cancel this requires only the core authority: the
+/// order owner need not sign a permissionless settlement transaction.
+///
+/// Accounts: core authority (signer), canonical book (writable).
+/// Data: count (u8), followed by exactly `count` little-endian u64 order IDs.
+/// Missing IDs are already fully filled and are harmless.
+pub fn process_cancel_settled_orders(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let accounts = authenticated_accounts(accounts)?;
+    let book = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    validate_book(book, program_id)?;
+    let count = *data.first().ok_or(ProgramError::InvalidInstructionData)? as usize;
+    if count > MAX_SETTLEMENT_ORDERS || data.len() != 1 + count * 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let mut raw = book.try_borrow_mut_data()?;
+    let state = book_state_from_bytes_mut(&mut raw)?;
+    for encoded in data[1..].chunks_exact(8) {
+        let id = u64::from_le_bytes(encoded.try_into().unwrap());
+        if let Some(order) = state.resting[..state.resting_count]
+            .iter()
+            .find(|order| order.qty > 0 && order.order_id == id)
+        {
+            let user = order.user;
+            cancel_resting_by_id(state, id, &user)?;
+        }
+    }
+    Ok(())
+}
+
 /// Cancel a single resting order by `order_id`.
 ///
 /// Accounts:

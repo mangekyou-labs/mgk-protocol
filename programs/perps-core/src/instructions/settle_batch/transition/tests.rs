@@ -60,6 +60,12 @@ impl Host {
     }
 }
 impl Environment for Host {
+    fn require_reservations(&self) -> bool {
+        false
+    }
+    fn cancel_order(&mut self, _: u64) -> ProgramResult {
+        Ok(())
+    }
     fn registry(&self) -> Result<Registry, ProgramError> {
         Ok(self.registry)
     }
@@ -459,7 +465,7 @@ fn legacy_commitments_release_deposits_and_slash_pending_only_within_limit() {
     assert_eq!(revealed.status, CommitmentStatus::Settled);
     assert_eq!(pending.status, CommitmentStatus::Slashed);
     assert_eq!(extra.status, CommitmentStatus::Pending);
-    assert_eq!(portfolio.im, 0);
+    assert_eq!(portfolio.im, 400_000);
     assert_eq!(portfolio.positions[0].qty, 2);
     assert_eq!(portfolio.equity, -1);
     assert_eq!(host.vault.insurance_fund, 21);
@@ -540,4 +546,220 @@ fn duplicate_portfolio_identity_rejects_before_applying_any_fill() {
     assert_eq!(result, Err(MgkError::InvalidPortfolio.into()));
     assert_eq!(first.equity, 1_000_000_000);
     assert_eq!(first.positions_len, 0);
+}
+
+#[test]
+fn oracle_risk_counts_losses_but_gains_only_for_maintenance() {
+    let mut p = Portfolio::new([1; 32]);
+    p.equity = 1_000_000_000;
+    apply_fill(&mut p, 0, 1000, 100_000_000, true, 100_000_000).unwrap();
+    assert_eq!(
+        (p.im, p.mm, p.free_collateral, p.health),
+        (200_000_000, 100_000_000, 800_000_000, 900_000_000)
+    );
+    apply_fill(&mut p, 0, 1000, 200_000_000, true, 200_000_000).unwrap();
+    // 2 SOL at $150 entry: +0.5 SOL unrealized, excluded from withdrawability.
+    assert_eq!(
+        (p.im, p.mm, p.free_collateral, p.health),
+        (400_000_000, 200_000_000, 600_000_000, 1_300_000_000)
+    );
+    apply_fill(&mut p, 0, 1000, 100_000_000, true, 100_000_000).unwrap();
+    // 3 SOL at $133.33 entry: -1 SOL unrealized, exactly to the lamport.
+    assert_eq!(
+        (p.im, p.mm, p.free_collateral, p.health),
+        (600_000_000, 300_000_000, -600_000_001, -300_000_001)
+    );
+}
+
+#[test]
+fn concurrent_reduce_only_closes_clip_and_cancel_excess_without_flipping() {
+    let mut host = Host::new();
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
+    let mut seller = Portfolio::new([1; 32]);
+    let mut buyer = Portfolio::new([2; 32]);
+    seller.equity = 1_000_000_000;
+    buyer.equity = 1_000_000_000;
+    buyer.recalc_margin();
+    apply_fill(&mut seller, 0, 1000, 100_000_000, true, 100_000_000).unwrap();
+    for id in 0..2 {
+        crate::risk::open(
+            &mut seller,
+            crate::state::portfolio::OrderReservation {
+                order_id: id,
+                original_qty: 750,
+                remaining_qty: 750,
+                price: 100_000_000,
+                initial_reserve: 375_000,
+                reduce_only: 1,
+                side: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    crate::risk::open(
+        &mut buyer,
+        crate::state::portfolio::OrderReservation {
+            order_id: 2,
+            original_qty: 1500,
+            remaining_qty: 1500,
+            price: 100_000_000,
+            initial_reserve: 300_750_000,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut results = fills(&[
+        (1, 750, 100_000_000, true, 1),
+        (1, 750, 100_000_000, true, 1),
+        (2, 1500, 100_000_000, false, 1),
+    ]);
+    results[34 + 58 + 32..34 + 58 + 40].copy_from_slice(&1u64.to_le_bytes());
+    results[34 + 116 + 32..34 + 116 + 40].copy_from_slice(&2u64.to_le_bytes());
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &results,
+        &mut [],
+        &mut [&mut seller, &mut buyer],
+    )
+    .unwrap();
+    assert_eq!(seller.positions_len, 0);
+    assert_eq!(buyer.positions[0].qty, 1000);
+    assert_eq!(seller.reserved_collateral, 0);
+    assert_eq!(buyer.reserved_collateral, 0);
+    assert_eq!(buyer.fees_paid, 500_000);
+}
+
+#[test]
+fn concurrent_short_closes_clip_taker_buys_without_opening_a_long() {
+    let mut host = Host::new();
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 2000, 1000);
+    let mut closer = Portfolio::new([1; 32]);
+    let mut seller = Portfolio::new([2; 32]);
+    closer.equity = 1_000_000_000;
+    seller.equity = 1_000_000_000;
+    seller.recalc_margin();
+    apply_fill(&mut closer, 0, -1000, 100_000_000, true, 100_000_000).unwrap();
+    for id in 1..=2 {
+        crate::risk::open(
+            &mut closer,
+            crate::state::portfolio::OrderReservation {
+                order_id: id,
+                original_qty: 750,
+                remaining_qty: 750,
+                price: 100_000_000,
+                initial_reserve: 375_000,
+                reduce_only: 1,
+                side: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    crate::risk::open(
+        &mut seller,
+        crate::state::portfolio::OrderReservation {
+            order_id: 0,
+            original_qty: 1500,
+            remaining_qty: 1500,
+            price: 100_000_000,
+            initial_reserve: 300_750_000,
+            side: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut results = fills(&[
+        (2, 1500, 100_000_000, true, 1),
+        (1, 750, 100_000_000, false, 1),
+        (1, 750, 100_000_000, false, 1),
+    ]);
+    for (index, id) in [0u64, 1, 2].into_iter().enumerate() {
+        let offset = 34 + index * 58 + 32;
+        results[offset..offset + 8].copy_from_slice(&id.to_le_bytes());
+    }
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &results,
+        &mut [],
+        &mut [&mut closer, &mut seller],
+    )
+    .unwrap();
+    assert_eq!(closer.positions_len, 0);
+    assert_eq!(seller.positions[0].qty, -1000);
+    assert_eq!(closer.fees_paid, 500_000);
+    assert_eq!(closer.reserved_collateral, 0);
+    assert_eq!(seller.reserved_collateral, 0);
+}
+
+#[test]
+fn second_auction_clips_against_positions_after_first_auction_tail_trimming() {
+    let mut host = Host::new();
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 2000, 1000);
+    let mut long = Portfolio::new([1; 32]);
+    let mut short = Portfolio::new([2; 32]);
+    let mut buyer = Portfolio::new([3; 32]);
+    for p in [&mut long, &mut short, &mut buyer] {
+        p.equity = 1_000_000_000;
+        p.recalc_margin();
+    }
+    apply_fill(&mut long, 0, 1000, 100_000_000, true, 100_000_000).unwrap();
+    apply_fill(&mut short, 0, -500, 100_000_000, true, 100_000_000).unwrap();
+    // The first auction can close only the short's 500 lots. Tail trimming
+    // leaves the long with 500 lots available to close in the second auction.
+    for (owner, id, side, reduce_only) in [(0, 0, 1, 1), (1, 1, 0, 1), (0, 2, 1, 1), (2, 3, 0, 0)] {
+        let p = match owner {
+            0 => &mut long,
+            1 => &mut short,
+            _ => &mut buyer,
+        };
+        crate::risk::open(
+            p,
+            crate::state::portfolio::OrderReservation {
+                order_id: id,
+                original_qty: 750,
+                remaining_qty: 750,
+                price: 100_000_000,
+                initial_reserve: if reduce_only == 1 {
+                    375_000
+                } else {
+                    150_375_000
+                },
+                side,
+                reduce_only,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let mut results = fills(&[
+        (2, 750, 100_000_000, true, 0),
+        (1, 750, 100_000_000, false, 0),
+        (1, 750, 100_000_000, true, 1),
+        (3, 750, 100_000_000, false, 1),
+    ]);
+    for (index, id) in [1u64, 0, 2, 3].into_iter().enumerate() {
+        let offset = 34 + index * 58 + 32;
+        results[offset..offset + 8].copy_from_slice(&id.to_le_bytes());
+    }
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &results,
+        &mut [],
+        &mut [&mut long, &mut short, &mut buyer],
+    )
+    .unwrap();
+    assert_eq!(long.positions_len, 0);
+    assert_eq!(short.positions_len, 0);
+    assert_eq!(buyer.positions[0].qty, 500);
+    for p in [&long, &short, &buyer] {
+        assert_eq!(p.reserved_collateral, 0);
+        assert!(p.orders.iter().all(|order| order.remaining_qty == 0));
+    }
 }

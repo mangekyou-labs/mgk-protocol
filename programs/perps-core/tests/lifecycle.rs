@@ -285,8 +285,8 @@ fn build_initialize_data(
     p[80..82].copy_from_slice(&0u16.to_le_bytes()); // instrument_id
     p[82..90].copy_from_slice(&1u64.to_le_bytes()); // tick_size
     p[90..98].copy_from_slice(&1u64.to_le_bytes()); // lot_size
-    p[98..100].copy_from_slice(&1_000u16.to_le_bytes()); // imr_bps
-    p[100..102].copy_from_slice(&500u16.to_le_bytes()); // mmr_bps
+    p[98..100].copy_from_slice(&2_000u16.to_le_bytes()); // imr_bps
+    p[100..102].copy_from_slice(&1_000u16.to_le_bytes()); // mmr_bps
     p[102..104].copy_from_slice(&5u16.to_le_bytes()); // taker_fee_bps
     p[104..106].copy_from_slice(&(0i16).to_le_bytes()); // maker_fee_bps — locked D3 (makers free)
     p[106..138].copy_from_slice(oracle.as_ref());
@@ -479,7 +479,7 @@ fn seed_valid_oracle(pt: &mut ProgramTest, key: Pubkey, instrument: Pubkey) {
 /// Stamp the account header (discriminator + layout version) onto a fixture.
 fn stamp_header(data: &mut [u8], disc: u8) {
     data[0] = disc;
-    data[1] = if disc == discriminator::PORTFOLIO { 2 } else { LAYOUT_VERSION_1 };
+    data[1] = if disc == discriminator::PORTFOLIO { <Portfolio as mgk_common::layout::AccountLayout>::LAYOUT_VERSION } else { LAYOUT_VERSION_1 };
 }
 
 /// Pre-built Portfolio account data for a single-position underwater
@@ -3855,7 +3855,7 @@ async fn test_e2e_wrong_account_header_is_rejected_with_distinct_errors() {
         (
             "correct header",
             discriminator::PORTFOLIO,
-            2,
+            <Portfolio as mgk_common::layout::AccountLayout>::LAYOUT_VERSION,
             None,
         ),
     ];
@@ -3905,4 +3905,216 @@ async fn test_e2e_wrong_account_header_is_rejected_with_distinct_errors() {
             None => result.expect(label),
         }
     }
+}
+
+#[tokio::test]
+async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("not run: issue22 instruction test requires freshly built SBF programs");
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let user = Keypair::new();
+    let up = derive_user_pdas(&user.pubkey(), 0, 0);
+    let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut pt, oracle, pdas.instrument);
+    pt.add_account(
+        user.pubkey(),
+        Account::new(1_000_000_000, 0, &system_program::id()),
+    );
+    let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
+    stamp_header(&mut registry.data, discriminator::REGISTRY);
+    registry.data[R_INSTRUMENT_COUNT].copy_from_slice(&1u16.to_le_bytes());
+    registry.data[offset_of!(Registry, max_orders_per_batch)] = 12;
+    registry.data[offset_of!(Registry, bump)] =
+        Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID).1;
+    pt.add_account(pdas.registry, registry);
+    let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
+    stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
+    instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle.as_ref());
+    instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, imr_bps)..][..2].copy_from_slice(&2000u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, mmr_bps)..][..2].copy_from_slice(&1000u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, max_leverage)..][..2]
+        .copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, is_active)] = 1;
+    pt.add_account(pdas.instrument, instrument);
+    let mut portfolio = Account::new(30_000_000, PORTFOLIO_SIZE, &CORE_ID);
+    stamp_header(&mut portfolio.data, discriminator::PORTFOLIO);
+    portfolio.data[P_USER].copy_from_slice(user.pubkey().as_ref());
+    portfolio.data[P_EQUITY].copy_from_slice(&100_000_000i128.to_le_bytes());
+    portfolio.data[P_PRINCIPAL].copy_from_slice(&100_000_000i128.to_le_bytes());
+    portfolio.data[offset_of!(Portfolio, free_collateral)..][..16]
+        .copy_from_slice(&100_000_000i128.to_le_bytes());
+    portfolio.data[offset_of!(Portfolio, bump)] = up.portfolio_bump;
+    pt.add_account(up.portfolio, portfolio);
+    let mut vault = Account::new(130_000_000, VAULT_SIZE, &CORE_ID);
+    stamp_header(&mut vault.data, discriminator::VAULT);
+    vault.data[V_BALANCE].copy_from_slice(&100_000_000u64.to_le_bytes());
+    pt.add_account(pdas.vault, vault);
+    let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
+    stamp_header(&mut batch.data, discriminator::BATCH);
+    batch.data[offset_of!(Batch, bump)] = up.batch_bump;
+    pt.add_account(up.batch, batch);
+    let mut ctx = pt.start_with_context().await;
+    let post = |qty| Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(user.pubkey(), true),
+            AccountMeta::new(up.batch, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new(pdas.book, false),
+            AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(oracle, false),
+        ],
+        data: with_disc(
+            20,
+            build_post_order_data(0, false, 100_000_000, qty, 0, false),
+        ),
+    };
+    let before = ctx
+        .banks_client
+        .get_account(up.portfolio)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        submit(&mut ctx, post(1000), &[&user]).await.is_err(),
+        "unaffordable order must fail at post"
+    );
+    assert_eq!(
+        ctx.banks_client
+            .get_account(up.portfolio)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    submit(&mut ctx, post(100), &[&user]).await.unwrap();
+    let reserved = rng(offset_of!(Portfolio, reserved_collateral), 16);
+    let posted = ctx
+        .banks_client
+        .get_account(up.portfolio)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        u128::from_le_bytes(posted.data[reserved.clone()].try_into().unwrap()),
+        20_050_000
+    );
+    let withdraw = |amount: u64, risk_accounts: bool| {
+        let mut accounts = vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(user.pubkey(), true),
+            AccountMeta::new(pdas.vault, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+        ];
+        if risk_accounts {
+            accounts.extend([
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+            ]);
+        }
+        Instruction {
+            program_id: CORE_ID,
+            accounts,
+            data: with_disc(3, amount.to_le_bytes().to_vec()),
+        }
+    };
+    assert!(submit(&mut ctx, withdraw(80_000_000u64, true), &[&user])
+        .await
+        .is_err());
+    assert_eq!(
+        ctx.banks_client
+            .get_account(up.portfolio)
+            .await
+            .unwrap()
+            .unwrap(),
+        posted
+    );
+    let mut modify_data = 0u64.to_le_bytes().to_vec();
+    modify_data.extend_from_slice(&200u64.to_le_bytes());
+    submit(
+        &mut ctx,
+        Instruction {
+            program_id: CORE_ID,
+            accounts: vec![
+                AccountMeta::new(up.portfolio, false),
+                AccountMeta::new(user.pubkey(), true),
+                AccountMeta::new(pdas.book, false),
+                AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+            ],
+            data: with_disc(12, modify_data),
+        },
+        &[&user],
+    )
+    .await
+    .unwrap();
+    let modified = ctx
+        .banks_client
+        .get_account(up.portfolio)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        u128::from_le_bytes(modified.data[reserved.clone()].try_into().unwrap()),
+        40_100_000
+    );
+    submit(
+        &mut ctx,
+        Instruction {
+            program_id: CORE_ID,
+            accounts: vec![
+                AccountMeta::new(up.portfolio, false),
+                AccountMeta::new(user.pubkey(), true),
+                AccountMeta::new(pdas.book, false),
+                AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.registry, false),
+            ],
+            data: with_disc(11, 0u64.to_le_bytes().to_vec()),
+        },
+        &[&user],
+    )
+    .await
+    .unwrap();
+    let cancelled = ctx
+        .banks_client
+        .get_account(up.portfolio)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        u128::from_le_bytes(cancelled.data[reserved].try_into().unwrap()),
+        0
+    );
+    // A flat portfolio with no orders does not need oracle accounts to withdraw.
+    submit(&mut ctx, withdraw(100_000_000u64, false), &[&user])
+        .await
+        .unwrap();
+    let withdrawn = ctx
+        .banks_client
+        .get_account(up.portfolio)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        i128::from_le_bytes(withdrawn.data[P_EQUITY].try_into().unwrap()),
+        0
+    );
+    assert_eq!(
+        book_resting_count(
+            &ctx.banks_client
+                .get_account(pdas.book)
+                .await
+                .unwrap()
+                .unwrap()
+                .data
+        ),
+        0
+    );
 }

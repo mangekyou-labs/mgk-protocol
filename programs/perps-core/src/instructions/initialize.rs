@@ -75,6 +75,9 @@ pub fn process_initialize(
         return Err(mgk_common::MgkError::AlreadyInitialized.into());
     }
     Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
+    if imr_bps != 2000 || mmr_bps != 1000 {
+        return Err(mgk_common::MgkError::InvalidInstruction.into());
+    }
     msg!("INIT_RUST_V3");
 
     // ── Create registry PDA if needed ────────────────────────────────────────
@@ -194,7 +197,7 @@ pub fn process_initialize(
             mmr_bps,
             taker_fee_bps,
             maker_fee_bps,
-            10, // max_leverage
+            5, // max_leverage
             oracle_addr,
             100,   // funding_interval_slots
             1_000, // mark_reference_qty

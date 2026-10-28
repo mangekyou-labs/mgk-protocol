@@ -32,6 +32,11 @@ pub(super) trait Environment {
     fn oracle(&self, expected_addr: &Pubkey) -> Option<(i64, i64, bool)>;
     fn set_batch_counter(&mut self, value: u64) -> ProgramResult;
     fn next_batch_size(&self) -> usize;
+    /// Runtime requires authenticated reservation provenance; arithmetic-only fixtures may opt out.
+    fn require_reservations(&self) -> bool {
+        true
+    }
+    fn cancel_order(&mut self, order_id: u64) -> ProgramResult;
     fn next_batch(&mut self) -> &mut Batch;
 }
 
@@ -115,13 +120,33 @@ pub(super) fn settle(
             return Err(MgkError::InvalidPortfolio.into());
         }
     }
+    let mut effective = [0u64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+    let has_reservations = if dfba {
+        (0..portfolios.len()).any(|j| {
+            portfolios
+                .get_mut(j)
+                .is_ok_and(|p| p.orders.iter().any(|o| o.remaining_qty != 0))
+        })
+    } else {
+        false
+    };
+    let reserved_path = dfba && (env.require_reservations() || has_reservations);
+    if reserved_path {
+        clip_auctions(
+            results,
+            portfolios,
+            instrument.instrument_id,
+            n,
+            &mut effective,
+        )?;
+    }
     let mut total_settled = 0u32;
     let mut total_volume = 0u64;
     let mut total_notional = 0u128;
     for i in 0..n {
         let off = base + i * stride;
         let user: Pubkey = results[off..off + 32].try_into().unwrap();
-        let (qty, price, maker, side) = if dfba {
+        let (mut qty, price, maker, side) = if dfba {
             let qty = u64::from_le_bytes(results[off + 40..off + 48].try_into().unwrap());
             let price = i64::from_le_bytes(results[off + 48..off + 56].try_into().unwrap());
             let maker_byte = results[off + 56];
@@ -166,6 +191,31 @@ pub(super) fn settle(
                 side,
             )
         };
+        if reserved_path {
+            let order_id = u64::from_le_bytes(results[off + 32..off + 40].try_into().unwrap());
+            let accepted = effective.get(i).copied().ok_or(MgkError::InvalidOrder)?;
+            for j in 0..portfolios.len() {
+                let p = portfolios.get_mut(j)?;
+                if p.user != user {
+                    continue;
+                }
+                let index = p
+                    .orders
+                    .iter()
+                    .position(|o| o.remaining_qty != 0 && o.order_id == order_id)
+                    .ok_or(MgkError::InvalidOrder)?;
+                let reduce_only = p.orders[index].reduce_only != 0;
+                crate::risk::release(p, index, qty)?;
+                if reduce_only && accepted < qty {
+                    if p.orders[index].remaining_qty != 0 {
+                        crate::risk::release(p, index, p.orders[index].remaining_qty)?;
+                    }
+                    env.cancel_order(order_id)?;
+                }
+                break;
+            }
+            qty = accepted;
+        }
         if qty == 0 {
             continue;
         }
@@ -219,6 +269,25 @@ pub(super) fn settle(
             )
             .ok_or(MgkError::Overflow)?;
     }
+    for j in 0..portfolios.len() {
+        let p = portfolios.get_mut(j)?;
+        if reserved_path {
+            for k in 0..p.orders.len() {
+                let o = p.orders[k];
+                if o.remaining_qty == 0 || o.reduce_only == 0 {
+                    continue;
+                }
+                let qty = p
+                    .find_position(o.instrument_id)
+                    .map_or(0, |(_, pos)| pos.qty);
+                if qty == 0 || (qty > 0) == (o.side == 0) {
+                    crate::risk::release(p, k, o.remaining_qty)?;
+                    env.cancel_order(o.order_id)?;
+                }
+            }
+        }
+        crate::risk::refresh(p, instrument.instrument_id, conversion)?;
+    }
     // The legacy deposit lifecycle remains until retired by the restricted path ticket.
     let mut slashed = 0u128;
     for i in 0..commitments.len().min(batch.total_commitments as usize) {
@@ -240,10 +309,7 @@ pub(super) fn settle(
         for j in 0..portfolios.len() {
             let portfolio = portfolios.get_mut(j)?;
             if portfolio.user == commitment.user {
-                portfolio.im = portfolio
-                    .im
-                    .saturating_sub(commitment.deposit_lamports as u128);
-                portfolio.recalc_margin();
+                crate::risk::refresh(portfolio, instrument.instrument_id, conversion)?;
                 break;
             }
         }
@@ -260,7 +326,7 @@ pub(super) fn settle(
             i64::try_from(total_notional / total_volume as u128).map_err(|_| MgkError::Overflow)?;
     }
     batch.total_settled = total_settled;
-    if total_volume > 0 {
+    if total_volume > 0 || reserved_path {
         batch.total_volume = total_volume;
     }
     batch.total_notional = total_notional;
@@ -298,6 +364,139 @@ pub(super) fn settle(
         0,
         0,
     );
+    Ok(())
+}
+
+/// The allocator removes self liquidity before allocation, so a user has one
+/// direction within each auction. Clip in results order, then trim the surplus
+/// side from its tail. Prefixes stay intact; the next auction sees final positions.
+fn clip_auctions(
+    results: &[u8],
+    portfolios: &mut impl States<Portfolio>,
+    instrument_id: u16,
+    n: usize,
+    effective: &mut [u64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS],
+) -> ProgramResult {
+    if n > effective.len() {
+        return Err(MgkError::InvalidOrder.into());
+    }
+    let mut projected = [0i64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+    let mut owners = [[0u8; 32]; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+    for j in 0..portfolios.len() {
+        let p = portfolios.get_mut(j)?;
+        owners[j] = p.user;
+        projected[j] = p.find_position(instrument_id).map_or(0, |(_, pos)| pos.qty);
+    }
+    let mut previous_auction = 0;
+    for auction in 0..2u8 {
+        let before = projected;
+        let mut direction = [0i64; mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+        let mut totals = [0u64; 2];
+        for (i, quantity) in effective.iter_mut().enumerate().take(n) {
+            let off = DFBA_RESULT_HEADER_BYTES + i * DFBA_FILL_WIRE_BYTES;
+            let leg = results[off + 57];
+            if auction == 0 {
+                if leg > 1 || leg < previous_auction {
+                    return Err(MgkError::InvalidOrder.into());
+                }
+                previous_auction = leg;
+            }
+            if leg != auction {
+                continue;
+            }
+            let maker = results[off + 56];
+            if maker > 1 {
+                return Err(MgkError::InvalidOrder.into());
+            }
+            let side = if (leg == 0) == (maker != 0) { 1i64 } else { -1 };
+            let user: Pubkey = results[off..off + 32].try_into().unwrap();
+            let j = owners[..portfolios.len()]
+                .iter()
+                .position(|u| u == &user)
+                .ok_or(MgkError::InvalidPortfolio)?;
+            if direction[j] != 0 && direction[j] != side {
+                return Err(MgkError::InvalidOrder.into());
+            }
+            direction[j] = side;
+            let id = u64::from_le_bytes(results[off + 32..off + 40].try_into().unwrap());
+            let raw_qty = u64::from_le_bytes(results[off + 40..off + 48].try_into().unwrap());
+            let price = i64::from_le_bytes(results[off + 48..off + 56].try_into().unwrap());
+            let p = portfolios.get_mut(j)?;
+            let order = p
+                .orders
+                .iter()
+                .find(|o| o.remaining_qty != 0 && o.order_id == id)
+                .ok_or(MgkError::InvalidOrder)?;
+            if order.instrument_id != instrument_id
+                || order.side != u8::from(side < 0)
+                || raw_qty > order.remaining_qty
+                || price <= 0
+                || (side > 0 && price > order.price)
+                || (side < 0 && price < order.price)
+            {
+                return Err(MgkError::InvalidOrder.into());
+            }
+            // One authenticated result per order, including across auctions.
+            for earlier in 0..i {
+                let prev = DFBA_RESULT_HEADER_BYTES + earlier * DFBA_FILL_WIRE_BYTES;
+                if results[prev + 32..prev + 40] == results[off + 32..off + 40] {
+                    return Err(MgkError::InvalidOrder.into());
+                }
+            }
+            let qty = if order.reduce_only != 0 {
+                if projected[j].signum() == -side {
+                    raw_qty.min(projected[j].unsigned_abs())
+                } else {
+                    0
+                }
+            } else {
+                raw_qty
+            };
+            let signed = i64::try_from(qty)
+                .map_err(|_| MgkError::Overflow)?
+                .checked_mul(side)
+                .ok_or(MgkError::Overflow)?;
+            projected[j] = projected[j].checked_add(signed).ok_or(MgkError::Overflow)?;
+            *quantity = qty;
+            let which = usize::from(side < 0);
+            totals[which] = totals[which].checked_add(qty).ok_or(MgkError::Overflow)?;
+        }
+        let surplus_side = usize::from(totals[1] > totals[0]);
+        let mut excess = totals[0].abs_diff(totals[1]);
+        for i in (0..n).rev() {
+            let off = DFBA_RESULT_HEADER_BYTES + i * DFBA_FILL_WIRE_BYTES;
+            if results[off + 57] != auction {
+                continue;
+            }
+            let buy = (auction == 0) == (results[off + 56] != 0);
+            if usize::from(!buy) != surplus_side {
+                continue;
+            }
+            let cancel = excess.min(effective[i]);
+            effective[i] -= cancel;
+            excess -= cancel;
+        }
+        projected = before;
+        for (i, &qty) in effective.iter().enumerate().take(n) {
+            let off = DFBA_RESULT_HEADER_BYTES + i * DFBA_FILL_WIRE_BYTES;
+            if results[off + 57] != auction {
+                continue;
+            }
+            let user: Pubkey = results[off..off + 32].try_into().unwrap();
+            let j = owners[..portfolios.len()]
+                .iter()
+                .position(|u| u == &user)
+                .ok_or(MgkError::InvalidPortfolio)?;
+            let side = if (auction == 0) == (results[off + 56] != 0) {
+                1i64
+            } else {
+                -1
+            };
+            projected[j] = projected[j]
+                .checked_add(i64::try_from(qty).map_err(|_| MgkError::Overflow)? * side)
+                .ok_or(MgkError::Overflow)?;
+        }
+    }
     Ok(())
 }
 
@@ -440,7 +639,7 @@ fn apply_fill(
     p.equity = add(p.equity, realized)?
         .checked_sub(fee)
         .ok_or(MgkError::Overflow)?;
-    p.recalc_margin();
+    crate::risk::refresh(p, instrument_id, conversion)?;
     Ok((realized, fee))
 }
 

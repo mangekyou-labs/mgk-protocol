@@ -18,6 +18,7 @@ enum MatcherInstruction {
     /// Create book PDA for an instrument (disc 7).
     InitializeBook,
     ConsumeResults,
+    CancelSettledOrders,
 }
 
 pub fn process_instruction(
@@ -40,6 +41,7 @@ pub fn process_instruction(
         6 => MatcherInstruction::PlaceResting,
         7 => MatcherInstruction::InitializeBook,
         8 => MatcherInstruction::ConsumeResults,
+        9 => MatcherInstruction::CancelSettledOrders,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(ProgramError::InvalidInstructionData);
@@ -71,6 +73,9 @@ pub fn process_instruction(
         MatcherInstruction::ConsumeResults => {
             process_consume_results(accounts, &instruction_data[1..])
         }
+        MatcherInstruction::CancelSettledOrders => {
+            instructions::process_cancel_settled_orders(program_id, accounts, &instruction_data[1..])
+        }
         MatcherInstruction::InitializeBook => {
             msg!("Instruction: InitializeBook");
             instructions::process_initialize_book(program_id, accounts, &instruction_data[1..])
@@ -90,4 +95,17 @@ fn process_consume_results(accounts: &[AccountInfo], data: &[u8]) -> ProgramResu
     mgk_common::matcher::validate_results(results, batch_id)?;
     let mut raw = results.try_borrow_mut_data()?;
     instructions::consume_results(&mut raw, batch_id)
+}
+
+#[cfg(test)]
+mod settlement_cancel_tests {
+    use super::*;
+
+    #[test]
+    fn settlement_cannot_cancel_orders_without_the_core_authority() {
+        assert_eq!(
+            process_instruction(&mgk_common::program_ids::PERPS_MATCHER_ID, &[], &[9, 0]),
+            Err(ProgramError::NotEnoughAccountKeys)
+        );
+    }
 }

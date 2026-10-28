@@ -38,6 +38,11 @@ pub fn process_add_instrument(
         return Err(MgkError::InvalidInstruction.into());
     }
 
+    Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
+    if imr_bps != 2000 || mmr_bps != 1000 {
+        return Err(MgkError::InvalidInstruction.into());
+    }
+
     let mut sym = [0u8; 16];
     // Set first 4 bytes as "INST"
     sym[0] = b'I';
@@ -58,7 +63,7 @@ pub fn process_add_instrument(
         mmr_bps,
         taker_fee_bps,
         maker_fee_bps,
-        10,
+        5,
         oracle_addr,
         100,
         1_000,   // mark_reference_qty (M7 7.5)
