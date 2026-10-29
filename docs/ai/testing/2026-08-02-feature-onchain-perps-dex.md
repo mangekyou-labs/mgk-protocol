@@ -71,7 +71,7 @@ cd programs/perps-matcher && cargo build-sbf   # stack gate
 - [x] T-E2E-SETTLE-NEXT-PDA — SettleBatch creates next batch PDA (**done 2026-08-06**: `test_e2e_settle_creates_next_batch_pda` rewritten from legacy)
 - [x] T-E2E-LIQUIDATE — DFBA mark + underwater portfolio liquidation (**done 2026-08-06**: `test_e2e_liquidate_user_happy_path` rewritten from legacy)
 - [x] T-OPS-KEEPER-LIQ — 24/7 ops keeper + live LiquidateUser (**done 2026-08-20** T9.10.2). `cd tools && node --test` **14 passed**. Live: taker `8SWub3A3…` flatten `3WDbtrsw…` (`err: None`) against settled batch 13 `mark_valid=1` (D6: current settled only; did not use leftover batch 11). After flatten `positionsLen=0`. `/healthz` on `127.0.0.1` has `rpcHost` only (no rpcUrl/api-key/keypair). Collecting crank waits for deadline (`n_min` ignored). Empty batch 14 crank Close `f3GX7pYY…` Clear `8z1XiER6…` Settle `4rMFLcL8…`.
-- [x] T-E2E-ADL — ADL fires when insurance insufficient (**done 2026-08-06**: `test_e2e_liquidate_user_adl_stub_fires` rewritten from legacy)
+- [x] T-E2E-ADL — ADL fires when insurance insufficient (**done 2026-08-06**: the removed ADL-stub e2e test rewritten from legacy)
 - [x] T-E2E-CANCEL-ALL — CancelAllRestingOrders clears book (**done 2026-08-06**: `test_e2e_cancel_all_resting_orders` rewritten from legacy)
 
 ### Browser origin hydration (playwright-cli, 2026-08-20)

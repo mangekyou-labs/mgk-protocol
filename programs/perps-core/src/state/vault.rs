@@ -63,7 +63,7 @@ const _: () = {
     assert!(size_of::<Vault>() == 80);
 };
 
-/// Layout version 2: the ADL remnants became open-interest counters.
+/// Layout version 2: cash-backed fund ledger plus long/short open-interest counters.
 pub const VAULT_LAYOUT_VERSION: u8 = 2;
 
 // SAFETY: `repr(C)` plain-old-data with a leading `AccountHeader`.
