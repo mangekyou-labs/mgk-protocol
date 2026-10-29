@@ -65,13 +65,13 @@ pub fn process_modify_resting_order(
         return Err(MgkError::OperationPaused.into());
     }
     if order.reduce_only != 0 {
-        let qty = portfolio.find_position(order.instrument_id).map_or(0, |(_, p)| p.qty);
+        let qty = portfolio.position_qty(order.instrument_id);
         if qty == 0 || (qty > 0) == (order.side == 0) { return Err(MgkError::ReduceOnlyViolation.into()); }
     }
     validate_owner(vault_account, program_id)?;
     if order.reduce_only == 0 && new_qty > order.remaining_qty {
         let vault = unsafe { load_account::<Vault>(vault_account)? };
-        super::post_order::check_added_exposure(
+        crate::risk::check_added_exposure(
             vault,
             portfolio,
             order.instrument_id,

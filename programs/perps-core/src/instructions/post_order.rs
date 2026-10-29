@@ -8,37 +8,6 @@ use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 /// Matcher `PlaceResting` discriminator.
 pub const MATCHER_PLACE_RESTING: u8 = 6;
 
-/// Quantity this portfolio already has resting on `side` of `instrument_id`
-/// that could add exposure (reduce-only orders cannot).
-pub(crate) fn resting_exposure_adding(portfolio: &Portfolio, instrument_id: u16, side: u8) -> u64 {
-    portfolio
-        .orders
-        .iter()
-        .filter(|o| {
-            o.remaining_qty != 0
-                && o.instrument_id == instrument_id
-                && o.side == side
-                && o.reduce_only == 0
-        })
-        .fold(0u64, |acc, o| acc.saturating_add(o.remaining_qty))
-}
-
-/// Portfolio exposure limit, market exposure limit and risk-off gate for an order that may
-/// add `added_qty` lots of exposure. Callers skip reduce-only orders.
-pub(crate) fn check_added_exposure(
-    vault: &Vault,
-    portfolio: &Portfolio,
-    instrument_id: u16,
-    side: u8,
-    added_qty: u64,
-) -> Result<(), MgkError> {
-    let held = portfolio
-        .find_position(instrument_id)
-        .map_or(0, |(_, p)| p.qty);
-    let resting = resting_exposure_adding(portfolio, instrument_id, side);
-    vault.check_exposure_order(side == 0, added_qty, held, resting)
-}
-
 /// Post a limit order onto the resting book in a single transaction.
 ///
 /// Accounts:
@@ -146,7 +115,7 @@ pub fn process_post_order(
     validate_owner(vault_account, program_id)?;
     if !reduce_only {
         let vault = unsafe { load_account::<Vault>(vault_account)? };
-        check_added_exposure(vault, portfolio, instrument_id, side, qty).inspect_err(|_| {
+        crate::risk::check_added_exposure(vault, portfolio, instrument_id, side, qty).inspect_err(|_| {
             msg!("Error: exposure limit or risk-off reserve exceeded");
         })?;
     }
@@ -191,74 +160,6 @@ pub fn process_post_order(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::portfolio::{OrderReservation, Position};
-
-    fn flush_vault() -> Vault {
-        let mut v = Vault::new();
-        v.insurance_fund = u128::MAX / 4;
-        v
-    }
-
-    fn resting(order_id: u64, side: u8, qty: u64, reduce_only: u8) -> OrderReservation {
-        OrderReservation {
-            order_id,
-            original_qty: qty,
-            remaining_qty: qty,
-            price: 1,
-            initial_reserve: 0,
-            instrument_id: 0,
-            side,
-            reduce_only,
-            _padding: [0; 12],
-        }
-    }
-
-    #[test]
-    fn exposure_gate_counts_same_side_resting_and_the_held_position() {
-        let vault = flush_vault();
-        let mut p = Portfolio::new(Pubkey::from([1u8; 32]));
-        p.positions[0] = Position { instrument_id: 0, qty: 9_000, ..Position::default() };
-        p.positions_len = 1;
-        p.orders[0] = resting(1, 0, 400, 0);
-        // 9_000 held + 400 resting + 600 new = 10_000: at the limit.
-        assert_eq!(check_added_exposure(&vault, &p, 0, 0, 600), Ok(()));
-        assert_eq!(
-            check_added_exposure(&vault, &p, 0, 0, 601),
-            Err(MgkError::PortfolioExposureLimitExceeded)
-        );
-        // The opposite side reduces the long and is not limited by the resting buy.
-        assert_eq!(check_added_exposure(&vault, &p, 0, 1, 5_000), Ok(()));
-    }
-
-    #[test]
-    fn reduce_only_and_other_instrument_orders_do_not_count_as_resting_exposure() {
-        let mut p = Portfolio::new(Pubkey::from([1u8; 32]));
-        p.orders[0] = resting(1, 0, 400, 1);
-        let mut other = resting(2, 0, 300, 0);
-        other.instrument_id = 7;
-        p.orders[1] = other;
-        p.orders[2] = resting(3, 0, 50, 0);
-        assert_eq!(resting_exposure_adding(&p, 0, 0), 50);
-        assert_eq!(resting_exposure_adding(&p, 0, 1), 0);
-    }
-
-    #[test]
-    fn exposure_gate_applies_market_exposure_limit_and_risk_off() {
-        let mut vault = flush_vault();
-        vault.open_interest_long = 49_999;
-        let p = Portfolio::new(Pubkey::from([1u8; 32]));
-        assert_eq!(
-            check_added_exposure(&vault, &p, 0, 0, 2),
-            Err(MgkError::MarketExposureLimitExceeded)
-        );
-        let mut thin = Vault::new();
-        thin.open_interest_long = 20_000;
-        thin.insurance_fund = 8_000_000_000;
-        assert_eq!(
-            check_added_exposure(&thin, &p, 0, 1, 1),
-            Err(MgkError::RiskOffFundBelowReserve)
-        );
-    }
 
     #[test]
     fn test_matcher_place_disc_is_six() {

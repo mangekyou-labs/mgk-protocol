@@ -233,7 +233,7 @@ pub(super) fn settle(
             if portfolio.user != user {
                 continue;
             }
-            let old_qty = position_qty(portfolio, instrument.instrument_id);
+            let old_qty = portfolio.position_qty(instrument.instrument_id);
             let (realized, fee) = apply_fill(
                 portfolio,
                 instrument.instrument_id,
@@ -242,7 +242,7 @@ pub(super) fn settle(
                 maker,
                 conversion,
             )?;
-            let new_qty = position_qty(portfolio, instrument.instrument_id);
+            let new_qty = portfolio.position_qty(instrument.instrument_id);
             let vault = env.vault()?;
             vault.apply_position_change(old_qty, new_qty)?;
             let unpaid_payout = apply_realized_pnl_and_fee(portfolio, vault, realized, fee)?;
@@ -628,10 +628,6 @@ fn apply_fill(
     p.realized_usd = add(p.realized_usd, floor_ratio(usd_n, usd_d))?;
     crate::risk::refresh(p, instrument_id, conversion)?;
     Ok((realized, fee))
-}
-
-fn position_qty(p: &Portfolio, instrument_id: u16) -> i64 {
-    p.find_position(instrument_id).map_or(0, |(_, pos)| pos.qty)
 }
 
 #[cfg(test)]

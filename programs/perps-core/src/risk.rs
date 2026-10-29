@@ -1,7 +1,8 @@
 //! SOL-PERP risk, priced exclusively at the validated conversion price.
 use crate::state::{
     portfolio::{Position, ENTRY_PRICE_SCALE},
-    Instrument, Portfolio,
+    vault::LAMPORTS_PER_LOT,
+    Instrument, Portfolio, Vault,
 };
 use mgk_common::{layout::load_account, validate_owner, MgkError};
 use pinocchio::{
@@ -12,8 +13,20 @@ use pinocchio::{
     ProgramResult,
 };
 
-/// Lamports per lot: 1_000 lots is 1 SOL.
-const LAMPORTS_PER_LOT: u128 = 1_000_000;
+/// Portfolio exposure limit, market exposure limit and risk-off gate for an
+/// order that may add `added_qty` lots of exposure. Callers skip
+/// reduce-only orders.
+pub(crate) fn check_added_exposure(
+    vault: &Vault,
+    portfolio: &Portfolio,
+    instrument_id: u16,
+    side: u8,
+    added_qty: u64,
+) -> Result<(), MgkError> {
+    let held = portfolio.position_qty(instrument_id);
+    let resting = portfolio.resting_exposure_adding(instrument_id, side);
+    vault.check_exposure_order(side == 0, added_qty, held, resting)
+}
 
 pub fn conversion(
     program_id: &Pubkey,
@@ -226,6 +239,61 @@ pub fn unlocked(registry_account: &AccountInfo) -> ProgramResult {
 mod tests {
     use super::*;
     use crate::state::portfolio::OrderReservation;
+
+    fn flush_vault() -> Vault {
+        let mut v = Vault::new();
+        v.insurance_fund = u128::MAX / 4;
+        v
+    }
+
+    fn resting(order_id: u64, side: u8, qty: u64, reduce_only: u8) -> OrderReservation {
+        OrderReservation {
+            order_id,
+            original_qty: qty,
+            remaining_qty: qty,
+            price: 1,
+            initial_reserve: 0,
+            instrument_id: 0,
+            side,
+            reduce_only,
+            _padding: [0; 12],
+        }
+    }
+
+    #[test]
+    fn exposure_gate_counts_same_side_resting_and_the_held_position() {
+        let vault = flush_vault();
+        let mut p = Portfolio::new([1; 32]);
+        p.positions[0] = Position { instrument_id: 0, qty: 9_000, ..Position::default() };
+        p.positions_len = 1;
+        p.orders[0] = resting(1, 0, 400, 0);
+        // 9_000 held + 400 resting + 600 new = 10_000: at the limit.
+        assert_eq!(check_added_exposure(&vault, &p, 0, 0, 600), Ok(()));
+        assert_eq!(
+            check_added_exposure(&vault, &p, 0, 0, 601),
+            Err(MgkError::PortfolioExposureLimitExceeded)
+        );
+        // The opposite side reduces the long and is not limited by the resting buy.
+        assert_eq!(check_added_exposure(&vault, &p, 0, 1, 5_000), Ok(()));
+    }
+
+    #[test]
+    fn exposure_gate_applies_market_exposure_limit_and_risk_off() {
+        let mut vault = flush_vault();
+        vault.open_interest_long = 49_999;
+        let p = Portfolio::new([1; 32]);
+        assert_eq!(
+            check_added_exposure(&vault, &p, 0, 0, 2),
+            Err(MgkError::MarketExposureLimitExceeded)
+        );
+        let mut thin = Vault::new();
+        thin.open_interest_long = 20_000;
+        thin.insurance_fund = 8_000_000_000;
+        assert_eq!(
+            check_added_exposure(&thin, &p, 0, 1, 1),
+            Err(MgkError::RiskOffFundBelowReserve)
+        );
+    }
 
     #[test]
     fn wide_reservation_and_partial_release_preserve_exact_rounding() {

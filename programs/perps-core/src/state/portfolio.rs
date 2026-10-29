@@ -183,6 +183,25 @@ impl Portfolio {
         None
     }
 
+    /// Signed position quantity in lots on `instrument_id`; 0 when flat.
+    pub fn position_qty(&self, instrument_id: u16) -> i64 {
+        self.find_position(instrument_id).map_or(0, |(_, p)| p.qty)
+    }
+
+    /// Quantity resting on `side` of `instrument_id` that could add
+    /// exposure (reduce-only orders cannot).
+    pub fn resting_exposure_adding(&self, instrument_id: u16, side: u8) -> u64 {
+        self.orders
+            .iter()
+            .filter(|o| {
+                o.remaining_qty != 0
+                    && o.instrument_id == instrument_id
+                    && o.side == side
+                    && o.reduce_only == 0
+            })
+            .fold(0u64, |acc, o| acc.saturating_add(o.remaining_qty))
+    }
+
     pub fn find_position_mut(&mut self, instrument_id: u16) -> Option<(usize, &mut Position)> {
         for i in 0..self.positions_len as usize {
             if self.positions[i].instrument_id == instrument_id {
@@ -325,6 +344,34 @@ mod tests {
         p.recalc_margin();
         assert_eq!(p.health, 0);
         assert!(!p.needs_liquidation());
+    }
+
+    #[test]
+    fn reduce_only_and_other_instrument_orders_do_not_count_as_resting_exposure() {
+        let order = |order_id: u64, instrument_id: u16, qty: u64, reduce_only: u8| OrderReservation {
+            order_id,
+            original_qty: qty,
+            remaining_qty: qty,
+            instrument_id,
+            side: 0,
+            reduce_only,
+            ..Default::default()
+        };
+        let mut p = Portfolio::new(Pubkey::from([1u8; 32]));
+        p.orders[0] = order(1, 0, 400, 1);
+        p.orders[1] = order(2, 7, 300, 0);
+        p.orders[2] = order(3, 0, 50, 0);
+        assert_eq!(p.resting_exposure_adding(0, 0), 50);
+        assert_eq!(p.resting_exposure_adding(0, 1), 0);
+    }
+
+    #[test]
+    fn position_qty_is_signed_and_zero_when_flat() {
+        let mut p = Portfolio::new(Pubkey::from([1u8; 32]));
+        p.positions[0] = Position { instrument_id: 3, qty: -40, ..Position::default() };
+        p.positions_len = 1;
+        assert_eq!(p.position_qty(3), -40);
+        assert_eq!(p.position_qty(4), 0);
     }
 
     #[test]
