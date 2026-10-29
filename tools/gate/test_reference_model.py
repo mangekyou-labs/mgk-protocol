@@ -205,6 +205,17 @@ class ReferenceModelTests(unittest.TestCase):
         self.assertEqual(ledger.realized_lamports["L"], 25_000_000)
         self.assertEqual(ledger.vault_liability_lamports(), before)
 
+    def test_takeover_keeps_exhaustion_pause_after_same_event_debt_repayment(self):
+        ledger = Ledger(1_000_000, {"A": 80_000_000, "L": 0})
+        ledger.apply_fill(Fill("A", 1000, 100_000_000, 100_000_000, True))
+        ledger.apply_fill(Fill("L", -250, 101_000_000, 100_000_000, True))
+        before = ledger.vault_liability_lamports()
+        self.assertEqual(ledger.takeover("A", "L", 100_000_000), [250])
+        self.assertEqual((ledger.fund_lamports, ledger.uncovered_bad_debt), (1_000_000, 0))
+        self.assertEqual(ledger.collateral["L"], 5_000_000)
+        self.assertTrue(ledger.trading_paused and ledger.withdrawals_paused)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+
     def test_liquidator_receives_full_penalty_when_trader_is_short(self):
         ledger = Ledger(fund_lamports=100_000, collateral={"A": 100_000, "L": 1_000_000_000})
         ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, True))
