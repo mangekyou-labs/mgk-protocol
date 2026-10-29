@@ -57,10 +57,10 @@ All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std
 Tests are inline in `#[cfg(test)] mod tests` blocks within instruction/state source files. Run per-crate:
 
 ```sh
-cargo test -p mgk-perps-matcher      # 126 tests
-cargo test -p mgk-perps-core         # 286 lib tests + 13 lifecycle (9 run, 4 ignored for CU)
+cargo test -p mgk-perps-matcher      # 130 tests
+cargo test -p mgk-perps-core         # 276 lib tests + 21 lifecycle (17 run, 4 ignored for CU)
 cargo test -p mgk-oracle           # 9 tests
-cargo test -p mgk-common           # 65 tests
+cargo test -p mgk-common           # 71 tests
 cargo test -p mgk-deployment       # 20 tests
 ```
 
