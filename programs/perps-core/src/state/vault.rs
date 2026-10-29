@@ -1,8 +1,10 @@
 use mgk_common::layout::{discriminator, AccountHeader, AccountLayout};
 use mgk_common::MgkError;
 
-/// Required reserve per lot of larger-side open interest: 0.4 x 0.001 SOL.
-pub const RESERVE_LAMPORTS_PER_LOT: u128 = 400_000;
+/// Lamports in one lot (0.001 SOL).
+pub const LAMPORTS_PER_LOT: u128 = 1_000_000;
+/// Required reserve per lot of larger-side open interest: 0.4 x one lot.
+pub const RESERVE_LAMPORTS_PER_LOT: u128 = LAMPORTS_PER_LOT * 2 / 5;
 /// Max absolute position per portfolio: 10 SOL in 0.001 SOL lots.
 pub const PORTFOLIO_EXPOSURE_LIMIT_LOTS: u64 = 10_000;
 /// Max open interest per side: 50 SOL in 0.001 SOL lots.

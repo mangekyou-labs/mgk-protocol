@@ -12,11 +12,48 @@ use crate::state::vault::{Vault, VaultSnapshot};
 use mgk_common::MgkError;
 use pinocchio::{
     account_info::AccountInfo,
+    instruction::{AccountMeta, Instruction},
     msg,
+    program::invoke,
     program_error::ProgramError,
     sysvars::{rent::Rent, Sysvar},
     ProgramResult,
 };
+
+/// System program instruction index for `Transfer`.
+const SYSTEM_TRANSFER_DISCRIMINANT: u32 = 2;
+/// Wire size of a system `Transfer`: discriminant(4) + lamports(8).
+const SYSTEM_TRANSFER_DATA_LEN: usize = 4 + 8;
+
+/// CPI to the system program moving `amount` lamports from the signing
+/// `from` account into `to` (the vault).
+pub(crate) fn system_transfer(
+    from: &AccountInfo,
+    to: &AccountInfo,
+    system_program: &AccountInfo,
+    amount: u64,
+) -> ProgramResult {
+    let mut data = [0u8; SYSTEM_TRANSFER_DATA_LEN];
+    data[0..4].copy_from_slice(&SYSTEM_TRANSFER_DISCRIMINANT.to_le_bytes());
+    data[4..SYSTEM_TRANSFER_DATA_LEN].copy_from_slice(&amount.to_le_bytes());
+    let transfer = Instruction {
+        program_id: system_program.key(),
+        accounts: &[
+            AccountMeta {
+                pubkey: from.key(),
+                is_signer: true,
+                is_writable: true,
+            },
+            AccountMeta {
+                pubkey: to.key(),
+                is_signer: false,
+                is_writable: true,
+            },
+        ],
+        data: &data,
+    };
+    invoke(&transfer, &[from, to, system_program])
+}
 
 /// Record the vault's lamports and ledger backing before an instruction moves
 /// either. Pair with `verify_vault_flow`.

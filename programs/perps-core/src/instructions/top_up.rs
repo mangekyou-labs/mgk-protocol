@@ -2,13 +2,7 @@
 
 use crate::state::Vault;
 use mgk_common::MgkError;
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction},
-    msg,
-    program::invoke,
-    ProgramResult,
-};
+use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
 /// Pure ledger rule: a top-up repays uncovered bad debt first, then grows the fund.
 pub(crate) fn apply_top_up(vault: &mut Vault, amount: u64) -> Result<(), MgkError> {
@@ -37,33 +31,14 @@ pub fn process_top_up(
         msg!("Error: Payer must be a signer");
         return Err(MgkError::Unauthorized.into());
     }
-    if system_program.key() != &[0u8; 32] {
+    if system_program.key() != &crate::SYSTEM_PROGRAM_KEY {
         msg!("Error: Invalid system program");
         return Err(MgkError::InvalidInstruction.into());
     }
     let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
     apply_top_up(vault, amount)?;
 
-    let mut instruction_data = [0u8; 12];
-    instruction_data[0..4].copy_from_slice(&2u32.to_le_bytes());
-    instruction_data[4..12].copy_from_slice(&amount.to_le_bytes());
-    let transfer = Instruction {
-        program_id: system_program.key(),
-        accounts: &[
-            AccountMeta {
-                pubkey: payer_account.key(),
-                is_signer: true,
-                is_writable: true,
-            },
-            AccountMeta {
-                pubkey: vault_account.key(),
-                is_signer: false,
-                is_writable: true,
-            },
-        ],
-        data: &instruction_data,
-    };
-    invoke(&transfer, &[payer_account, vault_account, system_program])?;
+    crate::collateral_flow::system_transfer(payer_account, vault_account, system_program, amount)?;
 
     crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("TopUp successful");
