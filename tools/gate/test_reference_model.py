@@ -139,6 +139,72 @@ class ReferenceModelTests(unittest.TestCase):
             ledger.liquidate("A", "", 25, 100_000_000)
         self.assertEqual((ledger.positions, ledger.collateral, ledger.fund_lamports), before)
 
+    def test_takeover_stops_after_one_quarter_when_maintenance_is_restored(self):
+        ledger = Ledger(20_000_000_000, {"A": 100_000_000, "L": 1_000_000_000})
+        ledger.apply_fill(Fill("A", 1000, 101_000_000, 100_000_000, True))
+        before = ledger.vault_liability_lamports()
+        self.assertEqual(ledger.takeover("A", "L", 100_000_000), [250])
+        self.assertEqual(ledger.positions["A"].quantity_lots, 750)
+        self.assertEqual(ledger.positions["L"], Position(250, Fraction(100_000_000)))
+        self.assertEqual(ledger.collateral, {"A": 92_500_000, "L": 1_002_500_000})
+        self.assertEqual(ledger.fund_lamports, 20_005_000_000)
+        self.assertEqual(ledger.maintenance_health("A", 100_000_000), 10_000_000)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+
+    def test_takeover_rejects_zero_and_positive_health_and_bad_price_atomically(self):
+        for collateral, price in ((100_000_000, 100_000_000), (100_000_001, 100_000_000), (1, 0)):
+            ledger = Ledger(1_000_000_000, {"A": collateral, "L": 1_000_000_000})
+            ledger.apply_fill(Fill("A", 1000, 100_000_000, 100_000_000, True))
+            before = repr(ledger)
+            with self.assertRaises(ValueError):
+                ledger.takeover("A", "L", price)
+            self.assertEqual(repr(ledger), before)
+
+    def test_takeover_checks_liquidator_initial_margin_after_each_step(self):
+        ledger = Ledger(1_000_000_000, {"A": 0, "L": 60_000_000})
+        ledger.apply_fill(Fill("A", 1000, 100_000_000, 100_000_000, True))
+        before = repr(ledger)
+        # First 250 lots need 50m, but the second quarter makes 437 lots
+        # requiring 87.4m. The entire event must roll back.
+        with self.assertRaisesRegex(ValueError, "initial margin"):
+            ledger.takeover("A", "L", 100_000_000)
+        self.assertEqual(repr(ledger), before)
+
+    def test_takeover_cancels_victim_reservations_and_respects_liquidator_orders(self):
+        ledger = Ledger(1_000_000_000, {"A": 100_000_000, "L": 50_000_000})
+        ledger.apply_fill(Fill("A", 1000, 101_000_000, 100_000_000, True))
+        ledger.reservations = {"A": 90_000_000, "L": 3_000_000}
+        before = repr(ledger)
+        with self.assertRaisesRegex(ValueError, "initial margin"):
+            ledger.takeover("A", "L", 100_000_000)
+        self.assertEqual(repr(ledger), before)
+        ledger.reservations["L"] = 2_500_000
+        ledger.takeover("A", "L", 100_000_000)
+        self.assertEqual(ledger.reservations, {"L": 2_500_000})
+
+    def test_takeover_fully_transfers_short_with_insurance_exhaustion(self):
+        ledger = Ledger(10_000, {"A": 0, "L": 1_000_000_000})
+        ledger.apply_fill(Fill("A", -7, 100_000_000, 100_000_000, True))
+        before = ledger.vault_liability_lamports()
+        self.assertEqual(ledger.takeover("A", "L", 100_000_000), [1, 1, 1, 1, 1, 1, 1])
+        self.assertNotIn("A", ledger.positions)
+        self.assertEqual(ledger.positions["L"].quantity_lots, -7)
+        self.assertEqual(ledger.collateral["L"], 1_000_070_000)
+        self.assertEqual((ledger.fund_lamports, ledger.uncovered_bad_debt), (0, 60_000))
+        self.assertTrue(ledger.trading_paused and ledger.withdrawals_paused)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+
+    def test_takeover_reduces_liquidators_opposite_position_and_realizes_pnl(self):
+        ledger = Ledger(1_000_000_000, {"A": 100_000_000, "L": 0})
+        ledger.apply_fill(Fill("A", 1000, 101_000_000, 100_000_000, True))
+        ledger.apply_fill(Fill("L", -250, 110_000_000, 100_000_000, True))
+        before = ledger.vault_liability_lamports()
+        self.assertEqual(ledger.takeover("A", "L", 100_000_000), [250])
+        self.assertNotIn("L", ledger.positions)
+        self.assertEqual(ledger.collateral["L"], 27_500_000)
+        self.assertEqual(ledger.realized_lamports["L"], 25_000_000)
+        self.assertEqual(ledger.vault_liability_lamports(), before)
+
     def test_liquidator_receives_full_penalty_when_trader_is_short(self):
         ledger = Ledger(fund_lamports=100_000, collateral={"A": 100_000, "L": 1_000_000_000})
         ledger.apply_fill(Fill("A", 100, 100_000_000, 100_000_000, True))

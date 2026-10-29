@@ -20,6 +20,8 @@ Exposure limits and recovery follow the reserve and insurance contract. `open_in
 
 The issue #8 stress vectors quote SOL to six decimal places. Exact protocol-favoring integer conversion yields **−757,575 lamports** for $110 then $120 and **+757,577 lamports** for the reverse; each rounds to the quoted **∓0.000758 SOL** at that display precision. The zero-fee exhaustion vector yields 4,090,909 lamports of uncovered debt and then 4,242,425 lamports in the fund after recovery. The self-tests assert the exact lamports, while the issue's decimal figures are presentation values.
 
+`takeover(account, liquidator, conversion_price)` models issue #24 atomically: reject nonnegative maintenance health, cancel the victim's `reservations`, transfer `max(1, remaining_lots // 4)` until healthy or flat, and check the liquidator's initial margin (including its remaining reservations) after every step. It returns the lot quantities closed in each step. `liquidate(...)` remains the low-level single-step accounting primitive. Both trade at the supplied validated conversion price and preserve the vault liability while guaranteeing the liquidator's 1% penalty; uncovered payouts pause trading and withdrawals. `takeover_scenario.py` accepts a JSON scenario on stdin and prints independent expectations for the runtime tests.
+
 Run the CI self-tests locally with:
 
 ```sh
