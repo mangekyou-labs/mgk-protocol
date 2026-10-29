@@ -1,90 +1,30 @@
 'use strict';
-
-const { test } = require('node:test');
+const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {
-  decideLiquidation,
-  encodeLiquidateUser,
-  decodePortfolioHealth,
-} = require('./ops-liquidate');
-
-test('LiquidateUser is skipped when the portfolio is healthy', () => {
-  const d = decideLiquidation({
-    health: 1n,
-    positionsLen: 1,
-    markValid: 1,
-    liqPaused: 0,
-    liquidationsPaused: false,
-    batchStatus: 3,
-  });
-  assert.equal(d.action, 'skip');
-  assert.equal(d.reason, 'healthy');
+const {decideLiquidation, encodeLiquidateUser, decodePortfolioHealth} = require('./ops-liquidate');
+const underwater = {health:-1n, positionsLen:1, oracleValid:true};
+test('health zero and healthy portfolios cannot be liquidated', () => {
+  for (const health of [0n,1n]) assert.equal(decideLiquidation({...underwater,health}).reason,'healthy');
 });
-
-test('LiquidateUser is skipped when DFBA mark is invalid or liq is paused', () => {
-  const invalid = decideLiquidation({
-    health: -10n,
-    positionsLen: 1,
-    markValid: 0,
-    liqPaused: 1,
-    liquidationsPaused: false,
-    batchStatus: 3,
-  });
-  assert.equal(invalid.action, 'skip');
-  assert.equal(invalid.reason, 'mark_invalid');
-
-  const paused = decideLiquidation({
-    health: -10n,
-    positionsLen: 1,
-    markValid: 1,
-    liqPaused: 0,
-    liquidationsPaused: true,
-    batchStatus: 3,
-  });
-  assert.equal(paused.action, 'skip');
-  assert.equal(paused.reason, 'liquidations_paused');
+test('valid conversion permits takeover independently of auction mark', () => {
+  assert.equal(decideLiquidation({...underwater,markValid:false,liqPaused:true,batchStatus:0}).action,'liquidate');
 });
-
-test('LiquidateUser is skipped unless the mark batch is Settled', () => {
-  const d = decideLiquidation({
-    health: -10n,
-    positionsLen: 1,
-    markValid: 1,
-    liqPaused: 0,
-    liquidationsPaused: false,
-    batchStatus: 0,
-  });
-  assert.equal(d.action, 'skip');
-  assert.equal(d.reason, 'batch_not_settled');
+test('invalid conversion, liquidation pause, and unapplied fills block takeover', () => {
+  assert.equal(decideLiquidation({...underwater,oracleValid:false}).reason,'oracle_invalid');
+  assert.equal(decideLiquidation({...underwater,liquidationsPaused:true}).reason,'liquidations_paused');
+  assert.equal(decideLiquidation({...underwater,hasUnsettledBatch:true}).reason,'unsettled_fills');
 });
-
-test('underwater portfolio with valid DFBA mark is liquidatable', () => {
-  const d = decideLiquidation({
-    health: -1n,
-    positionsLen: 1,
-    markValid: 1,
-    liqPaused: 0,
-    liquidationsPaused: false,
-    batchStatus: 3,
-  });
-  assert.equal(d.action, 'liquidate');
-  assert.equal(d.reason, 'underwater');
+test('single-market wire contract rejects unsupported instrument counts', () => {
+  assert.deepEqual([...encodeLiquidateUser(1)],[9,1,0]);
+  for (const count of [0,2,-1,65536]) assert.throws(()=>encodeLiquidateUser(count));
 });
-
-test('encodeLiquidateUser is disc 9 + num_instruments u16 LE', () => {
-  const buf = encodeLiquidateUser(1);
-  assert.equal(buf.length, 3);
-  assert.equal(buf[0], 9);
-  assert.equal(buf.readUInt16LE(1), 1);
-});
-
-test('decodePortfolioHealth reads health i128 @ 128 and positions_len u16 @ 144', () => {
-  const data = Buffer.alloc(1456);
-  // health = -42 as i128 LE
-  data.writeBigUInt64LE(BigInt.asUintN(64, -42n), 128);
-  data.writeBigInt64LE(-1n, 136);
-  data.writeUInt16LE(2, 144);
-  const p = decodePortfolioHealth(data);
-  assert.equal(p.health, -42n);
-  assert.equal(p.positionsLen, 2);
+test('version 3 portfolio health is recalculated at the conversion price', () => {
+  const data=Buffer.alloc(2848);data[0]=4;data[1]=3;
+  data.writeBigInt64LE(100_000_000n,48);data.writeUInt16LE(1,208);
+  data.writeBigInt64LE(1000n,224);data.writeBigInt64LE(101_000_000n,232);
+  // Cached health is intentionally stale and must not influence the decision.
+  data.writeBigInt64LE(999_000_000n,192);
+  assert.equal(decodePortfolioHealth(data,100_000_000n).health,-10_000_000n);
+  assert.throws(()=>decodePortfolioHealth(data,0n));
+  data[1]=2;assert.throws(()=>decodePortfolioHealth(data,100_000_000n));
 });

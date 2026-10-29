@@ -62,6 +62,8 @@ class Ledger:
     # Unsolicited lamports sent to the vault PDA. Anyone can credit it, so they
     # sit above the ledger backing and never reach collateral or the fund.
     donated_lamports: int = 0
+    # Aggregate collateral reserved by each account's live resting orders.
+    reservations: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.fund_lamports < 0 or self.uncovered_bad_debt < 0 or any(v < 0 for v in self.collateral.values()):
@@ -150,6 +152,47 @@ class Ledger:
         next_state = deepcopy(self)
         next_state._liquidate(account, liquidator, quantity_lots, conversion_price)
         self.__dict__.update(next_state.__dict__)
+
+    def maintenance_health(self, account: str, conversion_price: int) -> int:
+        """Oracle equity, including gains, less maintenance margin."""
+        if conversion_price <= 0:
+            raise ValueError("conversion price must be positive")
+        position = self.positions.get(account)
+        pnl = (Fraction(position.quantity_lots, LOTS_PER_SOL)
+               * (conversion_price - position.entry_price)) if position else Fraction(0)
+        return (self.collateral.get(account, 0) + _credit(_lamports(pnl, conversion_price))
+                - self.maintenance_margin(account, conversion_price))
+
+    def takeover(self, account: str, liquidator: str, conversion_price: int) -> list[int]:
+        """Atomically transfer quarters of the remaining position until healthy.
+
+        Return the closed lots at each step for independent runtime comparison.
+        Prices are prevalidated by the caller, as with observed settlement fills.
+        """
+        if (not account or not liquidator or account == liquidator
+                or account not in self.positions or liquidator not in self.collateral):
+            raise ValueError("invalid liquidation")
+        if self.maintenance_health(account, conversion_price) >= 0:
+            raise ValueError("portfolio is healthy")
+        next_state = deepcopy(self)
+        next_state.reservations.pop(account, None)
+        steps = []
+        while account in next_state.positions and next_state.maintenance_health(account, conversion_price) < 0:
+            quantity = max(1, abs(next_state.positions[account].quantity_lots) // 4)
+            next_state._liquidate(account, liquidator, quantity, conversion_price)
+            position = next_state.positions.get(liquidator)
+            if position and abs(position.quantity_lots) > PORTFOLIO_EXPOSURE_LIMIT_LOTS:
+                raise ValueError("portfolio exposure limit exceeded")
+            pnl = (Fraction(position.quantity_lots, LOTS_PER_SOL)
+                   * (conversion_price - position.entry_price)) if position else Fraction(0)
+            equity = next_state.collateral[liquidator] + min(0, _credit(_lamports(pnl, conversion_price)))
+            required = (next_state.initial_margin(liquidator, conversion_price)
+                        + next_state.reservations.get(liquidator, 0))
+            if equity < required:
+                raise ValueError("liquidator fails initial margin")
+            steps.append(quantity)
+        self.__dict__.update(next_state.__dict__)
+        return steps
 
     def _liquidate(self, account: str, liquidator: str, quantity_lots: int, conversion_price: int) -> None:
         if not account or not liquidator or account == liquidator or quantity_lots <= 0 or conversion_price <= 0:

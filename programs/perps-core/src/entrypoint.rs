@@ -8,7 +8,7 @@ use crate::instructions::{
     process_clear_batch, process_close_committing, process_commit_order, process_create_batch,
     process_create_portfolio, process_deposit, process_init_portfolio,
     process_init_portfolio_for_user, process_init_vault, process_initialize,
-    process_liquidate_user, process_modify_resting_order, process_post_order, process_reveal_order,
+    process_modify_resting_order, process_post_order, process_reveal_order,
     process_set_batch_counter, process_set_batch_params, process_set_funding_params,
     process_set_instrument_fees, process_set_instrument_oracle, process_set_pause_flags,
     process_settle_batch, process_top_up, process_unpause, process_withdraw,
@@ -1171,65 +1171,128 @@ fn process_settle_batch_inner(
     )
 }
 
-/// Liquidate an underwater portfolio (M7 7.7 + DFBA mark gate).
+/// Permissionless SOL-PERP takeover at the validated conversion oracle price.
 ///
-/// Accounts (fixed + variable):
-/// - index 0: writable Portfolio PDA
-/// - index 1: read-only Registry
-/// - index 2: writable Vault PDA
-/// - index 3: signer Liquidator
-/// - index 4: read-only Batch (Settled; `mark_valid` / `liq_paused`)
-/// - indices 5..5+num_instruments: read-only Instrument accounts
-/// - index 5+num_instruments: read-only fallback oracle account
+/// Accounts (exactly nine):
+/// 0. [writable] Victim portfolio PDA
+/// 1. [writable] Registry PDA
+/// 2. [writable] Vault PDA
+/// 3. [signer] Liquidator wallet
+/// 4. [writable] Liquidator portfolio PDA
+/// 5. [] Instrument PDA
+/// 6. [] Configured conversion oracle
+/// 7. [writable] Matcher book PDA
+/// 8. [] Executable matcher program
 ///
-/// Data: num_instruments(2)
+/// Data: num_instruments (u16 LE), restricted to 1. No batch mark is required.
 fn process_liquidate_user_inner(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 6 {
+    if accounts.len() != 9 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
-    if data.len() < 2 {
+    if data != 1u16.to_le_bytes() {
         return Err(ProgramError::InvalidInstructionData);
     }
-
-    let portfolio_account = &accounts[0];
+    for i in [0usize, 1, 2, 4] {
+        validate_owner(&accounts[i], program_id)?;
+        validate_writable(&accounts[i])?;
+    }
+    validate_writable(&accounts[7])?;
+    use pinocchio::instruction::AccountMeta;
+    let victim_account = &accounts[0];
     let registry_account = &accounts[1];
     let vault_account = &accounts[2];
-    let liquidator_account = &accounts[3];
-    let batch_account = &accounts[4];
-
-    let num_instruments = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;
-    let inst_end = 5usize
-        .checked_add(num_instruments)
-        .ok_or(ProgramError::InvalidInstructionData)?;
-    if accounts.len() < inst_end + 1 {
-        return Err(ProgramError::NotEnoughAccountKeys);
+    let signer = &accounts[3];
+    let liquidator_account = &accounts[4];
+    let instrument_account = &accounts[5];
+    let oracle_account = &accounts[6];
+    let book_account = &accounts[7];
+    let matcher = &accounts[8];
+    if !signer.is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
     }
-    let instrument_accounts = &accounts[5..inst_end];
-    let oracle_account = &accounts[inst_end];
-
-    validate_owner(portfolio_account, program_id)?;
-    validate_writable(portfolio_account)?;
-    validate_owner(registry_account, program_id)?;
-    // Writable so an exhausted fund can pause trading and withdrawals.
-    validate_writable(registry_account)?;
-    validate_owner(vault_account, program_id)?;
-    validate_writable(vault_account)?;
-    validate_owner(batch_account, program_id)?;
-
-    process_liquidate_user(
+    crate::risk::unlocked(registry_account)?;
+    crate::matcher_cpi::validate_vault(program_id, vault_account)?;
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
+    if registry.is_liquidations_paused() {
+        return Err(MgkError::OperationPaused.into());
+    }
+    if victim_account.key() == liquidator_account.key() {
+        return Err(MgkError::InvalidPortfolio.into());
+    }
+    let victim = unsafe { load_account_mut::<Portfolio>(victim_account)? };
+    let liquidator = unsafe { load_account_mut::<Portfolio>(liquidator_account)? };
+    for (account, user) in [
+        (victim_account, &victim.user),
+        (liquidator_account, &liquidator.user),
+    ] {
+        if account.key() != &crate::pda::derive_portfolio_pda(user, program_id).0 {
+            return Err(ProgramError::InvalidSeeds);
+        }
+    }
+    if liquidator.user != *signer.key() {
+        return Err(MgkError::Unauthorized.into());
+    }
+    let instrument_id = crate::matcher_cpi::validate_book(matcher, book_account, None)?;
+    let price = crate::risk::conversion(
         program_id,
-        portfolio_account,
-        registry_account,
-        vault_account,
-        liquidator_account,
-        batch_account,
-        instrument_accounts,
+        instrument_account,
         oracle_account,
-    )
+        instrument_id,
+    )?;
+    crate::risk::refresh(victim, instrument_id, price)?;
+    if victim.health >= 0 {
+        return Err(MgkError::PortfolioHealthy.into());
+    }
+    if victim.positions_len == 0 {
+        return Err(MgkError::InvalidPortfolio.into());
+    }
+    // Only core's registry signature authorizes this cancellation. IDs come
+    // exclusively from the canonical victim's reservation ledger, never calldata.
+    // The cleared/unsettled lock above ensures none have unapplied fills.
+    let mut data = [0u8; 2 + 12 * 8];
+    data[0] = 9; // authenticated CancelSettledOrders
+    let mut count = 0usize;
+    for order in &victim.orders {
+        if order.remaining_qty == 0 {
+            continue;
+        }
+        if order.instrument_id != instrument_id {
+            return Err(MgkError::InvalidPortfolio.into());
+        }
+        data[2 + count * 8..10 + count * 8].copy_from_slice(&order.order_id.to_le_bytes());
+        count += 1;
+    }
+    if count != 0 {
+        data[1] = count as u8;
+        let metas = [
+            AccountMeta::readonly_signer(registry_account.key()),
+            AccountMeta::writable(book_account.key()),
+        ];
+        crate::matcher_cpi::signed(
+            registry_account,
+            matcher,
+            &metas,
+            &[registry_account, book_account],
+            &data[..2 + count * 8],
+        )?;
+        for i in 0..victim.orders.len() {
+            if victim.orders[i].remaining_qty != 0 {
+                crate::risk::release(victim, i, victim.orders[i].remaining_qty)?;
+            }
+        }
+    }
+    let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
+    let before = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
+    let exhausted = crate::instructions::takeover(victim, liquidator, vault, instrument_id, price)?;
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &before)?;
+    if exhausted || vault.uncovered_bad_debt != 0 {
+        unsafe { load_account_mut::<Registry>(registry_account)? }.pause_trading_and_withdrawals();
+    }
+    Ok(())
 }
 
 /// Cancel a resting order by id (M6 6h).

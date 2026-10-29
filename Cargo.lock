@@ -2426,6 +2426,7 @@ dependencies = [
  "pinocchio",
  "pinocchio-pubkey",
  "proptest",
+ "serde_json",
  "sha2 0.10.9",
  "solana-program-test",
  "solana-sdk",

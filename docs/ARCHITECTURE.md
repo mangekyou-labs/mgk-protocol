@@ -395,31 +395,35 @@ F = clamp(SMA(premium_samples) + clamp(interest_rate - SMA(premium_samples), -de
 
 ### Liquidation & Safety Stack
 
-**Trigger:** `Equity < M_p AND Position PnL < 0` where `M_p` is portfolio maintenance margin.
+The restricted SOL-PERP demo follows [ADR 0002](adr/0002-liquidate-by-takeover-at-oracle-price-pause-instead-of-adl.md).
+Anyone may submit a takeover when maintenance health is strictly negative at
+the validated conversion oracle price. Zero health and positive health reject.
+Stale, future, inactive, wrong-instrument or excessive-confidence oracle data
+blocks liquidation. Auction marks do not control takeover admission.
 
-**Step 1 — Cancel open orders:** all resting orders across every market are cancelled to prevent exposure increase during liquidation.
+The liquidator signs for a canonical funded portfolio. Core first cancels the
+victim's resting orders through an authenticated matcher CPI and releases its
+reservations. An unapplied cleared batch blocks liquidation. Core transfers the
+same signed quantity at the conversion price in steps of
+`max(1, floor(abs(remaining lots) / 4))`, stopping at non-negative health or flat.
+Each step realizes PnL on both portfolios, preserves combined base exposure,
+updates open interest, and requires the liquidator to meet initial margin
+including its existing order reservations. Failure reverts the whole transaction,
+including cancellations.
 
-**Step 2 — Compute target:** `target = max(0, Equity * (1 - buffer))`; `gap = M_p - target`. Buffer = 10% safety margin.
+The victim pays 1% of closed notional to the liquidator and 1% to the insurance
+fund, capped by available victim collateral. The liquidator's 1% is guaranteed
+by the fund. Existing realized-loss collection remains capped; unpaid losses
+are borne by the fund when it pays the corresponding winner, never charged a
+second time. Any payout that exhausts the fund pauses trading and withdrawals,
+even if a later inflow in the same transaction repays the debt. Recovery requires
+the existing governance unpause checks. There is no auto-deleveraging.
 
-**Step 3 — Selective reduction:** for each non-zero position, compute margin impact of reducing it. **Skip positions where closing would NOT reduce portfolio margin** (these are hedges). Rank remaining positions by:
-
-```
-IR = margin_reduction / estimated_market_impact
-```
-
-`estimated_market_impact` comes from order book depth at the reduction size. Highest IR is reduced first. **Inventory tiebreaker:** when two positions have the same IR, prefer the reduction that moves insurance fund inventory toward target balance (e.g., 50/50 base/quote). IR remains the primary ranking signal — inventory is a soft tiebreaker only.
-
-Reduction fraction by urgency:
-
-| Condition | Reduction fraction |
-|---|---|
-| `gap > 30%` of `M_p` | 25% of position |
-| `gap > 10%` of `M_p` | 10% of position |
-| `gap ≤ 10%` of `M_p` | 5% of position |
-
-**Step 4 — Iterate:** apply best reduction, recompute `gap`, repeat. Up to 10 iterations. If optimizer cannot resolve — **full flat** of all positions.
-
-**Step 5 — Execute via market sweep:** planned reductions become market orders against the book. Per-fill risk checks prevent the liquidating account's margin from going further negative.
+`LiquidateUser` retains discriminator 9 and the one-market u16 count (`1`). Its
+nine accounts, in order, are victim portfolio (writable), registry (writable),
+vault (writable), liquidator wallet (signer), liquidator portfolio (writable),
+instrument, conversion oracle, matcher book (writable), and matcher program.
+Clients must use this account contract; the former batch/mark ABI is retired.
 
 ### Insurance Fund
 
@@ -431,7 +435,7 @@ The insurance fund is the cash-backed counterparty to realized PnL (ADR 0003). I
 
 **Vault invariant.** After every lamport move: `vault lamports - rent = total collateral + fund - uncovered_bad_debt`, with zero tolerance. A violation reverts the transaction (error 607).
 
-There is no liquidation fee charged to traders, and no auto-deleveraging.
+Liquidation penalties follow ADR 0002 above; there is no auto-deleveraging.
 
 ### Toxic-Taker Detection
 

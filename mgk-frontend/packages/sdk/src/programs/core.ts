@@ -5,6 +5,7 @@
  * fields are little-endian. Discriminator table mirrors the Rust
  * `CoreInstruction` enum in programs/perps-core/src/instructions/mod.rs:29-44.
  */
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { Side } from '../instruction.js';
 import { OrderType } from '../state/types.js';
 
@@ -273,17 +274,53 @@ export function encodeSettleBatch(
 }
 
 /**
- * LiquidateUser — discriminator + num_instruments (u16), 3 bytes total.
- * Wire: disc(1) + num_instruments(2).
- * Accounts: portfolio, registry, vault, liquidator, **batch** (Settled + mark_valid),
- * instruments…, oracle. Rejects when batch.liq_paused or !mark_valid (DFBA).
+ * SOL-PERP takeover at a validated conversion oracle. Cancels victim orders,
+ * then transfers signed quarter-position steps into the liquidator portfolio.
+ * Wire: disc(9) + num_instruments(1 as u16 LE). No auction mark is required.
  */
-export function encodeLiquidateUser(numInstruments: number): Uint8Array {
-  const buf = new Uint8Array(3);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.LiquidateUser);
-  view.setUint16(1, numInstruments, true);
-  return buf;
+export function encodeLiquidateUser(numInstruments = 1): Uint8Array {
+  if (numInstruments !== 1) throw new Error('Only one SOL-PERP instrument is supported');
+  return new Uint8Array([CORE_INSTRUCTION.LiquidateUser, 1, 0]);
+}
+
+export interface LiquidateUserAccounts {
+  victimPortfolio: PublicKey;
+  registry: PublicKey;
+  vault: PublicKey;
+  liquidator: PublicKey;
+  liquidatorPortfolio: PublicKey;
+  instrument: PublicKey;
+  oracle: PublicKey;
+  book: PublicKey;
+  matcher: PublicKey;
+}
+
+/**
+ * The liquidator wallet must sign and own liquidatorPortfolio.
+ * Request a 1,400,000 compute-unit budget for a worst-case full liquidation.
+ */
+export function buildLiquidateUser(
+  programId: PublicKey,
+  accounts: LiquidateUserAccounts,
+): TransactionInstruction {
+  const meta = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({
+    pubkey, isWritable, isSigner,
+  });
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(accounts.victimPortfolio, true),
+      meta(accounts.registry, true),
+      meta(accounts.vault, true),
+      meta(accounts.liquidator, false, true),
+      meta(accounts.liquidatorPortfolio, true),
+      meta(accounts.instrument),
+      meta(accounts.oracle),
+      meta(accounts.book, true),
+      meta(accounts.matcher),
+    ],
+    data: Buffer.from(encodeLiquidateUser()),
+  });
 }
 
 /**

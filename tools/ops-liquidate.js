@@ -1,64 +1,45 @@
 'use strict';
 
-const BATCH_STATUS_SETTLED = 3;
 const LIQUIDATE_DISC = 9;
-const HEALTH_OFFSET = 128;
-const POSITIONS_LEN_OFFSET = 144;
-
 function readI128LE(buf, offset) {
-  const lo = buf.readBigUInt64LE(offset);
-  const hi = buf.readBigInt64LE(offset + 8);
-  return (hi << 64n) + lo;
+  return (buf.readBigInt64LE(offset + 8) << 64n) + buf.readBigUInt64LE(offset);
 }
+function floorDiv(n, d) {return n / d - (n < 0n && n % d !== 0n ? 1n : 0n);}
 
-function decodePortfolioHealth(data) {
+/** Reprice maintenance health from the v3 ledger at a validated oracle price.
+ * Oracle provenance/freshness validation belongs to the caller and on-chain gate.
+ */
+function decodePortfolioHealth(data, conversionPrice) {
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-  if (buf.length < POSITIONS_LEN_OFFSET + 2) {
-    throw new Error('portfolio buffer too small');
+  const price = BigInt(conversionPrice);
+  if (buf.length < 2848 || buf[0] !== 4 || buf[1] !== 3) throw new Error('expected version 3 portfolio');
+  if (price <= 0n) throw new Error('conversion price must be positive');
+  const positionsLen = buf.readUInt16LE(208);
+  if (positionsLen > 32) throw new Error('invalid positions length');
+  let health = readI128LE(buf, 48);
+  for (let i = 0; i < positionsLen; i++) {
+    const off = 216 + i * 40;
+    if (buf.readUInt16LE(off) !== 0) throw new Error('only SOL-PERP is supported');
+    const qty = buf.readBigInt64LE(off + 8);
+    const entry = buf.readBigInt64LE(off + 16);
+    const rem = buf.readBigUInt64LE(off + 24);
+    const den = buf.readBigUInt64LE(off + 32) || 1n;
+    health += floorDiv(qty * 1_000_000n * ((price - entry) * den - rem), price * den);
+    health -= (qty < 0n ? -qty : qty) * 100_000n;
   }
-  return {
-    health: readI128LE(buf, HEALTH_OFFSET),
-    positionsLen: buf.readUInt16LE(POSITIONS_LEN_OFFSET),
-  };
+  return {health, positionsLen};
 }
-
-function encodeLiquidateUser(numInstruments) {
-  const n = Number(numInstruments);
-  if (!Number.isInteger(n) || n < 0 || n > 0xffff) {
-    throw new Error('num_instruments must be u16');
-  }
-  const buf = Buffer.alloc(3);
-  buf[0] = LIQUIDATE_DISC;
-  buf.writeUInt16LE(n, 1);
-  return buf;
+function encodeLiquidateUser(numInstruments = 1) {
+  if (numInstruments !== 1) throw new Error('only one SOL-PERP instrument is supported');
+  return Buffer.from([LIQUIDATE_DISC, 1, 0]);
 }
-
+/** health must have been refreshed at the same validated conversion oracle. */
 function decideLiquidation(p) {
-  const health = p.health == null ? 0n : BigInt(p.health);
-  const positionsLen = p.positionsLen || 0;
-  if (!positionsLen) {
-    return { action: 'skip', reason: 'no_positions' };
-  }
-  if (health >= 0n) {
-    return { action: 'skip', reason: 'healthy' };
-  }
-  if (p.batchStatus !== BATCH_STATUS_SETTLED) {
-    return { action: 'skip', reason: 'batch_not_settled' };
-  }
-  if (!p.markValid || p.liqPaused) {
-    return { action: 'skip', reason: 'mark_invalid' };
-  }
-  if (p.liquidationsPaused) {
-    return { action: 'skip', reason: 'liquidations_paused' };
-  }
-  return { action: 'liquidate', reason: 'underwater' };
+  if (!p.positionsLen) return {action:'skip', reason:'no_positions'};
+  if (BigInt(p.health) >= 0n) return {action:'skip', reason:'healthy'};
+  if (!p.oracleValid) return {action:'skip', reason:'oracle_invalid'};
+  if (p.hasUnsettledBatch) return {action:'skip', reason:'unsettled_fills'};
+  if (p.liquidationsPaused) return {action:'skip', reason:'liquidations_paused'};
+  return {action:'liquidate', reason:'underwater'};
 }
-
-module.exports = {
-  BATCH_STATUS_SETTLED,
-  LIQUIDATE_DISC,
-  decodePortfolioHealth,
-  encodeLiquidateUser,
-  decideLiquidation,
-  readI128LE,
-};
+module.exports = {LIQUIDATE_DISC, decodePortfolioHealth, encodeLiquidateUser, decideLiquidation, readI128LE};
