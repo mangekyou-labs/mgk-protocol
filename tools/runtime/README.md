@@ -78,10 +78,36 @@ to lamports before rounding: credits round down and debits round up. The i128
 micro-USD display counter separately sums the floor of each realized event,
 including negative events; quantizing that counter must not affect conversion.
 
-A cash-backed 20 SOL insurance fixture supplies both real vault lamports and its
-accounting counter after the signed deposits. This isolates position settlement
-from issue #23's top-up instruction and insurance-exhaustion behavior. All orders,
-clearing and settlement still execute as real signed candidate transactions.
+The insurance fund is seeded by a signed TopUp (26) of 20 SOL from a funder
+wallet, the same permissionless path production uses; there is no genesis
+fund patching. The vault is created with exactly the rent-exempt minimum for
+its 80 bytes (queried through `getMinimumBalanceForRentExemption`), and every
+assertion checks the exact invariant `vault lamports - rent = total collateral +
+fund - uncovered_bad_debt` with zero tolerance. Vault layout v2 stores total
+collateral at byte 8, the fund at 16, uncovered bad debt at 32, long and short
+open interest at 48 and 56. The pause-flags byte of the registry (89) is
+compared as well. All orders, clearing and settlement execute as real signed
+candidate transactions.
+
+After the settlement scenarios a third trader joins and the smoke walks the
+issue #23 acceptance flow against the Python reference ledger: a winner
+withdraws realized profit (paid in cash from the fund) while its loser is still
+open; governance withdraws exactly the fund surplus above 0.4 x larger-side
+open interest (rejecting surplus + 1 with 611 and a non-governance signer with
+7); the 10 SOL position cap (608), the 50 SOL open-interest cap (609, the vault
+open-interest counter is patched to 49_999 and then restored) and risk-off
+(610) reject exposure-adding posts while reduce-only posts and withdrawals
+still simulate successfully; an exhaustion settlement (fill above the post-time
+oracle, then an oracle drop) credits the winner in full, records the shortfall
+as uncovered bad debt and auto-pauses trading and withdrawals (602 for new
+exposure and withdrawals); top-ups repay debt before the fund; Unpause (28)
+is refused with debt outstanding (612), resumes withdrawals first, and only
+then trading; finally a one-lamport donation straight to the vault breaks the
+invariant so that a top-up and a withdrawal both revert with 607. The cached
+risk fields (IM, MM, free collateral, health) are compared only for portfolios
+that settled or withdrew at the current price, because other portfolios keep
+the value cached at their last refresh.
+
 The smoke checks invalid oracle boundaries, submits a stale-oracle transaction,
 compares all protected account bytes and lamports after rollback, and successfully
 retries with a fresh oracle. It also checks deliberate mismatch rejection and
@@ -104,9 +130,10 @@ reservation, instrument, side and reduce-only flag. This provenance survives
 matching and is consumed by settlement; old version-2 portfolios must be
 recreated for the restricted demo.
 
-PostOrder (20) appends readonly Instrument and Oracle accounts after Matcher
-(indices 6 and 7). ModifyRestingOrder (12) uses Portfolio, User, Book, Matcher,
-Registry, Instrument and Oracle in that order. Withdraw (3) appends Instrument
+PostOrder (20) appends readonly Instrument, Oracle and Vault accounts after
+Matcher (indices 6, 7 and 8). ModifyRestingOrder (12) uses Portfolio, User, Book,
+Matcher, Registry, Instrument, Oracle and Vault in that order. The vault gate
+(608, 609, 610) applies only to non-reduce-only posts and modifications. Withdraw (3) appends Instrument
 and Oracle after Registry when a position or reservation is present; flat
 portfolios without orders can withdraw without oracle accounts. Cancellation
 releases the recorded reservation without requiring a fresh oracle.
@@ -128,7 +155,7 @@ orders and matcher output.
 Other
 account layouts and instruction encodings remain version 1. Future protocol
 layout changes must update this adapter. This coverage does not complete the
-parent release gate or test insurance exhaustion. All transactions are ephemeral
+parent release gate (liquidation takeover is issue #24). All transactions are ephemeral
 local simulation; no external cluster is used. CI builds fresh SBF artifacts,
 records their hashes, runs these tests and uploads the candidate manifest and
 runtime report even when the smoke fails.
