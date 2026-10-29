@@ -41,6 +41,7 @@ pub fn process_top_up(
         msg!("Error: Invalid system program");
         return Err(MgkError::InvalidInstruction.into());
     }
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
     apply_top_up(vault, amount)?;
 
     let mut instruction_data = [0u8; 12];
@@ -64,7 +65,7 @@ pub fn process_top_up(
     };
     invoke(&transfer, &[payer_account, vault_account, system_program])?;
 
-    crate::cash::assert_vault_invariant(vault_account, vault)?;
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("TopUp successful");
     Ok(())
 }

@@ -33,6 +33,7 @@ pub fn process_withdraw_insurance_fund(
     amount: u64,
 ) -> ProgramResult {
     crate::instructions::unpause::require_governance(registry, governance_account)?;
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
     apply_fund_withdrawal(vault, amount)?;
 
     let vault_lamports = vault_account
@@ -48,7 +49,7 @@ pub fn process_withdraw_insurance_fund(
         *governance_account.borrow_mut_lamports_unchecked() = governance_lamports;
     }
 
-    crate::cash::assert_vault_invariant(vault_account, vault)?;
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("WithdrawInsuranceFund successful");
     Ok(())
 }

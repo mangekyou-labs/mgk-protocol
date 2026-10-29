@@ -1,6 +1,6 @@
 #![cfg_attr(target_os = "solana", no_std)]
 
-pub(crate) mod cash;
+pub(crate) mod collateral_flow;
 pub mod entrypoint;
 pub mod instructions;
 pub mod pda;

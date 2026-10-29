@@ -59,6 +59,9 @@ class Ledger:
     realized_micro_usd: dict[str, Fraction] = field(default_factory=dict)
     realized_lamports: dict[str, int] = field(default_factory=dict)
     fees_lamports: dict[str, int] = field(default_factory=dict)
+    # Unsolicited lamports sent to the vault PDA. Anyone can credit it, so they
+    # sit above the ledger backing and never reach collateral or the fund.
+    donated_lamports: int = 0
 
     def __post_init__(self) -> None:
         if self.fund_lamports < 0 or self.uncovered_bad_debt < 0 or any(v < 0 for v in self.collateral.values()):
@@ -271,6 +274,15 @@ class Ledger:
         self.collateral[account] -= amount
         return amount
 
+    def donate(self, amount: int) -> None:
+        if amount < 0:
+            raise ValueError("negative donation")
+        self.donated_lamports += amount
+
     def vault_liability_lamports(self) -> int:
-        """Expected vault lamports above rent after every modeled cashflow."""
+        """Ledger backing: collateral plus fund less uncovered bad debt."""
         return sum(self.collateral.values()) + self.fund_lamports - self.uncovered_bad_debt
+
+    def vault_lamports_above_rent(self) -> int:
+        """Expected vault lamports above rent: the backing plus donated surplus."""
+        return self.vault_liability_lamports() + self.donated_lamports

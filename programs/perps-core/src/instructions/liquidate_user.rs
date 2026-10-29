@@ -14,7 +14,7 @@ use mgk_common::{
     math::{calculate_im, calculate_mm},
     MgkError,
 };
-use crate::cash::settle_cash;
+use crate::collateral_flow::apply_realized_pnl_and_fee;
 use pinocchio::{
     account_info::AccountInfo,
     msg,
@@ -187,6 +187,8 @@ pub fn process_liquidate_user(
     }
 
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
+    // Liquidation moves no lamports; the vault backing must stay unchanged.
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
     let shortfall = reduce_portfolio(
         portfolio,
         vault,
@@ -197,6 +199,7 @@ pub fn process_liquidate_user(
             mmr_bps: mmr_bps_table,
         },
     )?;
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
 
     if shortfall > 0 {
         // The fund could not pay a winner in full: the shortfall is already on
@@ -260,7 +263,7 @@ fn reduce_portfolio(
         let delta_pnl = reduction_pnl(old_qty, new_qty, mark, entry);
 
         vault.apply_position_change(old_qty, new_qty)?;
-        shortfall = shortfall.saturating_add(settle_cash(portfolio, vault, delta_pnl, 0)?);
+        shortfall = shortfall.saturating_add(apply_realized_pnl_and_fee(portfolio, vault, delta_pnl, 0)?);
 
         portfolio.positions[top_idx].qty = new_qty;
 
@@ -330,7 +333,7 @@ fn full_flat(
     for i in 0..count.min(MAX_INSTRUMENTS) {
         vault.apply_position_change(portfolio.positions[i].qty, 0)?;
     }
-    let shortfall = settle_cash(portfolio, vault, total_pnl, 0)?;
+    let shortfall = apply_realized_pnl_and_fee(portfolio, vault, total_pnl, 0)?;
 
     for i in 0..count.min(MAX_INSTRUMENTS) {
         portfolio.positions[i].qty = 0;

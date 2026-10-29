@@ -1,6 +1,6 @@
 //! Settlement arithmetic. Fills are applied in cleared-results order; collateral
 //! changes only for realized PnL and fees, in lamports at the validated oracle.
-use crate::cash::settle_cash;
+use crate::collateral_flow::apply_realized_pnl_and_fee;
 use crate::state::{
     batch::{Batch, BatchStatus, Commitment, CommitmentStatus},
     instrument::Instrument,
@@ -245,7 +245,7 @@ pub(super) fn settle(
             let new_qty = position_qty(portfolio, instrument.instrument_id);
             let vault = env.vault()?;
             vault.apply_position_change(old_qty, new_qty)?;
-            let shortfall = settle_cash(portfolio, vault, realized, fee)?;
+            let shortfall = apply_realized_pnl_and_fee(portfolio, vault, realized, fee)?;
             crate::risk::refresh(portfolio, instrument.instrument_id, conversion)?;
             if shortfall > 0 {
                 env.pause_trading_and_withdrawals()?;

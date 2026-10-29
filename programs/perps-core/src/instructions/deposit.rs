@@ -32,6 +32,8 @@ pub fn process_deposit(
         return Err(MgkError::Unauthorized.into());
     }
 
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
+
     // CPI to System Program: transfer SOL from user to vault
     let mut instruction_data = [0u8; 12];
     instruction_data[0..4].copy_from_slice(&2u32.to_le_bytes());
@@ -71,7 +73,7 @@ pub fn process_deposit(
         .ok_or(MgkError::Overflow)?;
     portfolio.recalc_margin();
 
-    crate::cash::assert_vault_invariant(vault_account, vault)?;
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("Deposit successful");
     Ok(())
 }

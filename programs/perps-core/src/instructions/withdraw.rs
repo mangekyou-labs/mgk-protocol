@@ -50,6 +50,8 @@ pub fn process_withdraw(
         return Err(MgkError::InsufficientFunds.into());
     }
 
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
+
     // Transfer SOL from vault to user
     let vault_lamports = vault_account
         .lamports()
@@ -78,7 +80,7 @@ pub fn process_withdraw(
         .ok_or(MgkError::Underflow)?;
     portfolio.recalc_margin();
 
-    crate::cash::assert_vault_invariant(vault_account, vault)?;
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("Withdraw successful");
     Ok(())
 }

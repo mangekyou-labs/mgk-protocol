@@ -253,6 +253,18 @@ class InsuranceFundLimitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ledger.withdraw_fund(1)
 
+    def test_donations_are_surplus_above_the_backing_and_never_reach_the_ledger(self):
+        ledger = Ledger(1_000_000, {"a": 5_000})
+        backing = ledger.vault_liability_lamports()
+        ledger.donate(777)
+        self.assertEqual(ledger.vault_liability_lamports(), backing)
+        self.assertEqual(ledger.vault_lamports_above_rent(), backing + 777)
+        self.assertEqual(ledger.fund_lamports, 1_000_000)
+        ledger.top_up(10)
+        self.assertEqual(ledger.vault_lamports_above_rent(), backing + 10 + 777)
+        with self.assertRaises(ValueError):
+            ledger.donate(-1)
+
     def test_fund_withdrawal_is_blocked_while_debt_is_outstanding(self):
         ledger = _exhausted_ledger()
         with self.assertRaises(ValueError):

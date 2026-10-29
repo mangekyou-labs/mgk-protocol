@@ -4028,14 +4028,44 @@ struct VaultView {
 }
 
 impl VaultView {
-    /// Zero-tolerance check of `lamports - rent = collateral + fund - debt`.
+    /// Lamports above rent plus the ledger backing (`collateral + fund -
+    /// debt`): unsolicited donations. Negative means under-backed.
+    fn surplus(&self) -> i128 {
+        self.lamports as i128
+            - vault_rent() as i128
+            - (self.balance as i128 + self.fund as i128 - self.debt as i128)
+    }
+
+    /// Exact check for runs where nobody donated to the vault.
     fn assert_balanced(&self) {
+        self.assert_surplus(0);
+    }
+
+    /// The vault is never under-backed and holds exactly `donated` lamports of
+    /// surplus.
+    fn assert_surplus(&self, donated: u64) {
         assert_eq!(
-            self.lamports as i128 - vault_rent() as i128,
-            self.balance as i128 + self.fund as i128 - self.debt as i128,
-            "vault lamports must match the ledger exactly: {self:?}"
+            self.surplus(),
+            donated as i128,
+            "vault lamports must equal rent + ledger backing + donations: {self:?}"
         );
     }
+}
+
+/// A plain system transfer into the vault PDA: the donation anyone can make.
+async fn donate_to_vault(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    pdas: &TestPdas,
+    amount: u64,
+) {
+    let payer = ctx.payer.pubkey();
+    submit(
+        ctx,
+        solana_sdk::system_instruction::transfer(&payer, &pdas.vault, amount),
+        &[],
+    )
+    .await
+    .expect("donation");
 }
 
 async fn get_account(
@@ -4449,12 +4479,36 @@ async fn test_e2e_top_up_is_permissionless_and_fund_withdrawal_is_limited_to_sur
         submit(&mut ctx, fund_withdraw_ix(&pdas, &governance.pubkey(), 1), &[&governance]).await,
         mgk_common::MgkError::FundWithdrawalExceedsSurplus,
     );
+
+    // A plain transfer to the vault is surplus the ledger never sees. It must
+    // not lock the vault: top-ups and fund withdrawals keep working around it.
+    donate_to_vault(&mut ctx, &pdas, 777).await;
+    read_vault(&mut ctx, &pdas).await.assert_surplus(777);
+    submit(
+        &mut ctx,
+        top_up_ix(&stranger.pubkey(), &pdas.vault, 1_000),
+        &[&stranger],
+    )
+    .await
+    .unwrap();
+    read_vault(&mut ctx, &pdas).await.assert_surplus(777);
+    submit(
+        &mut ctx,
+        fund_withdraw_ix(&pdas, &governance.pubkey(), 1_000),
+        &[&governance],
+    )
+    .await
+    .unwrap();
+    let after = read_vault(&mut ctx, &pdas).await;
+    after.assert_surplus(777);
+    assert_eq!(after.fund, reserve_for(1_000), "donations never reach the fund");
 }
 
-/// Acceptance 5: a vault whose lamports disagree with its ledger reverts every
-/// instruction that moves lamports, with zero tolerance.
+/// Acceptance 5: a vault that is under-backed (lamports below rent plus the
+/// ledger backing) reverts every instruction that moves lamports. Surplus is
+/// tolerated; a deficit is not, however small.
 #[tokio::test]
-async fn test_e2e_vault_invariant_violation_reverts_the_lamport_move() {
+async fn test_e2e_under_backed_vault_reverts_the_lamport_move() {
     if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
         eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
         return;
@@ -4462,9 +4516,9 @@ async fn test_e2e_vault_invariant_violation_reverts_the_lamport_move() {
     let (mut pt, pdas) = program_test_with_pdas();
     let governance = Keypair::new();
     seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0);
-    // One stray lamport donated to the vault: the ledger no longer matches.
+    // One lamport missing: the ledger claims more than the vault holds.
     let mut vault = vault_account(0, 1_000_000_000, 0);
-    vault.lamports += 1;
+    vault.lamports -= 1;
     pt.add_account(pdas.vault, vault);
     let mut ctx = pt.start_with_context().await;
     let before = get_account(&mut ctx, &pdas.vault).await;
@@ -4478,6 +4532,41 @@ async fn test_e2e_vault_invariant_violation_reverts_the_lamport_move() {
         mgk_common::MgkError::VaultInvariantViolated,
     );
     assert_eq!(get_account(&mut ctx, &pdas.vault).await, before, "reverted");
+}
+
+/// Donation lockout: a plain transfer to the vault PDA must not make deposit,
+/// withdraw or top-up revert. The donation stays as surplus.
+#[tokio::test]
+async fn test_e2e_donation_to_the_vault_does_not_block_deposit_or_withdraw() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut ctx, pdas, user, up, _oracle) =
+        post_gate_fixture(vault_account(100_000_000, 0, 0), None, 0).await;
+    let me = user.pubkey();
+    donate_to_vault(&mut ctx, &pdas, 1).await;
+    read_vault(&mut ctx, &pdas).await.assert_surplus(1);
+
+    let deposit = Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(me, true),
+            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new(pdas.vault, false),
+        ],
+        data: with_disc(2, build_deposit_data(5_000)),
+    };
+    submit(&mut ctx, deposit, &[&user]).await.unwrap();
+    submit(&mut ctx, withdraw_ix(&pdas, &me, &up.portfolio, 1_000), &[&user])
+        .await
+        .unwrap();
+    top_up_fund(&mut ctx, &pdas, 10_000).await;
+    let after = read_vault(&mut ctx, &pdas).await;
+    after.assert_surplus(1);
+    assert_eq!(after.balance, 100_000_000 + 5_000 - 1_000);
+    assert_eq!(after.fund, 10_000);
 }
 
 /// Acceptance 3 and 4: the fund runs dry, the winner is still credited in full,

@@ -249,6 +249,8 @@ for fill in request['events']:
     # Non-fill events replay signed fund and withdrawal transactions in their on-chain order.
     if kind == 'top_up':
         ledger.top_up(int(fill['amount'])); continue
+    if kind == 'donate':
+        ledger.donate(int(fill['amount'])); continue
     if kind == 'deposit':
         ledger.collateral[fill['account']] = ledger.collateral.get(fill['account'], 0) + int(fill['amount']); continue
     if kind == 'withdraw_fund':
@@ -278,7 +280,8 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     'debt': str(ledger.uncovered_bad_debt), 'reserve': str(ledger.reserve_requirement()),
     'open_interest': [str(side) for side in ledger.open_interest()],
     'flags': (1 if ledger.trading_paused else 0) | (2 if ledger.withdrawals_paused else 0),
-    'liability': str(ledger.vault_liability_lamports()), 'positions': positions,
+    'liability': str(ledger.vault_liability_lamports()),
+    'above_rent': str(ledger.vault_lamports_above_rent()), 'positions': positions,
     'realized_usd': {a: str(v) for a, v in usd_totals.items()},
     'realized_lamports': {a: str(v) for a, v in ledger.realized_lamports.items()},
     'risk': risk, 'fees': {a: str(v) for a, v in ledger.fees_lamports.items()}}))
@@ -308,9 +311,9 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     });
     const totalCollateral = Object.values(model.collateral).reduce((sum, value) => sum + BigInt(value), 0n);
     // Vault v2: balance@8 is total collateral, fund@16, uncovered debt@32, open interest long/short @48/@56.
-    // The exact invariant is lamports - rent = collateral + fund - debt (zero tolerance).
+    // The vault is never under-backed: lamports - rent = collateral + fund - debt + donated surplus.
     await runtime.assertState([...expected, { address: vault,
-      lamports: String(BigInt(model.liability) + vaultRent), fields: [
+      lamports: String(BigInt(model.above_rent) + vaultRent), fields: [
         field(`${label}: vault balance`, 8, 8, totalCollateral),
         field(`${label}: fund`, 16, 16, model.fund), field(`${label}: uncovered debt`, 32, 16, model.debt),
         field(`${label}: open interest long`, 48, 8, model.open_interest[0]),
@@ -455,12 +458,12 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     { address: batch, fields: [field('Settled', 16, 1, 3)] },
     { address: portfolios[0][0], fields: [field('maker equity', 48, 16, model.collateral[maker.publicKey], true)] },
     { address: portfolios[1][0], fields: [field('taker equity', 48, 16, model.collateral[taker.publicKey], true)] },
-    { address: vault, lamports: String(BigInt(model.liability) + vaultRent), fields: [
+    { address: vault, lamports: String(BigInt(model.above_rent) + vaultRent), fields: [
       field('vault balance', 8, 8, Object.values(model.collateral).reduce((sum, value) => sum + BigInt(value), 0n)),
       field('insurance fund', 16, 16, model.fund)] },
     { address: nextBatch, fields: [field('batch id', 8, 8, 1), field('Collecting', 16, 1, 0)] },
   ]);
-  await assert.rejects(runtime.assertState([{ address: vault, lamports: String(BigInt(model.liability) + vaultRent + 1n) }]), /lamports/);
+  await assert.rejects(runtime.assertState([{ address: vault, lamports: String(BigInt(model.above_rent) + vaultRent + 1n) }]), /lamports/);
   await assert.rejects(runtime.assertState([{ address: portfolios[0][0], fields: [field('wrong expected model equity', 48, 16, 42)] }]), /wrong expected model equity/);
   // Each later batch uses genuine signed post/clear/settle instructions. The oracle
   // conversion deliberately differs from the fill price, exposing spot-cashflow and unit bugs.
@@ -664,15 +667,29 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   await freshOracle(20_000_000);
   await simulateOk('trading resumes: new exposure is accepted again', [postIx(0, { qty: 1, price: 20_000_000 })], [payer, maker]);
 
-  // Acceptance 5: the exact invariant. A direct lamport donation breaks it, so every lamport move reverts.
-  const invariantVault = await runtime.account(vault);
+  // Acceptance 5: a plain transfer to the vault is surplus, not a lockout. Deposits, withdrawals and top-ups keep
+  // working around it, while a vault that is under-backed by even one lamport reverts every lamport move.
   await runtime.send('direct lamport donation to the vault', [SystemProgram.transfer({
-    fromPubkey: funder.publicKey, toPubkey: vault, lamports: 1 })], [funder]);
-  await rejectUnchanged('vault invariant reverts a top-up', [topUp(1_000n)], [funder], [vault], 607);
+    fromPubkey: funder.publicKey, toPubkey: vault, lamports: 777 })], [funder]);
+  observedFills.push({ kind: 'donate', amount: '777' });
+  await assertModel('donation is tolerated as surplus');
+  await runtime.send('top-up still works with a donation present', [topUp(1_000n)], [funder]);
+  observedFills.push({ kind: 'top_up', amount: '1000' });
+  await assertModel('top-up around a donation');
+  await runtime.send('deposit still works with a donation present', [ix(2, u64(5_000), [meta(carolPortfolio[0]),
+    meta(carol.publicKey, true, true), meta(SystemProgram.programId, false), meta(vault)])], [payer, carol]);
+  observedFills.push({ kind: 'deposit', account: carolKey, amount: '5000' });
+  await assertModel('deposit around a donation');
+  await doWithdraw('withdrawal still works with a donation present', 2, 1, 20_000_000);
+  await assertModel('withdrawal around a donation');
+  const donatedVault = await runtime.account(vault);
+  await runtime.setAccount(vault, { owner: CORE, data: donatedVault.data,
+    lamports: Number(BigInt(model.above_rent) + vaultRent - 778n) });
+  await rejectUnchanged('an under-backed vault reverts a top-up', [topUp(1_000n)], [funder], [vault], 607);
   await freshOracle(20_000_000);
-  await rejectUnchanged('vault invariant reverts a withdrawal', [withdrawIx(0, 1)], [payer, maker], [vault, portfolios[0][0]], 607);
-  await runtime.setAccount(vault, { owner: CORE, data: invariantVault.data, lamports: Number(invariantVault.lamports) });
-  await assertModel('invariant restored after removing the donation');
+  await rejectUnchanged('an under-backed vault reverts a withdrawal', [withdrawIx(0, 1)], [payer, maker], [vault, portfolios[0][0]], 607);
+  await runtime.setAccount(vault, { owner: CORE, data: donatedVault.data, lamports: Number(donatedVault.lamports) });
+  await assertModel('vault restored after the under-backed check');
   const worker = await runtime.launchWorker(process.execPath, ['-e',
     'fetch(process.env.RPC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[]})}).then(r=>r.json()).then(r=>{if(!Number.isInteger(r.result))process.exit(1)})']);
   const [exitCode] = await once(worker, 'exit');

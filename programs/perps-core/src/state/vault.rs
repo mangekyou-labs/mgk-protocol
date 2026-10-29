@@ -10,9 +10,11 @@ pub const OPEN_INTEREST_CAP_LOTS: u64 = 50_000;
 
 /// Vault accounting ledger (ADR 0003).
 ///
-/// The vault holds the real lamports. After every lamport move
-/// `vault lamports - rent = balance + insurance_fund - uncovered_bad_debt`
-/// holds exactly.
+/// The vault holds the real lamports. It must never be under-backed:
+/// `vault lamports - rent >= balance + insurance_fund - uncovered_bad_debt`.
+/// Anyone can credit the PDA, so unsolicited surplus is tolerated; each
+/// instruction's lamport delta must still equal its ledger delta exactly
+/// (`VaultSnapshot::check_flow`).
 ///
 /// Fields:
 /// - `balance` - running total of trader collateral (SOL lamports)
@@ -70,6 +72,37 @@ pub const VAULT_LAYOUT_VERSION: u8 = 2;
 unsafe impl AccountLayout for Vault {
     const DISCRIMINATOR: u8 = discriminator::VAULT;
     const LAYOUT_VERSION: u8 = VAULT_LAYOUT_VERSION;
+}
+
+/// Vault lamports and ledger backing before an instruction (see
+/// `Vault::snapshot`).
+#[derive(Clone, Copy, Debug)]
+pub struct VaultSnapshot {
+    lamports: u64,
+    backing: i128,
+}
+
+impl VaultSnapshot {
+    /// The vault is never under-backed and the instruction's lamport delta
+    /// equals its ledger-backing delta exactly. Surplus that arrived before
+    /// the instruction stays in the vault and is ignored; a net-zero
+    /// instruction (settle, liquidate) passes `lamports_after` unchanged.
+    pub fn check_flow(
+        &self,
+        after: &Vault,
+        lamports_after: u64,
+        rent: u64,
+    ) -> Result<(), MgkError> {
+        let lamport_delta = (lamports_after as i128) - (self.lamports as i128);
+        let backing_delta = after
+            .backing()?
+            .checked_sub(self.backing)
+            .ok_or(MgkError::Overflow)?;
+        if lamport_delta != backing_delta {
+            return Err(MgkError::VaultInvariantViolated);
+        }
+        after.check_backed(lamports_after, rent)
+    }
 }
 
 impl Vault {
@@ -184,11 +217,32 @@ impl Vault {
         Ok(())
     }
 
-    /// Exact vault balance check (zero tolerance):
-    /// `lamports - rent = balance + insurance_fund - uncovered_bad_debt`,
-    /// evaluated as `lamports + debt == rent + balance + fund` so neither
-    /// side can underflow.
-    pub fn check_lamport_invariant(&self, vault_lamports: u64, rent: u64) -> Result<(), MgkError> {
+    /// Net lamports the vault must hold above rent: trader collateral plus
+    /// the fund, less the fund's unpaid payouts. Negative while debt exceeds
+    /// both.
+    pub fn backing(&self) -> Result<i128, MgkError> {
+        let assets = (self.balance as u128)
+            .checked_add(self.insurance_fund)
+            .ok_or(MgkError::Overflow)?;
+        let assets = i128::try_from(assets).map_err(|_| MgkError::Overflow)?;
+        let debt = i128::try_from(self.uncovered_bad_debt).map_err(|_| MgkError::Overflow)?;
+        Ok(assets - debt)
+    }
+
+    /// Record the ledger backing and lamports before an instruction moves
+    /// either, for `VaultSnapshot::check_flow` afterwards.
+    pub fn snapshot(&self, vault_lamports: u64) -> Result<VaultSnapshot, MgkError> {
+        Ok(VaultSnapshot {
+            lamports: vault_lamports,
+            backing: self.backing()?,
+        })
+    }
+
+    /// Solvency: the vault holds at least rent plus the ledger backing.
+    /// Unsolicited lamports (a plain transfer to the PDA) are surplus and
+    /// pass. Evaluated as `lamports + debt >= rent + balance + fund` so
+    /// neither side can underflow.
+    pub fn check_backed(&self, vault_lamports: u64, rent: u64) -> Result<(), MgkError> {
         let lhs = (vault_lamports as u128)
             .checked_add(self.uncovered_bad_debt)
             .ok_or(MgkError::Overflow)?;
@@ -196,7 +250,7 @@ impl Vault {
             .checked_add(self.balance as u128)
             .and_then(|v| v.checked_add(self.insurance_fund))
             .ok_or(MgkError::Overflow)?;
-        if lhs == rhs {
+        if lhs >= rhs {
             Ok(())
         } else {
             Err(MgkError::VaultInvariantViolated)
@@ -383,20 +437,94 @@ mod tests {
         assert_eq!(Vault::reserve_for(1), 400_000);
     }
 
+    /// Snapshot, apply a ledger change, then check against the new lamports.
+    fn flow(
+        before: &Vault,
+        lamports_before: u64,
+        after: &Vault,
+        lamports_after: u64,
+    ) -> Result<(), MgkError> {
+        before
+            .snapshot(lamports_before)
+            .unwrap()
+            .check_flow(after, lamports_after, RENT)
+    }
+
     #[test]
-    fn test_lamport_invariant_is_exact_in_both_directions() {
+    fn test_unsolicited_surplus_is_tolerated() {
         let v = vault(700, 300, 50);
-        let exact = RENT + 700 + 300 - 50;
-        assert_eq!(v.check_lamport_invariant(exact, RENT), Ok(()));
-        for off in [exact - 1, exact + 1] {
+        let backed = RENT + 700 + 300 - 50;
+        // A plain transfer to the vault adds lamports the ledger never saw.
+        let donated = backed + 40;
+        assert_eq!(flow(&v, donated, &v, donated), Ok(()));
+        // A deposit on top of the donation still balances exactly.
+        let after = vault(800, 300, 50);
+        assert_eq!(flow(&v, donated, &after, donated + 100), Ok(()));
+    }
+
+    #[test]
+    fn test_lamport_delta_must_equal_ledger_delta_exactly() {
+        let v = vault(700, 300, 50);
+        let backed = RENT + 700 + 300 - 50;
+        let after = vault(800, 300, 50); // ledger +100
+        for lamports_after in [backed + 99, backed + 101] {
             assert_eq!(
-                v.check_lamport_invariant(off, RENT),
+                flow(&v, backed, &after, lamports_after),
                 Err(MgkError::VaultInvariantViolated)
             );
         }
+        // Surplus does not excuse a mismatched delta.
+        assert_eq!(
+            flow(&v, backed + 40, &after, backed + 40 + 99),
+            Err(MgkError::VaultInvariantViolated)
+        );
+        // Lamports leaving without the ledger following is a mismatch too.
+        assert_eq!(
+            flow(&v, backed, &v, backed - 1),
+            Err(MgkError::VaultInvariantViolated)
+        );
+    }
+
+    #[test]
+    fn test_under_backed_vault_is_refused_even_when_deltas_match() {
+        let v = vault(700, 300, 50);
+        let backed = RENT + 700 + 300 - 50;
+        // Already 1 lamport short before the instruction: stays refused.
+        assert_eq!(
+            flow(&v, backed - 1, &v, backed - 1),
+            Err(MgkError::VaultInvariantViolated)
+        );
+        // Ledger claims 100 more than the lamports that arrived.
+        let after = vault(800, 300, 50);
+        assert_eq!(
+            flow(&v, backed, &after, backed),
+            Err(MgkError::VaultInvariantViolated)
+        );
         // Debt larger than collateral plus fund must not underflow the check.
         let owing = vault(0, 0, 10);
-        assert_eq!(owing.check_lamport_invariant(RENT - 10, RENT), Ok(()));
+        assert_eq!(flow(&owing, RENT - 10, &owing, RENT - 10), Ok(()));
+        assert_eq!(
+            flow(&owing, RENT - 11, &owing, RENT - 11),
+            Err(MgkError::VaultInvariantViolated)
+        );
+    }
+
+    #[test]
+    fn test_settlement_moves_no_lamports_and_keeps_backing_constant() {
+        // Winner paid from the fund, loser collected into it: net backing 0.
+        let before = vault(1_000, 500, 0);
+        let backed = RENT + 1_500;
+        let paid = vault(1_200, 300, 0); // +200 balance, -200 fund
+        assert_eq!(flow(&before, backed, &paid, backed), Ok(()));
+        // Fund exhausted: remainder becomes debt, still backing-neutral.
+        let exhausted = vault(1_700, 0, 200);
+        assert_eq!(flow(&before, backed, &exhausted, backed), Ok(()));
+        // Credit conjured out of nothing moves backing and is caught.
+        let conjured = vault(1_200, 500, 0);
+        assert_eq!(
+            flow(&before, backed, &conjured, backed),
+            Err(MgkError::VaultInvariantViolated)
+        );
     }
 
     #[test]
