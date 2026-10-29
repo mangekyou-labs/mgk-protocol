@@ -100,3 +100,7 @@ brand.md
 render-secret*.json
 keeper-keypair*.json
 oracle-keypair*.json
+
+# Python bytecode
+__pycache__/
+*.pyc
