@@ -88,7 +88,7 @@ graph TD
 
 **Fair ordering principle:** 4-layer fair ordering — (1) commit-reveal as MEV protection, (2) deterministic Fisher-Yates shuffle seeded by close_slot, (3) structural priority queues (cancels → post-only/ALO → regular), (4) price-time priority CLOB. The fair-ordering and safety-stack designs follow [Bulk.Trade](https://docs.bulk.trade); commit-reveal substitutes for Bulk.Trade's BULKBFT quorum admission, which cannot be replicated on-chain.
 
-**Safety stack principle:** liquidation optimizer (hedge-preserving, impact-ratio ranked) → insurance fund → auto-pause. The optimizer selectively reduces positions that contribute most to portfolio risk while preserving hedges. If the fund is exhausted the winner is still credited in full, the shortfall is recorded as `uncovered_bad_debt`, and trading and withdrawals pause until governance unpauses once the debt is repaid and the reserve is met (see [ADR 0003](adr/0003-insurance-fund-is-the-cash-backed-counterparty-to-realized-pnl.md)). There is no auto-deleveraging.
+**Safety stack principle:** liquidation optimizer (hedge-preserving, impact-ratio ranked) → insurance fund → auto-pause. The optimizer selectively reduces positions that contribute most to portfolio risk while preserving hedges. If the fund is exhausted the winner is still credited in full, the unpaid amount is recorded as `uncovered_bad_debt`, and trading and withdrawals pause until governance unpauses once the debt is repaid and the reserve is met (see [ADR 0003](adr/0003-insurance-fund-is-the-cash-backed-counterparty-to-realized-pnl.md)). There is no auto-deleveraging.
 
 ### Why Not FIFO
 
@@ -418,7 +418,7 @@ The insurance fund is the cash-backed counterparty to realized PnL (ADR 0003). I
 
 **Exposure limits.** 10 SOL per portfolio and 50 SOL open interest per side. **Risk-off.** An exposure-adding post or modify is refused unless `fund >= 0.4 x (larger-side OI + order quantity)`; closes, reduce-only orders, cancels, settlement, liquidation and withdrawals keep working.
 
-**Exhaustion.** If the fund and the loser's collateral cannot cover a winner's profit, the winner is credited in full, the shortfall is added to `uncovered_bad_debt`, and trading and withdrawals auto-pause. Every inflow repays debt first. `Unpause` (28) is governance-only, requires debt 0 and the reserve met, and resumes withdrawals before trading.
+**Exhaustion.** If the fund and the loser's collateral cannot cover a winner's profit, the winner is credited in full, the unpaid amount is added to `uncovered_bad_debt`, and trading and withdrawals auto-pause. Every inflow repays debt first. `Unpause` (28) is governance-only, requires debt 0 and the reserve met, and resumes withdrawals before trading.
 
 **Vault invariant.** After every lamport move: `vault lamports - rent = total collateral + fund - uncovered_bad_debt`, with zero tolerance. A violation reverts the transaction (error 607).
 

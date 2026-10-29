@@ -174,18 +174,19 @@ impl Vault {
     }
 
     /// Pay `amount` lamports owed to a counterparty out of the fund. The fund
-    /// never goes below 0: whatever it cannot cover becomes uncovered debt.
-    /// Returns the shortfall so the caller can pause trading and withdrawals.
+    /// never goes below 0: whatever it cannot cover is recorded as uncovered
+    /// bad debt. Returns that unpaid amount so the caller can pause trading and
+    /// withdrawals.
     pub fn outflow(&mut self, amount: u128) -> Result<u128, MgkError> {
         let paid = amount.min(self.insurance_fund);
-        let shortfall = amount - paid;
+        let unpaid = amount - paid;
         let debt = self
             .uncovered_bad_debt
-            .checked_add(shortfall)
+            .checked_add(unpaid)
             .ok_or(MgkError::Overflow)?;
         self.insurance_fund -= paid;
         self.uncovered_bad_debt = debt;
-        Ok(shortfall)
+        Ok(unpaid)
     }
 
     /// Track open interest across a portfolio position change `old -> new`
@@ -394,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn test_outflow_pays_from_fund_then_records_shortfall_as_debt() {
+    fn test_outflow_pays_from_fund_then_records_unpaid_amount_as_uncovered_bad_debt() {
         let mut v = vault(0, 100, 0);
         assert_eq!(v.outflow(60), Ok(0));
         assert_eq!((v.insurance_fund, v.uncovered_bad_debt), (40, 0));

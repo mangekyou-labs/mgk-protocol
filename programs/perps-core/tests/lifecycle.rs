@@ -4590,7 +4590,7 @@ async fn test_e2e_donation_to_the_vault_does_not_block_deposit_or_withdraw() {
 }
 
 /// Acceptance 3 and 4: the fund runs dry, the winner is still credited in full,
-/// the shortfall becomes uncovered bad debt, trading and withdrawals pause,
+/// the unpaid payout becomes uncovered bad debt, trading and withdrawals pause,
 /// inflows repay the debt first, and only then can the admin unpause
 /// (withdrawals before trading).
 #[tokio::test]

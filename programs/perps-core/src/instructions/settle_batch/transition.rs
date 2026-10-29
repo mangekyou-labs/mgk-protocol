@@ -245,9 +245,9 @@ pub(super) fn settle(
             let new_qty = position_qty(portfolio, instrument.instrument_id);
             let vault = env.vault()?;
             vault.apply_position_change(old_qty, new_qty)?;
-            let shortfall = apply_realized_pnl_and_fee(portfolio, vault, realized, fee)?;
+            let unpaid_payout = apply_realized_pnl_and_fee(portfolio, vault, realized, fee)?;
             crate::risk::refresh(portfolio, instrument.instrument_id, conversion)?;
-            if shortfall > 0 {
+            if unpaid_payout > 0 {
                 env.pause_trading_and_withdrawals()?;
             }
             found = true;

@@ -630,7 +630,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     [{ side: 1, qty: 1000, price: 140_000_000, reduceOnly: true, takerReduceOnly: true, makerIdx: 2, takerIdx: 1 }],
     20_000_000, undefined, 110_000_000);
   assert.deepEqual(model.positions, {}, 'both reduce-only closes filled');
-  assert.ok(BigInt(model.debt) > 0n, 'the shortfall is recorded as uncovered bad debt');
+  assert.ok(BigInt(model.debt) > 0n, 'the unpaid payout is recorded as uncovered bad debt');
   assert.equal(model.fund, '0', 'the fund is exhausted');
   assert.equal(model.flags, 3, 'exhaustion auto-pauses trading and withdrawals');
   await rejectUnchanged('paused: new exposure refused', [postIx(0, { qty: 1 })], [payer, maker],

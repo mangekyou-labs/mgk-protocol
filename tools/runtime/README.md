@@ -98,7 +98,7 @@ open interest (rejecting surplus + 1 with 611 and a non-governance signer with
 open-interest counter is patched to 49_999 and then restored) and risk-off
 (610) reject exposure-adding posts while reduce-only posts and withdrawals
 still simulate successfully; an exhaustion settlement (fill above the post-time
-oracle, then an oracle drop) credits the winner in full, records the shortfall
+oracle, then an oracle drop) credits the winner in full, records the unpaid amount
 as uncovered bad debt and auto-pauses trading and withdrawals (602 for new
 exposure and withdrawals); top-ups repay debt before the fund; Unpause (28)
 is refused with debt outstanding (612), resumes withdrawals first, and only
