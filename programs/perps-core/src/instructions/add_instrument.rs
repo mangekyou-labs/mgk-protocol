@@ -23,15 +23,7 @@ pub fn process_add_instrument(
     oracle_addr: Pubkey,
     bump: u8,
 ) -> ProgramResult {
-    if !governance_account.is_signer() {
-        msg!("Error: Governance must be a signer");
-        return Err(MgkError::Unauthorized.into());
-    }
-
-    if registry.governance != *governance_account.key() {
-        msg!("Error: Invalid governance");
-        return Err(MgkError::Unauthorized.into());
-    }
+    registry.require_governance(governance_account)?;
 
     if registry.instrument_count >= 32 {
         msg!("Error: Instrument registry full");

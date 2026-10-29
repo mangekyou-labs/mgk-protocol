@@ -1,6 +1,5 @@
 use crate::state::registry::{PAUSE_RESERVED_MASK, PAUSE_TRADING, PAUSE_WITHDRAWALS};
 use crate::state::Registry;
-use mgk_common::MgkError;
 use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
 /// Flags after a governance write. The trading and withdrawals bits can be
@@ -31,15 +30,7 @@ pub fn process_set_pause_flags(
     governance_account: &AccountInfo,
     flags: u8,
 ) -> ProgramResult {
-    if !governance_account.is_signer() {
-        msg!("Error: Governance must be a signer");
-        return Err(MgkError::Unauthorized.into());
-    }
-
-    if registry.governance != *governance_account.key() {
-        msg!("Error: Invalid governance");
-        return Err(MgkError::Unauthorized.into());
-    }
+    registry.require_governance(governance_account)?;
 
     registry.set_pause_flags(merge_governance_flags(registry.pause_flags, flags));
 

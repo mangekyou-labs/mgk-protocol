@@ -32,7 +32,7 @@ pub fn process_withdraw_insurance_fund(
     governance_account: &AccountInfo,
     amount: u64,
 ) -> ProgramResult {
-    crate::instructions::unpause::require_governance(registry, governance_account)?;
+    registry.require_governance(governance_account)?;
     let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
     apply_fund_withdrawal(vault, amount)?;
 

@@ -1,5 +1,6 @@
 use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
-use pinocchio::pubkey::Pubkey;
+use mgk_common::MgkError;
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
 /// M7 7.8: bit positions for `Registry::pause_flags`.
 ///
@@ -156,6 +157,20 @@ impl Registry {
     #[inline]
     pub fn is_clears_paused(&self) -> bool {
         self.pause_flags & PAUSE_CLEAR != 0
+    }
+
+    /// The governance account must sign and match `self.governance`. The one
+    /// authority check for governance-only instructions.
+    pub fn require_governance(&self, governance_account: &AccountInfo) -> ProgramResult {
+        if !governance_account.is_signer() {
+            msg!("Error: Governance must be a signer");
+            return Err(MgkError::Unauthorized.into());
+        }
+        if self.governance != *governance_account.key() {
+            msg!("Error: Invalid governance");
+            return Err(MgkError::Unauthorized.into());
+        }
+        Ok(())
     }
 
     /// Write a new `pause_flags` value. Reserved bits 6..7 are masked off

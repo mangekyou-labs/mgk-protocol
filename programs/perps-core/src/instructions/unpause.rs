@@ -5,22 +5,6 @@ use crate::state::{Registry, Vault};
 use mgk_common::MgkError;
 use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
-/// The governance account must sign and match `registry.governance`.
-pub(crate) fn require_governance(
-    registry: &Registry,
-    governance_account: &AccountInfo,
-) -> ProgramResult {
-    if !governance_account.is_signer() {
-        msg!("Error: Governance must be a signer");
-        return Err(MgkError::Unauthorized.into());
-    }
-    if registry.governance != *governance_account.key() {
-        msg!("Error: Invalid governance");
-        return Err(MgkError::Unauthorized.into());
-    }
-    Ok(())
-}
-
 /// Pure unpause rule. Recovery needs no uncovered bad debt and the fund at or
 /// above the required reserve. Withdrawals resume first: trading may resume
 /// only when withdrawals are not paused after this call.
@@ -62,7 +46,7 @@ pub fn process_unpause(
     resume_withdrawals: bool,
     resume_trading: bool,
 ) -> ProgramResult {
-    require_governance(registry, governance_account)?;
+    registry.require_governance(governance_account)?;
     apply_unpause(registry, vault, resume_withdrawals, resume_trading).inspect_err(|_| {
         msg!("Error: unpause refused");
     })?;
