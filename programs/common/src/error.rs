@@ -75,11 +75,12 @@ pub enum MgkError {
     JitPenaltyApplied = 504,
     RoundtripDetected = 505,
 
-    // Perps-core errors (600-699) — M7 onwards
+    // Perps-core errors (600-699). Sub-ranges: 600-602 core (M7), 603-606
+    // DFBA (M9), 607-612 reserve and insurance (issue 23 / ADR 0003).
     RevealDeadlineExpired = 600,
     InstrumentMissingForLiquidation = 601,
     OperationPaused = 602,
-    // DFBA-specific errors (603–609) — M9
+    // DFBA-specific errors (603-606) - M9
     /// Orders exceed `max_orders_per_batch` (T9.0.3).
     DfbaCapExceeded = 603,
     /// Liquidation requires a valid dual-clear mark (T9.0.3).
@@ -89,7 +90,7 @@ pub enum MgkError {
     /// T9.10.7: Reduce-only order violates position constraints.
     /// Flat position, wrong side, or qty exceeds absolute position.
     ReduceOnlyViolation = 606,
-    // Reserve and insurance errors (607-612) — issue 23 / ADR 0003.
+    // Reserve and insurance errors (607-612) - issue 23 / ADR 0003.
     /// `vault lamports - rent != total collateral + fund - uncovered_bad_debt`
     /// after a lamport move (zero tolerance).
     VaultInvariantViolated = 607,

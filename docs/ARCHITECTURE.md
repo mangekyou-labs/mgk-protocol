@@ -168,8 +168,17 @@ Key instructions (single-byte discriminator, not Anchor's 8-byte SHA256 digest):
 | `0x0B` | `CancelRestingOrder` | User signer | Cancel resting GTC order |
 | `0x0C` | `ModifyRestingOrder` | User signer | Modify resting order qty |
 | `0x0D` | `CancelAllRestingOrders` | User signer | Cancel all user resting orders |
-| `0x0E` | `SetPauseFlags` | Governance | 4-flag emergency pause (trading / withdrawals / liquidations / funding) |
-| `0x0F–0x13` | Bootstrap utilities | Governance / keeper | Solana 4.x PDA/account creation helpers |
+| `0x0E` | `SetPauseFlags` | Governance | 6-flag emergency pause (trading / withdrawals / liquidations / funding / post / clear) |
+| `0x0F–0x13` | Bootstrap utilities (`InitVault`, `CreateBatch`, `SetBatchCounter`, `CreatePortfolio`, `InitPortfolioForUser`) | Governance / keeper | Solana 4.x PDA/account creation helpers |
+| `0x14` (20) | `PostOrder` | User signer | DFBA single-transaction post with maker/taker flag; applies the exposure limits and risk-off gate |
+| `0x15` (21) | `SetBatchParams` | Governance | Batch size, marginal size cap and phase timing |
+| `0x16` (22) | `SetInstrumentFees` | Governance | Retune an instrument's taker and maker fees |
+| `0x17` (23) | `SetInstrumentOracle` | Governance | Bind an instrument to a price oracle account |
+| `0x18` (24) | `SetFundingParams` | Governance | Funding coefficient, rate cap and interval; resets the last funding slot |
+| `0x19` (25) | `InitializeBook` | Payer signer | Create an instrument's matcher `OrderBook` PDA via a registry-signed CPI |
+| `0x1A` (26) | `TopUp` | Permissionless | Transfer lamports into the insurance fund; repays uncovered bad debt first |
+| `0x1B` (27) | `WithdrawInsuranceFund` | Governance | Withdraw fund surplus above the required reserve |
+| `0x1C` (28) | `Unpause` | Governance | Lift the exhaustion pause once debt is 0 and the reserve is met; withdrawals resume before trading |
 
 **mgk-perps-matcher** is the matching engine. The design specifies one monolithic `ShuffleAndMatch` instruction; the shipped implementation decomposes it into 5 modular instructions for BPF stack safety (the 4 kB BPF stack frame cannot hold the full match in one call).
 

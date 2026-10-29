@@ -57,8 +57,8 @@ All programs use `no_std`. Programs use `#[cfg_attr(target_os = "solana", no_std
 Tests are inline in `#[cfg(test)] mod tests` blocks within instruction/state source files. Run per-crate:
 
 ```sh
-cargo test -p mgk-perps-matcher      # 130 tests
-cargo test -p mgk-perps-core         # 276 lib tests + 21 lifecycle (17 run, 4 ignored for CU)
+cargo test -p mgk-perps-matcher      # 130 tests + 1 ignored
+cargo test -p mgk-perps-core         # 279 lib tests (282 with --all-features) + 24 lifecycle (20 run, 4 ignored for CU)
 cargo test -p mgk-oracle           # 9 tests
 cargo test -p mgk-common           # 71 tests
 cargo test -p mgk-deployment       # 20 tests
@@ -79,6 +79,13 @@ the Solana toolchain behind `cargo build-sbf` is older.
 
 Shared `MgkError` enum in `programs/common/src/error.rs` with ranges:
 - 0–99: common (8 = `InvalidAccountDiscriminator`, 9 = `UnsupportedLayoutVersion`)
+- 100–199 router, 200–299 slab, 300–399 matching, 400–499 risk, 500–599 anti-toxicity
+- 600–699: perps-core, in three sub-ranges
+  - 600–602: core (`RevealDeadlineExpired`, `InstrumentMissingForLiquidation`, `OperationPaused`)
+  - 603–606: DFBA (`DfbaCapExceeded`, `MarkInvalidForLiquidation`, `BatchNotSettled`, `ReduceOnlyViolation`)
+  - 607–612: reserve and insurance, issue 23 / ADR 0003 (`VaultInvariantViolated`,
+    `PortfolioExposureLimitExceeded`, `MarketExposureLimitExceeded`, `RiskOffFundBelowReserve`,
+    `FundWithdrawalExceedsSurplus`, `RecoveryConditionsNotMet`)
 
 Registry defaults: `Initialize` now writes `max_orders_per_batch = 64` and `marginal_size_cap = 64`
 (via `Registry::initialize_in_place`). Before the account-header change it wrote fields by raw offset
