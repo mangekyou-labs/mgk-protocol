@@ -15,6 +15,7 @@ use mgk_common::{
     MgkError,
 };
 use crate::collateral_flow::apply_realized_pnl_and_fee;
+use crate::risk::position_pnl_lamports;
 use pinocchio::{
     account_info::AccountInfo,
     msg,
@@ -32,10 +33,10 @@ use pinocchio::{
 /// underwater after the loop, falls back to full-flat.
 ///
 /// Realized PnL moves lamports through the same capped helper as settlement
-/// (`crate::cash`): a gain is credited in full from the insurance fund, a loss
+/// (`crate::collateral_flow`): a gain is credited in full from the insurance fund, a loss
 /// collects only the portfolio's collateral, so equity never goes negative and
 /// the vault balance equation stays exact. If the fund cannot cover a gain the
-/// shortfall is recorded as `vault.uncovered_bad_debt` and trading and
+/// unpaid part is recorded as `vault.uncovered_bad_debt` and trading and
 /// withdrawals are paused (issue #23). Open interest follows every reduction.
 /// Taking over the position is out of scope (#24).
 ///
@@ -189,7 +190,7 @@ pub fn process_liquidate_user(
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
     // Liquidation moves no lamports; the vault backing must stay unchanged.
     let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
-    let shortfall = reduce_portfolio(
+    let unpaid_payout = reduce_portfolio(
         portfolio,
         vault,
         &Marks {
@@ -201,8 +202,8 @@ pub fn process_liquidate_user(
     )?;
     crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
 
-    if shortfall > 0 {
-        // The fund could not pay a winner in full: the shortfall is already on
+    if unpaid_payout > 0 {
+        // The fund could not pay a winner in full: the unpaid part is already on
         // `vault.uncovered_bad_debt`; stop trading and withdrawals until an
         // admin recovers the vault.
         unsafe { load_account_mut::<Registry>(registry_account)? }
@@ -222,24 +223,24 @@ struct Marks {
     mmr_bps: [u16; MAX_INSTRUMENTS],
 }
 
-/// Realized amount of reducing a position from `old_qty` to `new_qty` at
-/// `mark`: the signed closed quantity times `mark - entry`. This matches
-/// `full_flat` (`qty * (mark - entry)`); the pre-#23 reduction used the
-/// opposite sign, which paid a losing liquidatee out of the fund.
-fn reduction_pnl(old_qty: i64, new_qty: i64, mark: i64, entry: i64) -> i128 {
-    let closed = (old_qty as i128) - (new_qty as i128);
-    closed.saturating_mul((mark as i128) - (entry as i128))
+/// Lamports realized by reducing `position` to `new_qty` at `mark`. Priced
+/// through `risk::position_pnl_lamports`, the same lots-to-lamports conversion
+/// settlement and `risk::refresh` use, so a long closing below its entry, or a
+/// short closing above it, loses real lamports.
+fn reduction_pnl(position: &Position, new_qty: i64, mark: i64) -> Result<i128, ProgramError> {
+    let closed = (position.qty as i128) - (new_qty as i128);
+    position_pnl_lamports(position, closed.unsigned_abs(), mark)
 }
 
 /// Run the iterative reduction (then full-flat fallback) on `portfolio`,
 /// moving lamports and open interest through the vault. Returns the total
-/// payout shortfall (fund could not cover a credited gain).
+/// unpaid payout (the part of a credited gain the fund could not cover).
 fn reduce_portfolio(
     portfolio: &mut Portfolio,
     vault: &mut Vault,
     marks: &Marks,
 ) -> Result<u128, ProgramError> {
-    let mut shortfall: u128 = 0;
+    let mut unpaid_payout: u128 = 0;
     for _round in 0..DEFAULT_MAX_ROUNDS {
         if portfolio.health >= 0 {
             break;
@@ -259,11 +260,10 @@ fn reduce_portfolio(
 
         let inst_id = portfolio.positions[top_idx].instrument_id as usize;
         let mark = marks.prices.get(inst_id).copied().unwrap_or(0);
-        let entry = portfolio.positions[top_idx].entry_vwap;
-        let delta_pnl = reduction_pnl(old_qty, new_qty, mark, entry);
+        let delta_pnl = reduction_pnl(&portfolio.positions[top_idx], new_qty, mark)?;
 
         vault.apply_position_change(old_qty, new_qty)?;
-        shortfall = shortfall.saturating_add(apply_realized_pnl_and_fee(portfolio, vault, delta_pnl, 0)?);
+        unpaid_payout = unpaid_payout.saturating_add(apply_realized_pnl_and_fee(portfolio, vault, delta_pnl, 0)?);
 
         portfolio.positions[top_idx].qty = new_qty;
 
@@ -280,10 +280,10 @@ fn reduce_portfolio(
     }
 
     if portfolio.health < 0 && portfolio.positions_len > 0 {
-        shortfall = shortfall.saturating_add(full_flat(portfolio, vault, &marks.prices)?);
+        unpaid_payout = unpaid_payout.saturating_add(full_flat(portfolio, vault, &marks.prices)?);
         recompute_margin(portfolio, marks);
     }
-    Ok(shortfall)
+    Ok(unpaid_payout)
 }
 
 fn recompute_margin(portfolio: &mut Portfolio, marks: &Marks) {
@@ -327,13 +327,13 @@ fn full_flat(
         }
         let inst_id = pos.instrument_id as usize;
         let mark = mark_prices.get(inst_id).copied().unwrap_or(0);
-        let pnl = (pos.qty as i128) * ((mark as i128) - (pos.entry_vwap as i128));
-        total_pnl = total_pnl.saturating_add(pnl);
+        let pnl = position_pnl_lamports(pos, pos.qty.unsigned_abs() as u128, mark)?;
+        total_pnl = total_pnl.checked_add(pnl).ok_or(MgkError::Overflow)?;
     }
     for i in 0..count.min(MAX_INSTRUMENTS) {
         vault.apply_position_change(portfolio.positions[i].qty, 0)?;
     }
-    let shortfall = apply_realized_pnl_and_fee(portfolio, vault, total_pnl, 0)?;
+    let unpaid_payout = apply_realized_pnl_and_fee(portfolio, vault, total_pnl, 0)?;
 
     for i in 0..count.min(MAX_INSTRUMENTS) {
         portfolio.positions[i].qty = 0;
@@ -343,7 +343,7 @@ fn full_flat(
     portfolio.im = 0;
     portfolio.mm = 0;
     portfolio.recalc_margin();
-    Ok(shortfall)
+    Ok(unpaid_payout)
 }
 
 #[cfg(test)]
@@ -406,8 +406,8 @@ mod tests {
         // Mark below entry: a long closing at a loss owes more than it holds.
         let (mut p, mut vault) = underwater(110, 1_000, 0);
         let before = ledger(&vault);
-        let shortfall = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
-        assert_eq!(shortfall, 0);
+        let unpaid_payout = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert_eq!(unpaid_payout, 0);
         assert_eq!(p.equity, 0);
         assert_eq!(vault.balance as i128, p.equity);
         assert_eq!(vault.insurance_fund, 1_000);
@@ -416,15 +416,44 @@ mod tests {
     }
 
     #[test]
-    fn liquidation_gain_beyond_the_fund_records_debt_and_reports_shortfall() {
+    fn liquidation_gain_beyond_the_fund_records_debt_and_reports_unpaid_payout() {
         // Mark above entry: a long closing at a profit is paid from the fund.
         let (mut p, mut vault) = underwater(90, 1_000, 1_000);
         let before = ledger(&vault);
-        let shortfall = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
-        assert!(shortfall > 0);
+        let unpaid_payout = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert!(unpaid_payout > 0);
         assert_eq!(vault.insurance_fund, 0);
-        assert_eq!(vault.uncovered_bad_debt, shortfall);
+        assert_eq!(vault.uncovered_bad_debt, unpaid_payout);
         assert_eq!(vault.balance as i128, p.equity);
+        assert_eq!(ledger(&vault), before);
+    }
+
+    #[test]
+    fn full_flat_realizes_lamports_not_raw_price_units() {
+        // 1_000 lots is 1 SOL. A long entered at 90 and closed at mark 100
+        // gains 1 SOL * (100 - 90) / 100 = 100_000_000 lamports.
+        let (mut p, mut vault) = underwater(90, 1_000_000_000, 1_000_000_000);
+        let before = ledger(&vault);
+        let unpaid = full_flat(&mut p, &mut vault, &marks(100).prices).unwrap();
+        assert_eq!(unpaid, 0);
+        assert_eq!(p.equity, 1_100_000_000);
+        assert_eq!(vault.balance, 1_100_000_000);
+        assert_eq!(vault.insurance_fund, 900_000_000);
+        assert_eq!(p.realized_lamports, 100_000_000);
+        assert_eq!(ledger(&vault), before);
+    }
+
+    #[test]
+    fn full_flat_loss_is_collected_in_lamports() {
+        // The same long entered at 110 and closed at mark 100 loses
+        // 1 SOL * (110 - 100) / 100 = 100_000_000 lamports.
+        let (mut p, mut vault) = underwater(110, 1_000_000_000, 0);
+        let before = ledger(&vault);
+        let unpaid = full_flat(&mut p, &mut vault, &marks(100).prices).unwrap();
+        assert_eq!(unpaid, 0);
+        assert_eq!(p.equity, 900_000_000);
+        assert_eq!(vault.insurance_fund, 100_000_000);
+        assert_eq!(p.realized_lamports, -100_000_000);
         assert_eq!(ledger(&vault), before);
     }
 
@@ -441,8 +470,8 @@ mod tests {
     fn healthy_portfolio_is_left_untouched_by_the_reduction() {
         let (mut p, mut vault) = underwater(100, 1_000, 1_000);
         p.health = 0;
-        let shortfall = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
-        assert_eq!(shortfall, 0);
+        let unpaid_payout = reduce_portfolio(&mut p, &mut vault, &marks(100)).unwrap();
+        assert_eq!(unpaid_payout, 0);
         assert_eq!(p.positions_len, 1);
         assert_eq!(vault.open_interest_long, 1_000);
     }
@@ -516,26 +545,41 @@ mod tests {
         assert_eq!(u.as_ref()[0], 7);
     }
 
-    // The realized amount of a reduction is (closed qty) * (mark - entry), so a
-    // long closing below its entry, or a short closing above it, loses.
+    // Reducing 3 of 10 lots by 10% price move realizes 3 * 1e6 * 10 / price
+    // lamports, signed by direction: a long closing below its entry, or a short
+    // closing above it, loses.
+    fn position(qty: i64, entry: i64) -> Position {
+        Position {
+            qty,
+            entry_vwap: entry,
+            ..Position::default()
+        }
+    }
+
     #[test]
     fn test_realized_pnl_sign_long_loss() {
-        assert_eq!(reduction_pnl(10, 7, 90, 100), -30);
+        // 3 lots * 1e6 * (90 - 100) / 90, rounded away from zero.
+        assert_eq!(reduction_pnl(&position(10, 100), 7, 90).unwrap(), -333_334);
     }
 
     #[test]
     fn test_realized_pnl_sign_short_loss() {
-        assert_eq!(reduction_pnl(-10, -7, 110, 100), -30);
+        // 3 lots * 1e6 * (100 - 110) / 110, rounded away from zero.
+        assert_eq!(reduction_pnl(&position(-10, 100), -7, 110).unwrap(), -272_728);
     }
 
     #[test]
     fn test_realized_pnl_sign_long_profit() {
-        assert_eq!(reduction_pnl(10, 7, 110, 100), 30);
+        assert_eq!(reduction_pnl(&position(10, 100), 7, 110).unwrap(), 272_727);
     }
 
     #[test]
     fn test_realized_pnl_sign_short_profit() {
-        assert_eq!(reduction_pnl(-10, -7, 90, 100), 30);
+        assert_eq!(reduction_pnl(&position(-10, 100), -7, 90).unwrap(), 333_333);
     }
 
+    #[test]
+    fn reduction_at_a_non_positive_mark_is_rejected() {
+        assert!(reduction_pnl(&position(10, 100), 7, 0).is_err());
+    }
 }

@@ -1,5 +1,8 @@
 //! SOL-PERP risk, priced exclusively at the validated conversion price.
-use crate::state::{portfolio::ENTRY_PRICE_SCALE, Instrument, Portfolio};
+use crate::state::{
+    portfolio::{Position, ENTRY_PRICE_SCALE},
+    Instrument, Portfolio,
+};
 use mgk_common::{layout::load_account, validate_owner, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
@@ -8,6 +11,9 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     ProgramResult,
 };
+
+/// Lamports per lot: 1_000 lots is 1 SOL.
+const LAMPORTS_PER_LOT: u128 = 1_000_000;
 
 pub fn conversion(
     program_id: &Pubkey,
@@ -32,6 +38,39 @@ pub fn conversion(
     )
 }
 
+/// Lamports gained (positive) or lost (negative) by closing `lots` of
+/// `position` at `price`: `lots * 1e6 * (price - entry) / price`, with the
+/// entry's fractional remainder honoured, flipped for shorts, and rounded down
+/// so a debit never undercollects. 1_000 lots is 1 SOL, so each lot is 1e6
+/// lamports at the conversion price. Settlement, `refresh` and liquidation all
+/// price realized PnL through this one function.
+pub(crate) fn position_pnl_lamports(
+    position: &Position,
+    lots: u128,
+    price: i64,
+) -> Result<i128, ProgramError> {
+    if price <= 0 {
+        return Err(MgkError::InvalidPrice.into());
+    }
+    let scale = ENTRY_PRICE_SCALE as i128;
+    if !matches!(position.entry_denominator, 0 | ENTRY_PRICE_SCALE)
+        || position.entry_remainder as i128 >= position.entry_denominator.max(1) as i128
+    {
+        return Err(MgkError::InvalidPortfolio.into());
+    }
+    let diff = (price as i128)
+        .checked_sub(position.entry_vwap as i128)
+        .and_then(|x| x.checked_mul(scale))
+        .and_then(|x| x.checked_sub(position.entry_remainder as i128))
+        .ok_or(MgkError::Overflow)?;
+    let signed_diff = if position.qty < 0 { -diff } else { diff };
+    floor_scaled_ratio(
+        signed_diff,
+        lots.checked_mul(LAMPORTS_PER_LOT).ok_or(MgkError::Overflow)?,
+        (price as u128) * ENTRY_PRICE_SCALE as u128,
+    )
+}
+
 pub fn refresh(p: &mut Portfolio, instrument_id: u16, conversion: i64) -> ProgramResult {
     if conversion <= 0 {
         return Err(MgkError::InvalidPrice.into());
@@ -48,23 +87,7 @@ pub fn refresh(p: &mut Portfolio, instrument_id: u16, conversion: i64) -> Progra
         qty = qty
             .checked_add(position.qty.unsigned_abs() as u128)
             .ok_or(MgkError::Overflow)?;
-        let scale = ENTRY_PRICE_SCALE as i128;
-        if !matches!(position.entry_denominator, 0 | ENTRY_PRICE_SCALE)
-            || position.entry_remainder as i128 >= position.entry_denominator.max(1) as i128
-        {
-            return Err(MgkError::InvalidPortfolio.into());
-        }
-        let diff = (conversion as i128)
-            .checked_sub(position.entry_vwap as i128)
-            .and_then(|x| x.checked_mul(scale))
-            .and_then(|x| x.checked_sub(position.entry_remainder as i128))
-            .ok_or(MgkError::Overflow)?;
-        let signed_diff = if position.qty < 0 { -diff } else { diff };
-        let value = floor_scaled_ratio(
-            signed_diff,
-            (position.qty.unsigned_abs() as u128) * 1_000_000,
-            (conversion as u128) * ENTRY_PRICE_SCALE as u128,
-        )?;
+        let value = position_pnl_lamports(position, position.qty.unsigned_abs() as u128, conversion)?;
         pnl = pnl.checked_add(value).ok_or(MgkError::Overflow)?;
     }
     p.im = qty.checked_mul(200_000).ok_or(MgkError::Overflow)?;
