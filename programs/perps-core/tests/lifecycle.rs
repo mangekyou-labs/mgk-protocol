@@ -4428,7 +4428,9 @@ async fn test_e2e_exposure_limits_and_risk_off_gate_exposure_adding_posts_and_mo
     // The top-up that restores the reserve re-opens exposure-adding posts.
     let payer = ctx.payer.pubkey();
     submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 1), &[]).await.unwrap();
-    submit(&mut ctx, buy(100), &[&user]).await.unwrap();
+    // Include a compute-budget instruction so this retry has a distinct
+    // signature even when the blockhash has not advanced since rejection.
+    submit_cu(&mut ctx, buy(100), &[&user], 200_001).await.unwrap();
 
     // A modify that adds exposure needs the reserve for the added quantity.
     let modify = |new_qty: u64| {
@@ -4454,7 +4456,8 @@ async fn test_e2e_exposure_limits_and_risk_off_gate_exposure_adding_posts_and_mo
         mgk_common::MgkError::RiskOffFundBelowReserve,
     );
     submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 40_000_000), &[]).await.unwrap();
-    submit(&mut ctx, modify(300), &[&user]).await.unwrap();
+    // Distinguish this retry from the rejected modify in the same blockhash.
+    submit_cu(&mut ctx, modify(300), &[&user], 200_002).await.unwrap();
     read_vault(&mut ctx, &pdas).await.assert_balanced();
 }
 
