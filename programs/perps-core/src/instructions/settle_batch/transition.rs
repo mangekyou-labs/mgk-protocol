@@ -1,5 +1,6 @@
 //! Settlement arithmetic. Fills are applied in cleared-results order; collateral
 //! changes only for realized PnL and fees, in lamports at the validated oracle.
+use crate::collateral_flow::apply_realized_pnl_and_fee;
 use crate::state::{
     batch::{Batch, BatchStatus, Commitment, CommitmentStatus},
     instrument::Instrument,
@@ -38,6 +39,9 @@ pub(super) trait Environment {
     }
     fn cancel_order(&mut self, order_id: u64) -> ProgramResult;
     fn next_batch(&mut self) -> &mut Batch;
+    /// Set the trading and withdrawals pause bits after the insurance fund
+    /// could not cover a counterparty payout.
+    fn pause_trading_and_withdrawals(&mut self) -> ProgramResult;
 }
 
 pub(super) fn settle(
@@ -229,6 +233,7 @@ pub(super) fn settle(
             if portfolio.user != user {
                 continue;
             }
+            let old_qty = portfolio.position_qty(instrument.instrument_id);
             let (realized, fee) = apply_fill(
                 portfolio,
                 instrument.instrument_id,
@@ -237,21 +242,13 @@ pub(super) fn settle(
                 maker,
                 conversion,
             )?;
-            let fund_delta = fee.checked_sub(realized).ok_or(MgkError::Overflow)?;
+            let new_qty = portfolio.position_qty(instrument.instrument_id);
             let vault = env.vault()?;
-            if fund_delta >= 0 {
-                vault.insurance_fund = vault
-                    .insurance_fund
-                    .checked_add(fund_delta as u128)
-                    .ok_or(MgkError::Overflow)?;
-            } else {
-                let payout = fund_delta.unsigned_abs();
-                // Until cash-backed exhaustion/pause handling (#23), do not
-                // create an unbacked credit. Runtime rolls the whole batch back.
-                vault.insurance_fund = vault
-                    .insurance_fund
-                    .checked_sub(payout)
-                    .ok_or(MgkError::InsufficientFunds)?;
+            vault.apply_position_change(old_qty, new_qty)?;
+            let unpaid_payout = apply_realized_pnl_and_fee(portfolio, vault, realized, fee)?;
+            crate::risk::refresh(portfolio, instrument.instrument_id, conversion)?;
+            if unpaid_payout > 0 {
+                env.pause_trading_and_withdrawals()?;
             }
             found = true;
             total_settled = total_settled.checked_add(1).ok_or(MgkError::Overflow)?;
@@ -314,13 +311,8 @@ pub(super) fn settle(
             }
         }
     }
-    if slashed > 0 {
-        let vault = env.vault()?;
-        vault.insurance_fund = vault
-            .insurance_fund
-            .checked_add(slashed)
-            .ok_or(MgkError::Overflow)?;
-    }
+    // A slashed legacy deposit is bookkeeping only: `commit_order` never moved
+    // lamports into the vault, so crediting the fund would be unbacked cash.
     if batch.mark_valid == 0 && total_volume > 0 {
         batch.clearing_price =
             i64::try_from(total_notional / total_volume as u128).map_err(|_| MgkError::Overflow)?;
@@ -634,11 +626,6 @@ fn apply_fill(
         )?
     };
     p.realized_usd = add(p.realized_usd, floor_ratio(usd_n, usd_d))?;
-    p.realized_lamports = add(p.realized_lamports, realized)?;
-    p.fees_paid = add(p.fees_paid, fee)?;
-    p.equity = add(p.equity, realized)?
-        .checked_sub(fee)
-        .ok_or(MgkError::Overflow)?;
     crate::risk::refresh(p, instrument_id, conversion)?;
     Ok((realized, fee))
 }

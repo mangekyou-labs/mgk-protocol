@@ -1,11 +1,12 @@
 use mgk_common::layout::{discriminator, AccountHeader, AccountLayout, LAYOUT_VERSION_1};
-use pinocchio::pubkey::Pubkey;
+use mgk_common::MgkError;
+use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
 
 /// M7 7.8: bit positions for `Registry::pause_flags`.
 ///
 /// | Bit  | Name                  | Effect                                                |
 /// |------|-----------------------|-------------------------------------------------------|
-/// | 0    | `trading_paused`      | Blocks `CommitOrder`, `RevealOrder`                   |
+/// | 0    | `trading_paused`      | Blocks new exposure: non-reduce-only `PostOrder`/`ModifyRestingOrder`. Clear, settle, cancel, reduce-only and liquidation keep working |
 /// | 1    | `withdrawals_paused`  | Blocks `Withdraw` (deposits stay open — user safety)  |
 /// | 2    | `liquidations_paused` | Blocks `LiquidateUser`                                |
 /// | 3    | `funding_paused`      | Skips funding accrual step in `SettleBatch`           |
@@ -158,12 +159,34 @@ impl Registry {
         self.pause_flags & PAUSE_CLEAR != 0
     }
 
+    /// The governance account must sign and match `self.governance`. The one
+    /// authority check for governance-only instructions.
+    pub fn require_governance(&self, governance_account: &AccountInfo) -> ProgramResult {
+        if !governance_account.is_signer() {
+            msg!("Error: Governance must be a signer");
+            return Err(MgkError::Unauthorized.into());
+        }
+        if self.governance != *governance_account.key() {
+            msg!("Error: Invalid governance");
+            return Err(MgkError::Unauthorized.into());
+        }
+        Ok(())
+    }
+
     /// Write a new `pause_flags` value. Reserved bits 6..7 are masked off
     /// so a malformed instruction cannot set future flags. Governance-only;
     /// the caller is responsible for the authority check.
     #[inline]
     pub fn set_pause_flags(&mut self, flags: u8) {
         self.pause_flags = flags & !PAUSE_RESERVED_MASK;
+    }
+
+    /// Set the trading and withdrawals bits, keeping every other flag. Used
+    /// when the insurance fund cannot cover a payout (uncovered bad debt).
+    /// Only `Unpause` clears them again.
+    #[inline]
+    pub fn pause_trading_and_withdrawals(&mut self) {
+        self.set_pause_flags(self.pause_flags | PAUSE_TRADING | PAUSE_WITHDRAWALS);
     }
 
     #[cfg(test)]
@@ -292,6 +315,18 @@ mod tests {
         assert_eq!(r.pause_flags, 0x3F);
         assert!(r.is_posts_paused());
         assert!(r.is_clears_paused());
+    }
+
+    /// Fund exhaustion pauses trading and withdrawals and leaves other flags.
+    #[test]
+    fn test_pause_trading_and_withdrawals_keeps_other_flags() {
+        let mut r = Registry::new(Pubkey::from([5u8; 32]));
+        r.set_pause_flags(PAUSE_FUNDING);
+        r.pause_trading_and_withdrawals();
+        assert!(r.is_trading_paused());
+        assert!(r.is_withdrawals_paused());
+        assert!(r.is_funding_paused());
+        assert!(!r.is_liquidations_paused());
     }
 
     /// M7 7.8: clearing all bits must reset to zero and the helpers

@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::registry::{PAUSE_TRADING, PAUSE_WITHDRAWALS};
 
 pub(in crate::instructions::settle_batch) struct TypedStates<'a, 'b, T>(pub &'a mut [&'b mut T]);
 impl<T> States<T> for TypedStates<'_, '_, T> {
@@ -29,10 +30,7 @@ impl Host {
             registry,
             vault: Vault::new(),
             // A fresh next-batch account is zeroed, header included.
-            next: Batch {
-                header: Default::default(),
-                ..Batch::new(0)
-            },
+            next: Self::zeroed_next_batch(),
             slot: 100,
             timestamp: 1000,
             oracle: Some((100_000_000, 1000, true)),
@@ -40,6 +38,16 @@ impl Host {
             next_size: core::mem::size_of::<Batch>(),
             clock_reads: core::cell::Cell::new(0),
         }
+    }
+    fn zeroed_next_batch() -> Batch {
+        Batch {
+            header: Default::default(),
+            ..Batch::new(0)
+        }
+    }
+    /// A later batch settles into a freshly created (zeroed) next account.
+    pub fn reset_next_batch(&mut self) {
+        self.next = Self::zeroed_next_batch();
     }
     pub fn settle(
         &mut self,
@@ -49,6 +57,24 @@ impl Host {
         commitments: &mut [&mut Commitment],
         portfolios: &mut [&mut Portfolio],
     ) -> ProgramResult {
+        // Mirror what a live vault would already hold for these portfolios:
+        // collateral and open interest are ledgered when positions open, but
+        // fixtures set them directly.
+        if self.vault.balance == 0 {
+            let total: i128 = portfolios.iter().map(|p| p.equity.max(0)).sum();
+            self.vault.balance = u64::try_from(total).unwrap();
+        }
+        if self.vault.open_interest_long == 0 && self.vault.open_interest_short == 0 {
+            for p in portfolios.iter() {
+                for pos in p.positions.iter().take(p.positions_len as usize) {
+                    if pos.qty > 0 {
+                        self.vault.open_interest_long += pos.qty as u64;
+                    } else {
+                        self.vault.open_interest_short += pos.qty.unsigned_abs();
+                    }
+                }
+            }
+        }
         super::settle(
             batch,
             instrument,
@@ -97,6 +123,10 @@ impl Environment for Host {
     }
     fn next_batch(&mut self) -> &mut Batch {
         &mut self.next
+    }
+    fn pause_trading_and_withdrawals(&mut self) -> ProgramResult {
+        self.registry.pause_trading_and_withdrawals();
+        Ok(())
     }
 }
 
@@ -225,6 +255,7 @@ fn opposing_fills_apply_in_results_order_instead_of_netting() {
 #[test]
 fn fractional_micro_usd_is_converted_before_display_rounding() {
     let mut p = Portfolio::new([1; 32]);
+    p.equity = 10;
     run_fills(
         &mut p,
         &[(1, 1, 100_000_000, true, 0), (1, 1, 100_000_001, true, 1)],
@@ -244,13 +275,15 @@ fn fractional_micro_usd_is_converted_before_display_rounding() {
 #[test]
 fn fees_round_up_per_fill_and_fund_equals_actual_charges() {
     let mut p = Portfolio::new([1; 32]);
+    p.equity = 10;
     let (_, host) = run_fills(
         &mut p,
         &[(1, 1, 1, false, 1), (1, 1, 1, false, 1)],
         100_000_000,
     );
-    assert_eq!(p.equity, -2);
+    assert_eq!(p.equity, 8);
     assert_eq!(p.fees_paid, 2);
+    assert_eq!(host.vault.balance, 8);
     assert_eq!(host.vault.insurance_fund, 1_000_000_000_000_000_002);
 }
 
@@ -358,26 +391,190 @@ proptest::proptest! {
 }
 
 #[test]
-fn exhausted_fund_rejects_payout_without_creating_debt() {
+fn exhausted_fund_credits_winner_in_full_records_debt_and_pauses() {
+    let (p, host, _) = close_long(0, 100_000_000, 110_000_000, 40_000_000, 0, true);
+    // A 100_000_000 lamport gain against a 40_000_000 fund.
+    assert_eq!(p.equity, 100_000_000);
+    assert_eq!(p.realized_lamports, 100_000_000);
+    assert_eq!(host.vault.balance, 100_000_000);
+    assert_eq!(host.vault.insurance_fund, 0);
+    assert_eq!(host.vault.uncovered_bad_debt, 60_000_000);
+    let flags = host.registry.pause_flags;
+    assert_eq!(
+        flags & (PAUSE_TRADING | PAUSE_WITHDRAWALS),
+        PAUSE_TRADING | PAUSE_WITHDRAWALS
+    );
+}
+
+#[test]
+fn covered_winner_leaves_the_registry_unpaused() {
+    let (p, host, _) = close_long(0, 100_000_000, 110_000_000, 150_000_000, 0, true);
+    assert_eq!(p.equity, 100_000_000);
+    assert_eq!(host.vault.insurance_fund, 50_000_000);
+    assert_eq!(host.vault.uncovered_bad_debt, 0);
+    assert_eq!(host.registry.pause_flags, 0);
+}
+
+#[test]
+fn loser_pays_only_the_collateral_it_has() {
+    // Loses 100_000_000 lamports with 30_000_000 of collateral.
+    let (p, host, _) = close_long(30_000_000, 110_000_000, 100_000_000, 5, 0, true);
+    assert_eq!(p.equity, 0);
+    assert_eq!(p.realized_lamports, -30_000_000);
+    assert_eq!(host.vault.balance, 0);
+    assert_eq!(host.vault.insurance_fund, 30_000_005);
+    assert_eq!(host.vault.uncovered_bad_debt, 0);
+    assert_eq!(host.registry.pause_flags, 0);
+}
+
+#[test]
+fn loser_with_full_collateral_pays_the_whole_loss() {
+    let (p, host, _) = close_long(130_000_000, 110_000_000, 100_000_000, 0, 0, true);
+    assert_eq!(p.equity, 30_000_000);
+    assert_eq!(p.realized_lamports, -100_000_000);
+    assert_eq!(host.vault.balance, 30_000_000);
+    assert_eq!(host.vault.insurance_fund, 100_000_000);
+}
+
+#[test]
+fn collected_loss_repays_debt_before_the_fund() {
+    let (_, host, _) = close_long(30_000_000, 110_000_000, 100_000_000, 0, 50_000_000, true);
+    assert_eq!(host.vault.uncovered_bad_debt, 20_000_000);
+    assert_eq!(host.vault.insurance_fund, 0);
+    let (_, host, _) = close_long(100_000_000, 110_000_000, 100_000_000, 0, 60_000_000, true);
+    assert_eq!(host.vault.uncovered_bad_debt, 0);
+    assert_eq!(host.vault.insurance_fund, 40_000_000);
+}
+
+#[test]
+fn taker_fee_is_capped_at_collateral_and_repays_debt_first() {
     let mut p = Portfolio::new([1; 32]);
-    run_fills(&mut p, &[(1, 1000, 100_000_000, true, 0)], 100_000_000);
+    p.equity = 1;
     let mut host = Host::new();
+    host.vault.uncovered_bad_debt = 1;
     let mut batch = clearing_batch();
     let mut instrument = Instrument::new(0, 1, 1, 100, 50);
-    assert_eq!(
-        host.settle(
-            &mut batch,
-            &mut instrument,
-            &fills(&[(1, 1000, 110_000_000, true, 1)]),
-            &mut [],
-            &mut [&mut p]
-        ),
-        Err(MgkError::InsufficientFunds.into())
-    );
-    assert_eq!(host.vault.insurance_fund, 0);
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[(1, 1, 1, false, 1), (1, 1, 1, false, 1)]),
+        &mut [],
+        &mut [&mut p],
+    )
+    .unwrap();
+    // Two 1 lamport fees against 1 lamport of collateral: only one is collected.
+    assert_eq!(p.equity, 0);
+    assert_eq!(p.fees_paid, 1);
+    assert_eq!(host.vault.balance, 0);
     assert_eq!(host.vault.uncovered_bad_debt, 0);
-    // This pure adapter deliberately does not emulate Solana transaction rollback.
-    assert_eq!(batch.status, BatchStatus::Cleared);
+    assert_eq!(host.vault.insurance_fund, 0);
+}
+
+#[test]
+fn open_interest_follows_opens_flips_and_closes() {
+    let mut p = Portfolio::new([1; 32]);
+    p.equity = 1_000_000_000;
+    let mut host = Host::new();
+    host.vault.insurance_fund = 1_000_000_000_000;
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[(1, 1000, 100_000_000, true, 0)]),
+        &mut [],
+        &mut [&mut p],
+    )
+    .unwrap();
+    assert_eq!(
+        (host.vault.open_interest_long, host.vault.open_interest_short),
+        (1000, 0)
+    );
+    // A second batch: flip the long 1000 into a short 400.
+    host.reset_next_batch();
+    let mut batch = clearing_batch();
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[(1, 1400, 100_000_000, true, 1)]),
+        &mut [],
+        &mut [&mut p],
+    )
+    .unwrap();
+    assert_eq!(
+        (host.vault.open_interest_long, host.vault.open_interest_short),
+        (0, 400)
+    );
+    host.reset_next_batch();
+    let mut batch = clearing_batch();
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[(1, 400, 100_000_000, true, 0)]),
+        &mut [],
+        &mut [&mut p],
+    )
+    .unwrap();
+    assert_eq!(
+        (host.vault.open_interest_long, host.vault.open_interest_short),
+        (0, 0)
+    );
+}
+
+#[test]
+fn vault_collateral_balance_tracks_the_sum_of_portfolio_equity() {
+    let mut winner = Portfolio::new([1; 32]);
+    let mut loser = Portfolio::new([2; 32]);
+    winner.equity = 500_000_000;
+    loser.equity = 500_000_000;
+    apply_fill(&mut winner, 0, 1000, 100_000_000, true, 100_000_000).unwrap();
+    apply_fill(&mut loser, 0, -1000, 100_000_000, true, 100_000_000).unwrap();
+    let mut host = Host::new();
+    host.vault.insurance_fund = 1_000_000_000;
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[
+            (1, 1000, 110_000_000, true, 1),
+            (2, 1000, 110_000_000, false, 1),
+        ]),
+        &mut [],
+        &mut [&mut winner, &mut loser],
+    )
+    .unwrap();
+    assert_eq!(winner.equity + loser.equity, host.vault.balance as i128);
+}
+
+/// Open a 1000 lot long at `entry` with `equity` of collateral, then close it
+/// at `exit` against a fund of `fund` and debt of `debt`. Conversion is $100.
+fn close_long(
+    equity: i128,
+    entry: i64,
+    exit: i64,
+    fund: u128,
+    debt: u128,
+    maker: bool,
+) -> (Portfolio, Host, Batch) {
+    let mut p = Portfolio::new([1; 32]);
+    apply_fill(&mut p, 0, 1000, entry, true, 100_000_000).unwrap();
+    p.equity = equity;
+    let mut host = Host::new();
+    host.vault.insurance_fund = fund;
+    host.vault.uncovered_bad_debt = debt;
+    let mut batch = clearing_batch();
+    let mut instrument = Instrument::new(0, 1, 1, 100, 50);
+    // Maker closes charge no fee so the cash movement is the realized PnL alone.
+    host.settle(
+        &mut batch,
+        &mut instrument,
+        &fills(&[(1, 1000, exit, maker, 1)]),
+        &mut [],
+        &mut [&mut p],
+    )
+    .unwrap();
+    (p, host, batch)
 }
 
 #[test]
@@ -467,8 +664,11 @@ fn legacy_commitments_release_deposits_and_slash_pending_only_within_limit() {
     assert_eq!(extra.status, CommitmentStatus::Pending);
     assert_eq!(portfolio.im, 400_000);
     assert_eq!(portfolio.positions[0].qty, 2);
-    assert_eq!(portfolio.equity, -1);
-    assert_eq!(host.vault.insurance_fund, 21);
+    // The 1 lamport taker fee is capped at the empty collateral, and the
+    // slashed legacy deposit never moved real lamports, so the fund gains nothing.
+    assert_eq!(portfolio.equity, 0);
+    assert_eq!(portfolio.fees_paid, 0);
+    assert_eq!(host.vault.insurance_fund, 0);
     assert_eq!(batch.slashed_deposits, 20);
     assert_eq!(batch.total_settled, 1);
 }

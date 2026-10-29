@@ -20,7 +20,7 @@ const ix = (discriminator, data, keys, programId = CORE) => new TransactionInstr
 const field = (name, offset, bytes, value, signed = false) => ({ name, offset, bytes, value: String(value), signed });
 
 // Intentionally runs, or fails: absence of candidate artifacts is never a skipped green test.
-test('candidate runtime: oracle risk, order reservations, reduce-only clipping and rollback', { timeout: 180000 }, async t => {
+test('candidate runtime: oracle risk, order reservations, reduce-only clipping and rollback', { timeout: 420000 }, async t => {
   assert.ok(process.env.MGK_CANDIDATE_MANIFEST, 'MGK_CANDIDATE_MANIFEST is required; see tools/runtime/README.md');
   const candidate = JSON.parse(readFileSync(process.env.MGK_CANDIDATE_MANIFEST, 'utf8'));
   assert.match(candidate.commit, /^[0-9a-f]{40}$/, 'candidate commit required');
@@ -30,8 +30,13 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
   t.after(() => runtime.close());
   runtime.report.candidateCommit = candidate.commit; runtime.flushReport();
   const payer = Keypair.generate(), maker = Keypair.generate(), taker = Keypair.generate();
+  // The funder tops up the insurance fund. It is neither governance nor a trader: top-up is permissionless.
+  const funder = Keypair.generate();
   for (const wallet of [payer, maker, taker]) await runtime.setAccount(wallet.publicKey,
     { owner: SystemProgram.programId, lamports: 20_000_000_000 });
+  await runtime.setAccount(funder.publicKey, { owner: SystemProgram.programId, lamports: 60_000_000_000 });
+  // The vault invariant is exact: vault lamports - rent = collateral + fund - uncovered debt.
+  const vaultRent = BigInt(await runtime.rpc('getMinimumBalanceForRentExemption', [80]));
   const [registry, regBump] = pda([Buffer.from('registry')]);
   const [instrument, instBump] = pda([Buffer.from('instrument'), Buffer.alloc(2)]);
   const [vault] = pda([Buffer.from('vault')]);
@@ -40,7 +45,18 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
   const [book] = pda([Buffer.from('book'), Buffer.alloc(2)], MATCHER);
   let [results] = pda([Buffer.from('results'), u64(0)], MATCHER);
   const oracle = Keypair.generate().publicKey;
-  const rejectUnchanged = async (label, instructions, signers, addresses) => {
+  // Simulation only: proves an instruction is accepted without changing any account.
+  const simulateOk = async (label, instructions, signers) => {
+    const latest = await runtime.connection.getLatestBlockhash('confirmed');
+    const tx = new Transaction({ feePayer: signers[0].publicKey, ...latest }).add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ...instructions);
+    tx.sign(...signers);
+    const simulation = (await runtime.rpc('simulateTransaction', [tx.serialize().toString('base64'),
+      { encoding: 'base64', sigVerify: true, commitment: 'confirmed' }])).value;
+    assert.equal(simulation.err, null, `${label}: must be accepted: ${simulation.logs}`);
+  };
+  // `expectedCode`, when given, pins the exact custom program error (instruction 2 follows two compute-budget ixs).
+  const rejectUnchanged = async (label, instructions, signers, addresses, expectedCode) => {
     const snapshot = async address => (await runtime.rpc('getAccountInfo', [String(address),
       { encoding: 'base64', commitment: 'confirmed' }])).value;
     const before = await Promise.all(addresses.map(snapshot));
@@ -55,6 +71,8 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
     const simulation = (await runtime.rpc('simulateTransaction', [wire,
       { encoding: 'base64', sigVerify: true, commitment: 'confirmed' }])).value;
     assert.ok(simulation.err, `${label}: simulation must reject`);
+    if (expectedCode !== undefined) assert.deepEqual(simulation.err, { InstructionError: [2, { Custom: expectedCode }] },
+      `${label}: expected error code ${expectedCode}`);
     const signature = await runtime.rpc('sendTransaction', [wire, { encoding: 'base64', skipPreflight: true }]);
     const deadline = Date.now() + 15000;
     let status;
@@ -65,6 +83,8 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
       await sleep(50);
     } while (true);
     assert.ok(status.err, `${label}: submitted transaction must reject`);
+    if (expectedCode !== undefined) assert.deepEqual(status.err, { InstructionError: [2, { Custom: expectedCode }] },
+      `${label}: submitted error code ${expectedCode}`);
     const after = await Promise.all(addresses.map(snapshot));
     after.forEach((account, index) => assert.deepEqual(account, before[index],
       `${label}: ${addresses[index]} account unchanged`));
@@ -72,14 +92,19 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
     runtime.report.integrityRejections.push({ label, signature, error: status.err });
     runtime.flushReport();
   };
-  const portfolios = [maker, taker].map(user => pda([Buffer.from('portfolio'), user.publicKey.toBuffer()]));
+  // The third trader joins later so a winner can leave while its counterparty stays open.
+  const carol = Keypair.generate();
+  const traders = [maker, taker];
+  const portfolios = traders.map(user => pda([Buffer.from('portfolio'), user.publicKey.toBuffer()]));
+  const carolPortfolio = pda([Buffer.from('portfolio'), carol.publicKey.toBuffer()]);
   // Genesis scaffolding supplies zeroed storage for the signed initialization lifecycle.
   // All initialized fields, deposits, orders, clearing and settlement are written by signed program transactions.
   for (const [address, owner, size] of [[registry, CORE, 94], [instrument, CORE, 352], [vault, CORE, 80],
     [batch, CORE, 176], [nextBatch, CORE, 176], [book, MATCHER, 27712],
-    ...portfolios.map(([address]) => [address, CORE, 2848])]) {
+    ...[...portfolios, carolPortfolio].map(([address]) => [address, CORE, 2848])]) {
     const data = Buffer.alloc(size);
-    await runtime.setAccount(address, { owner, data });
+    // The vault is created with exactly its rent-exempt minimum so the exact invariant holds from the first move.
+    await runtime.setAccount(address, address === vault ? { owner, data, lamports: Number(vaultRent) } : { owner, data });
   }
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price: 100_000_000, publishTime: 123, confidence: 456 });
@@ -116,14 +141,16 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
       field('principal', 64, 16, 1_000_000_000, true)] }]);
   }
   const vaultBefore = await runtime.account(vault);
-  assert.equal(vaultBefore.lamports, 2_010_000_000n, 'deposited lamports plus genesis rent');
-  // A cash-backed genesis fund isolates accounting from the separate #23 top-up/exhaustion work.
+  assert.equal(vaultBefore.lamports, 2_000_000_000n + vaultRent, 'deposited lamports plus rent');
+  assert.equal(vaultBefore.data.readBigUInt64LE(16), 0n, 'the fund starts empty: only signed top-ups fund it');
+  // The cash-backed 20 SOL fund arrives by a signed, permissionless top-up (disc 26), not a genesis patch.
   const initialFund = 20_000_000_000n;
-  const seededVault = Buffer.from(vaultBefore.data);
-  seededVault.writeBigUInt64LE(initialFund, 16);
-  seededVault.writeBigUInt64LE(2_000_000_000n + initialFund, 8);
-  await runtime.setAccount(vault, { owner: CORE, data: seededVault,
-    lamports: Number(vaultBefore.lamports + initialFund) });
+  const topUp = (amount, payerWallet = funder) => ix(26, u64(amount),
+    [meta(payerWallet.publicKey, true, true), meta(vault), meta(SystemProgram.programId, false)]);
+  await runtime.send('top up the insurance fund', [topUp(initialFund)], [funder]);
+  await runtime.assertState([{ address: vault, lamports: String(2_000_000_000n + initialFund + vaultRent), fields: [
+    field('vault balance is total collateral only', 8, 8, 2_000_000_000n), field('fund', 16, 16, initialFund),
+    field('no uncovered debt', 32, 16, 0)] }]);
   const postClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price: 1_000_000, publishTime: Number(postClock.data.readBigInt64LE(32)), confidence: 12 });
@@ -131,7 +158,7 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
     const user = [maker, taker][index], data = Buffer.alloc(21);
     data[0] = side; data[1] = Number(isMaker); data.writeBigInt64LE(1_000_000n, 2); u64(1).copy(data, 10);
     await runtime.send(`post ${index} ${side}`, [ix(20, data, [meta(portfolios[index][0]), meta(user.publicKey, true, true),
-      meta(batch), meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false)])], [payer, user]);
+      meta(batch), meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false), meta(vault, false)])], [payer, user]);
   }
   const forgedBook = Keypair.generate().publicKey;
   const genuineBook = await runtime.account(book);
@@ -141,7 +168,7 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
   for (const [label, bookKey, matcherKey] of [
     ['wrong book PDA', forgedBook, MATCHER], ['wrong matcher program', book, SystemProgram.programId],
   ]) await rejectUnchanged(label, [ix(20, spoofPostData, [meta(portfolios[0][0]),
-    meta(maker.publicKey, true, true), meta(batch), meta(registry, false), meta(bookKey), meta(matcherKey, false), meta(instrument, false), meta(oracle, false)])],
+    meta(maker.publicKey, true, true), meta(batch), meta(registry, false), meta(bookKey), meta(matcherKey, false), meta(instrument, false), meta(oracle, false), meta(vault, false)])],
     [payer, maker], [book, forgedBook, batch, portfolios[0][0]]);
   // The genuine user's signature cannot replace perps-core's PDA signature.
   for (const discriminator of [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
@@ -155,7 +182,7 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
   const unmatched = Buffer.alloc(21); unmatched[1] = 1;
   unmatched.writeBigInt64LE(1n, 2); u64(1).copy(unmatched, 10);
   const capPost = () => ix(20, unmatched, [meta(portfolios[0][0]), meta(maker.publicKey, true, true),
-    meta(batch), meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false)]);
+    meta(batch), meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false), meta(vault, false)]);
   for (let index = 4; index < 12; index++) await runtime.send(`order cap fixture ${index + 1}`, [capPost()], [payer, maker]);
   await rejectUnchanged('thirteenth live order rejected', [capPost()], [payer, maker], capAddresses);
   for (let index = 0; index < capAddresses.length; index++) await runtime.setAccount(capAddresses[index], {
@@ -187,7 +214,8 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
   const cleared = await runtime.account(results);
   assert.equal(cleared.data.readUInt16LE(49), 4, 'both DFBA sides produced maker and taker fills');
   // Expectations come from the independent Fraction ledger, fed ordered inputs.
-  const observedFills = [];
+  // Ordered ledger events: the signed top-up first, then fills and later signed fund/withdraw/unpause moves.
+  const observedFills = [{ kind: 'top_up', amount: String(initialFund) }];
   const recordFills = (data, conversionPrice, provenance = 'observed matcher output') => {
     const count = data.readUInt16LE(49);
     const fills = Array.from({ length: count }, (_, index) => {
@@ -199,12 +227,15 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
         quantity_lots: String(bidAuction === makerFill ? quantity : -quantity),
         fill_price: String(data.readBigInt64LE(offset + 48)), conversion_price: String(conversionPrice), maker: makerFill };
     });
-    for (const fill of fills) assert.ok([String(maker.publicKey), String(taker.publicKey)].includes(fill.account),
+    for (const fill of fills) assert.ok(traders.map(user => String(user.publicKey)).includes(fill.account),
       'observed fill belongs to a participating portfolio owner');
     observedFills.push(...fills);
     return fills;
   };
   let riskPrice = 1_000_000;
+  // Portfolios whose cached risk fields (IM, MM, free, health) are current at riskPrice. Only settlement of a
+  // portfolio and its own withdrawals refresh the cache, so other portfolios keep their older cached values.
+  let riskFresh = new Set([0, 1]);
   const reference = () => JSON.parse(execFileSync('python3', ['-B', '-c', `
 import json, sys
 from fractions import Fraction
@@ -213,7 +244,21 @@ from reference_model import Ledger, Fill
 request = json.load(sys.stdin)
 ledger = Ledger(int(request['fund']), {account: int(value) for account, value in request['collateral'].items()})
 usd_totals = {}
-for fill in request['fills']:
+for fill in request['events']:
+    kind = fill.get('kind', 'fill')
+    # Non-fill events replay signed fund and withdrawal transactions in their on-chain order.
+    if kind == 'top_up':
+        ledger.top_up(int(fill['amount'])); continue
+    if kind == 'donate':
+        ledger.donate(int(fill['amount'])); continue
+    if kind == 'deposit':
+        ledger.collateral[fill['account']] = ledger.collateral.get(fill['account'], 0) + int(fill['amount']); continue
+    if kind == 'withdraw_fund':
+        ledger.withdraw_fund(int(fill['amount'])); continue
+    if kind == 'withdraw':
+        ledger.withdraw(fill['account'], int(fill['amount']), int(fill['conversion_price'])); continue
+    if kind == 'unpause':
+        ledger.unpause(fill['withdrawals'], fill['trading']); continue
     account = fill['account']
     before = ledger.realized_micro_usd.get(account, Fraction(0))
     ledger.apply_fill(Fill(account, int(fill['quantity_lots']), int(fill['fill_price']), int(fill['conversion_price']), fill['maker']))
@@ -227,43 +272,55 @@ for account, collateral in ledger.collateral.items():
     pnl = Fraction(quantity) * (int(request['risk_price']) - position.entry_price) * 1_000_000 / int(request['risk_price']) if position else Fraction(0)
     pnl = pnl.numerator // pnl.denominator
     im, mm = abs(quantity) * 200_000, abs(quantity) * 100_000
-    risk[account] = {'im': str(im), 'mm': str(mm), 'free': str(collateral + min(pnl, 0) - im), 'health': str(collateral + pnl - mm)}
+    risk[account] = {'im': str(im), 'mm': str(mm), 'free': str(collateral + min(pnl, 0) - im), 'health': str(collateral + pnl - mm),
+        'withdrawable': str(ledger.withdrawable(account, int(request['risk_price'])))}
 positions = {account: {'qty': str(p.quantity_lots), 'entry': str(p.entry_price.numerator // p.entry_price.denominator),
     'numerator': str(p.entry_price.numerator), 'denominator': str(p.entry_price.denominator)} for account, p in ledger.positions.items()}
 print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()}, 'fund': str(ledger.fund_lamports),
-    'liability': str(ledger.vault_liability_lamports()), 'positions': positions,
+    'debt': str(ledger.uncovered_bad_debt), 'reserve': str(ledger.reserve_requirement()),
+    'open_interest': [str(side) for side in ledger.open_interest()],
+    'flags': (1 if ledger.trading_paused else 0) | (2 if ledger.withdrawals_paused else 0),
+    'liability': str(ledger.vault_liability_lamports()),
+    'above_rent': str(ledger.vault_lamports_above_rent()), 'positions': positions,
     'realized_usd': {a: str(v) for a, v in usd_totals.items()},
     'realized_lamports': {a: str(v) for a, v in ledger.realized_lamports.items()},
     'risk': risk, 'fees': {a: str(v) for a, v in ledger.fees_lamports.items()}}))
-`, resolve(__dirname, '../gate')], { input: JSON.stringify({ risk_price: riskPrice, fund: String(initialFund), collateral: {
-    [maker.publicKey]: '1000000000', [taker.publicKey]: '1000000000' }, fills: observedFills }), encoding: 'utf8' }));
+`, resolve(__dirname, '../gate')], { input: JSON.stringify({ risk_price: riskPrice, fund: '0', collateral: {
+    [maker.publicKey]: '1000000000', [taker.publicKey]: '1000000000' }, events: observedFills }), encoding: 'utf8' }));
   recordFills(cleared.data, 1_000_000);
   let model = reference();
   const assertModel = async label => {
     model = reference();
     const expected = portfolios.map(([address], index) => {
-      const account = String([maker, taker][index].publicKey), position = model.positions[account];
+      const account = String(traders[index].publicKey), position = model.positions[account];
       return { address, fields: [field('portfolio version', 1, 1, 3),
         field(`${label}: collateral`, 48, 16, model.collateral[account], true),
         field(`${label}: realized USD`, 80, 16, model.realized_usd[account] ?? 0, true),
         field(`${label}: realized lamports`, 96, 16, model.realized_lamports[account] ?? 0, true),
         field(`${label}: fees paid`, 112, 16, model.fees[account] ?? 0, true),
         field(`${label}: funding off`, 128, 16, 0, true),
+        ...(riskFresh.has(index) ? [
         field(`${label}: initial margin`, 144, 16, model.risk[account].im),
         field(`${label}: maintenance margin`, 160, 16, model.risk[account].mm),
         field(`${label}: free collateral`, 176, 16, model.risk[account].free, true),
-        field(`${label}: health`, 192, 16, model.risk[account].health, true),
+        field(`${label}: health`, 192, 16, model.risk[account].health, true)] : []),
         field(`${label}: reservations released`, 2048, 16, 0),
         field(`${label}: position count`, 208, 2, position ? 1 : 0),
         field(`${label}: quantity`, 224, 8, position?.qty ?? 0, true),
         field(`${label}: entry floor`, 232, 8, position?.entry ?? 0, true)] };
     });
+    const totalCollateral = Object.values(model.collateral).reduce((sum, value) => sum + BigInt(value), 0n);
+    // Vault v2: balance@8 is total collateral, fund@16, uncovered debt@32, open interest long/short @48/@56.
+    // The vault is never under-backed: lamports - rent = collateral + fund - debt + donated surplus.
     await runtime.assertState([...expected, { address: vault,
-      lamports: String(BigInt(model.liability) + 10_000_000n), fields: [
-        field(`${label}: vault balance`, 8, 8, model.liability),
-        field(`${label}: fund`, 16, 16, model.fund), field(`${label}: no uncovered debt`, 32, 16, 0)] }]);
+      lamports: String(BigInt(model.above_rent) + vaultRent), fields: [
+        field(`${label}: vault balance`, 8, 8, totalCollateral),
+        field(`${label}: fund`, 16, 16, model.fund), field(`${label}: uncovered debt`, 32, 16, model.debt),
+        field(`${label}: open interest long`, 48, 8, model.open_interest[0]),
+        field(`${label}: open interest short`, 56, 8, model.open_interest[1])] },
+    { address: registry, fields: [field(`${label}: pause flags (trading|withdrawals)`, 89, 1, model.flags)] }]);
     for (let index = 0; index < portfolios.length; index++) {
-      const position = model.positions[String([maker, taker][index].publicKey)];
+      const position = model.positions[String(traders[index].publicKey)];
       if (!position) continue;
       const state = (await runtime.account(portfolios[index][0])).data;
       const integer = state.readBigInt64LE(232), remainder = state.readBigUInt64LE(240);
@@ -279,9 +336,11 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     runtime.report.model = model;
     runtime.flushReport();
   };
-  const settle = oracleKey => ix(8, Buffer.from([0, 0, 2, 0]), [meta(batch), meta(registry), meta(vault),
+  // The settled portfolio set defaults to the first two traders; later scenarios set it to the batch's participants.
+  let participants = [0, 1];
+  const settle = oracleKey => ix(8, Buffer.from([0, 0, participants.length, 0]), [meta(batch), meta(registry), meta(vault),
     meta(results), meta(instrument), meta(book), meta(oracleKey, false), meta(MATCHER, false),
-    ...portfolios.map(([portfolio]) => meta(portfolio)), meta(nextBatch)]);
+    ...participants.map(index => meta(portfolios[index][0])), meta(nextBatch)]);
   const integrityClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price: 1_000_000, publishTime: Number(integrityClock.data.readBigInt64LE(32)), confidence: 12 });
@@ -399,34 +458,40 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     { address: batch, fields: [field('Settled', 16, 1, 3)] },
     { address: portfolios[0][0], fields: [field('maker equity', 48, 16, model.collateral[maker.publicKey], true)] },
     { address: portfolios[1][0], fields: [field('taker equity', 48, 16, model.collateral[taker.publicKey], true)] },
-    { address: vault, lamports: String(BigInt(model.liability) + 10_000_000n), fields: [field('vault balance', 8, 8, model.liability),
-      field('insurance fees', 16, 16, model.fund)] },
+    { address: vault, lamports: String(BigInt(model.above_rent) + vaultRent), fields: [
+      field('vault balance', 8, 8, Object.values(model.collateral).reduce((sum, value) => sum + BigInt(value), 0n)),
+      field('insurance fund', 16, 16, model.fund)] },
     { address: nextBatch, fields: [field('batch id', 8, 8, 1), field('Collecting', 16, 1, 0)] },
   ]);
-  await assert.rejects(runtime.assertState([{ address: vault, lamports: String(BigInt(model.liability) + 10_000_001n) }]), /lamports/);
+  await assert.rejects(runtime.assertState([{ address: vault, lamports: String(BigInt(model.above_rent) + vaultRent + 1n) }]), /lamports/);
   await assert.rejects(runtime.assertState([{ address: portfolios[0][0], fields: [field('wrong expected model equity', 48, 16, 42)] }]), /wrong expected model equity/);
   // Each later batch uses genuine signed post/clear/settle instructions. The oracle
   // conversion deliberately differs from the fill price, exposing spot-cashflow and unit bugs.
   let batchId = 1;
-  const settleScenario = async (label, orders, conversionPrice, acceptedQuantities) => {
+  const settleScenario = async (label, orders, conversionPrice, acceptedQuantities, postPrice = conversionPrice) => {
     batch = nextBatch;
     [nextBatch] = pda([Buffer.from('batch'), u64(batchId + 1)]);
     [results] = pda([Buffer.from('results'), u64(batchId)], MATCHER);
     await runtime.setAccount(nextBatch, { owner: CORE, data: Buffer.alloc(176) });
     const postClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
     await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
-      price: conversionPrice, publishTime: Number(postClock.data.readBigInt64LE(32)), confidence: 12 });
-    for (const { side, qty, price, reduceOnly = false } of orders) {
-      for (const index of [0, 1]) {
-        const user = [maker, taker][index], data = Buffer.alloc(21);
-        data[0] = index === 0 ? side : 1 - side; data[1] = Number(index === 0);
+      price: postPrice, publishTime: Number(postClock.data.readBigInt64LE(32)), confidence: 12 });
+    // `reduceOnly` applies to the maker side (the original fixtures); `takerReduceOnly` to the taker side.
+    // `makerIdx`/`takerIdx` pick the paired traders so a third portfolio can take the other side.
+    const involved = new Set();
+    for (const { side, qty, price, reduceOnly = false, takerReduceOnly = false, makerIdx = 0, takerIdx = 1 } of orders) {
+      involved.add(makerIdx); involved.add(takerIdx);
+      for (const index of [makerIdx, takerIdx]) {
+        const isMaker = index === makerIdx, user = traders[index], data = Buffer.alloc(21);
+        data[0] = isMaker ? side : 1 - side; data[1] = Number(isMaker);
         data.writeBigInt64LE(BigInt(price), 2); u64(qty).copy(data, 10);
-        data[20] = Number(reduceOnly && index === 0);
+        data[20] = Number(isMaker ? reduceOnly : takerReduceOnly);
         await runtime.send(`${label}: post ${index} ${side}`, [ix(20, data,
           [meta(portfolios[index][0]), meta(user.publicKey, true, true), meta(batch),
-            meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false)])], [payer, user]);
+            meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false), meta(vault, false)])], [payer, user]);
       }
     }
+    participants = [...involved].sort();
     await runtime.advanceSlots(200);
     await runtime.send(`${label}: close collecting`, [ix(6, Buffer.alloc(0), [meta(batch), meta(registry)])], [payer]);
     await runtime.send(`${label}: clear`, [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]),
@@ -434,7 +499,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
       meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])], [payer]);
     const observed = (await runtime.account(results)).data;
     assert.equal(observed.readUInt16LE(49), orders.length * 2, `${label}: all paired orders filled`);
-    riskPrice = conversionPrice;
+    riskPrice = conversionPrice; riskFresh = new Set(participants);
     const accepted = Buffer.from(observed);
     if (acceptedQuantities) {
       assert.equal(acceptedQuantities.length, observed.readUInt16LE(49));
@@ -478,6 +543,153 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     { side: 1, qty: 750, price: 100_000_000, reduceOnly: true },
   ], 100_000_000, [750, 250, 750, 250]);
   assert.deepEqual(model.positions, {}, 'both sides remain flat after clipping 1500 tentative lots to1000');
+
+  // ---- Issue 23: cash-backed insurance fund, exposure limits, risk-off, exhaustion and recovery ----
+  const CLOCK = new PublicKey('SysvarC1ock11111111111111111111111111111111');
+  const freshOracle = async price => runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
+    price, publishTime: Number((await runtime.account(CLOCK)).data.readBigInt64LE(32)), confidence: 12 });
+  // The collecting batch outside settleScenario is the one the last settle created.
+  const postIx = (index, { side = 0, price = 100_000_000, qty = 1, reduceOnly = false } = {}) => {
+    const data = Buffer.alloc(21); data[0] = side; data[1] = 0;
+    data.writeBigInt64LE(BigInt(price), 2); u64(qty).copy(data, 10); data[20] = Number(reduceOnly);
+    return ix(20, data, [meta(portfolios[index][0]), meta(traders[index].publicKey, true, true), meta(nextBatch),
+      meta(registry, false), meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false), meta(vault, false)]);
+  };
+  const withdrawIx = (index, amount) => ix(3, u64(amount), [meta(portfolios[index][0]), meta(traders[index].publicKey, true, true),
+    meta(vault), meta(registry, false), meta(instrument, false), meta(oracle, false)]);
+  const withdrawFundIx = (amount, governance = payer) => ix(27, u64(amount),
+    [meta(vault), meta(registry, false), meta(governance.publicKey, true, true)]);
+  const unpauseIx = (withdrawals, trading) => ix(28, Buffer.from([Number(withdrawals), Number(trading)]),
+    [meta(registry), meta(vault, false), meta(payer.publicKey, false, true)]);
+  const doWithdraw = async (label, index, amount, price) => {
+    await freshOracle(price);
+    const walletBefore = (await runtime.account(traders[index].publicKey)).lamports;
+    await runtime.send(label, [withdrawIx(index, amount)], [payer, traders[index]]);
+    assert.equal((await runtime.account(traders[index].publicKey)).lamports, walletBefore + BigInt(amount),
+      `${label}: the wallet receives exactly the withdrawn lamports`);
+    observedFills.push({ kind: 'withdraw', account: String(traders[index].publicKey), amount: String(amount),
+      conversion_price: String(price) });
+    riskPrice = price; riskFresh = new Set([...riskFresh, index]);
+  };
+  const makerKey = String(maker.publicKey), takerKey = String(taker.publicKey), carolKey = String(carol.publicKey);
+
+  // A third trader joins with a signed deposit, so a winner can leave while its original counterparty stays open.
+  await runtime.setAccount(carol.publicKey, { owner: SystemProgram.programId, lamports: 20_000_000_000 });
+  await runtime.send('init portfolio carol', [ix(1, Buffer.concat([carol.publicKey.toBuffer(), Buffer.from([carolPortfolio[1]])]),
+    [meta(carolPortfolio[0]), meta(carol.publicKey, true, true)])], [payer, carol]);
+  await runtime.send('deposit carol', [ix(2, u64(1_000_000_000), [meta(carolPortfolio[0]), meta(carol.publicKey, true, true),
+    meta(SystemProgram.programId, false), meta(vault)])], [payer, carol]);
+  traders.push(carol); portfolios.push(carolPortfolio);
+  observedFills.push({ kind: 'deposit', account: carolKey, amount: '1000000000' });
+  await assertModel('third trader joins');
+
+  // Acceptance 6: a winner withdraws realized profit before the loser closes.
+  await settleScenario('winner fixture: maker long against taker short',
+    [{ side: 0, qty: 1000, price: 100_000_000 }], 100_000_000);
+  const makerBeforeProfit = BigInt(model.collateral[makerKey]);
+  await settleScenario('maker closes at a profit against a third trader',
+    [{ side: 1, qty: 1000, price: 110_000_000, makerIdx: 0, takerIdx: 2 }], 110_000_000);
+  assert.equal(model.positions[makerKey], undefined, 'the winner is flat');
+  assert.equal(model.positions[takerKey].qty, '-1000', 'the loser still holds its position');
+  const profit = BigInt(model.collateral[makerKey]) - makerBeforeProfit;
+  assert.ok(profit > 0n, 'the fund credited the winner in cash');
+  await doWithdraw('winner withdraws profit while the loser is still open', 0, profit, 110_000_000);
+  await assertModel('winner withdrew profit before the loser closed');
+  assert.equal(model.positions[takerKey].qty, '-1000', 'the loser is still open after the withdrawal');
+
+  // Acceptance 1: fund withdrawal is admin-only and limited to the surplus above the reserve.
+  assert.equal(model.reserve, String(1000n * 400_000n), 'reserve is 0.4 x larger-side open interest');
+  const surplus = BigInt(model.fund) - BigInt(model.reserve);
+  assert.ok(surplus > 0n, 'the topped-up fund exceeds the reserve');
+  await rejectUnchanged('fund withdrawal above the surplus', [withdrawFundIx(surplus + 1n)], [payer], [vault, registry], 611);
+  await rejectUnchanged('fund withdrawal by a non-governance signer', [withdrawFundIx(1n, funder)], [funder], [vault, registry], 7);
+  await runtime.send('governance withdraws exactly the fund surplus', [withdrawFundIx(surplus)], [payer]);
+  observedFills.push({ kind: 'withdraw_fund', amount: String(surplus) });
+  await assertModel('fund withdrawn down to the required reserve');
+  assert.equal(model.fund, model.reserve, 'fund sits exactly at the reserve');
+
+  // Acceptance 2: exposure limits and risk-off. The fund equals the reserve, so any exposure-adding post is refused.
+  const postAddresses = [nextBatch, portfolios[0][0], vault, book];
+  await rejectUnchanged('portfolio exposure limit: 10 SOL', [postIx(0, { qty: 10_001 })], [payer, maker], postAddresses, 608);
+  const cleanVault = await runtime.account(vault);
+  const patchedVault = Buffer.from(cleanVault.data); patchedVault.writeBigUInt64LE(49_999n, 48);
+  await runtime.setAccount(vault, { owner: CORE, data: patchedVault, lamports: Number(cleanVault.lamports) });
+  await rejectUnchanged('market exposure limit: 50 SOL per side', [postIx(0, { qty: 2 })], [payer, maker], postAddresses, 609);
+  await runtime.setAccount(vault, { owner: CORE, data: cleanVault.data, lamports: Number(cleanVault.lamports) });
+  await rejectUnchanged('risk-off: fund below 0.4 x (larger-side OI + order quantity)', [postIx(0, { qty: 1 })],
+    [payer, maker], postAddresses, 610);
+  await freshOracle(110_000_000);
+  await simulateOk('risk-off still accepts reduce-only closes',
+    [postIx(2, { side: 1, qty: 1, reduceOnly: true, price: 110_000_000 })], [payer, carol]);
+  await simulateOk('risk-off still accepts withdrawals', [withdrawIx(0, 1)], [payer, maker]);
+  await assertModel('exposure limits and risk-off left no state change');
+
+  // Acceptance 3: exhaustion. The fill price is above the post-time oracle and the oracle then drops, so the
+  // lamport value of the loser's realized loss exceeds its whole collateral and the winner's gain exceeds fund plus collection.
+  await settleScenario('exhaustion: winner closes against the underfunded loser',
+    [{ side: 1, qty: 1000, price: 140_000_000, reduceOnly: true, takerReduceOnly: true, makerIdx: 2, takerIdx: 1 }],
+    20_000_000, undefined, 110_000_000);
+  assert.deepEqual(model.positions, {}, 'both reduce-only closes filled');
+  assert.ok(BigInt(model.debt) > 0n, 'the unpaid payout is recorded as uncovered bad debt');
+  assert.equal(model.fund, '0', 'the fund is exhausted');
+  assert.equal(model.flags, 3, 'exhaustion auto-pauses trading and withdrawals');
+  await rejectUnchanged('paused: new exposure refused', [postIx(0, { qty: 1 })], [payer, maker],
+    [nextBatch, portfolios[0][0], vault, book, registry], 602);
+  await freshOracle(20_000_000);
+  await rejectUnchanged('paused: the winner cannot withdraw yet', [withdrawIx(2, 1)], [payer, carol],
+    [portfolios[2][0], vault, registry], 602);
+
+  // Acceptance 3 and 4: inflows repay debt first; unpause needs debt 0 and the reserve, withdrawals first.
+  await rejectUnchanged('unpause refused while debt is outstanding', [unpauseIx(true, false)], [payer], [registry, vault], 612);
+  const debt = BigInt(model.debt);
+  await runtime.send('partial top-up repays debt before the fund', [topUp(debt - 1n)], [funder]);
+  observedFills.push({ kind: 'top_up', amount: String(debt - 1n) });
+  await assertModel('partial top-up');
+  assert.equal(model.debt, '1', 'one lamport of debt remains'); assert.equal(model.fund, '0', 'debt is repaid before the fund');
+  await rejectUnchanged('unpause refused with one lamport of debt', [unpauseIx(true, false)], [payer], [registry, vault], 612);
+  await runtime.send('top-up clears the debt and funds the remainder', [topUp(1_000_001n)], [funder]);
+  observedFills.push({ kind: 'top_up', amount: '1000001' });
+  await assertModel('debt cleared by inflow');
+  assert.equal(model.debt, '0'); assert.equal(model.fund, '1000000', 'the remainder joins the fund');
+  await rejectUnchanged('trading cannot resume before withdrawals', [unpauseIx(false, true)], [payer], [registry, vault], 612);
+  await runtime.send('unpause withdrawals first', [unpauseIx(true, false)], [payer]);
+  observedFills.push({ kind: 'unpause', withdrawals: true, trading: false });
+  await assertModel('withdrawals resumed, trading still paused');
+  assert.equal(model.flags, 1);
+  await doWithdraw('winner withdraws once withdrawals resume', 2, BigInt(model.collateral[carolKey]), 20_000_000);
+  await assertModel('winner withdrew after recovery');
+  await rejectUnchanged('trading is still paused after withdrawals resume', [postIx(0, { qty: 1 })], [payer, maker],
+    [nextBatch, portfolios[0][0], vault, book, registry], 602);
+  await runtime.send('unpause trading', [unpauseIx(false, true)], [payer]);
+  observedFills.push({ kind: 'unpause', withdrawals: false, trading: true });
+  await assertModel('trading resumed');
+  assert.equal(model.flags, 0);
+  await freshOracle(20_000_000);
+  await simulateOk('trading resumes: new exposure is accepted again', [postIx(0, { qty: 1, price: 20_000_000 })], [payer, maker]);
+
+  // Acceptance 5: a plain transfer to the vault is surplus, not a lockout. Deposits, withdrawals and top-ups keep
+  // working around it, while a vault that is under-backed by even one lamport reverts every lamport move.
+  await runtime.send('direct lamport donation to the vault', [SystemProgram.transfer({
+    fromPubkey: funder.publicKey, toPubkey: vault, lamports: 777 })], [funder]);
+  observedFills.push({ kind: 'donate', amount: '777' });
+  await assertModel('donation is tolerated as surplus');
+  await runtime.send('top-up still works with a donation present', [topUp(1_000n)], [funder]);
+  observedFills.push({ kind: 'top_up', amount: '1000' });
+  await assertModel('top-up around a donation');
+  await runtime.send('deposit still works with a donation present', [ix(2, u64(5_000), [meta(carolPortfolio[0]),
+    meta(carol.publicKey, true, true), meta(SystemProgram.programId, false), meta(vault)])], [payer, carol]);
+  observedFills.push({ kind: 'deposit', account: carolKey, amount: '5000' });
+  await assertModel('deposit around a donation');
+  await doWithdraw('withdrawal still works with a donation present', 2, 1, 20_000_000);
+  await assertModel('withdrawal around a donation');
+  const donatedVault = await runtime.account(vault);
+  await runtime.setAccount(vault, { owner: CORE, data: donatedVault.data,
+    lamports: Number(BigInt(model.above_rent) + vaultRent - 778n) });
+  await rejectUnchanged('an under-backed vault reverts a top-up', [topUp(1_000n)], [funder], [vault], 607);
+  await freshOracle(20_000_000);
+  await rejectUnchanged('an under-backed vault reverts a withdrawal', [withdrawIx(0, 1)], [payer, maker], [vault, portfolios[0][0]], 607);
+  await runtime.setAccount(vault, { owner: CORE, data: donatedVault.data, lamports: Number(donatedVault.lamports) });
+  await assertModel('vault restored after the under-backed check');
   const worker = await runtime.launchWorker(process.execPath, ['-e',
     'fetch(process.env.RPC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[]})}).then(r=>r.json()).then(r=>{if(!Number.isInteger(r.result))process.exit(1)})']);
   const [exitCode] = await once(worker, 'exit');

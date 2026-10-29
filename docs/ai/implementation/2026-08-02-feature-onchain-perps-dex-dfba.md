@@ -142,7 +142,7 @@ SBF_OUT_DIR=target/deploy cargo +stable test -p mgk-perps-core --test lifecycle 
   - Scenario: maker buy@100k+98k, taker sell@99k → 100k fills, 98k rests; batch 1 taker sell@97k crosses resting 98k; verifies `is_maker=true` on resting fill
   - BPF_OUT_DIR/SBF_OUT_DIR gated
 
-- **T9.4.5** — Insurance inventory: already implemented. `Vault.insurance_fund` (u128) + `uncovered_bad_debt` (u128) + `adl_debt`/`adl_pending`. Fee/rebate flow in `settle_batch.rs:535-575`.
+- **T9.4.5** — Insurance inventory: already implemented. `Vault.insurance_fund` (u128) + `uncovered_bad_debt` (u128) + an ADL field (removed in issue #23)/an ADL field (removed in issue #23). Fee/rebate flow in `settle_batch.rs:535-575`.
 
 - **T9.5.5c** — BPF e2e self-trade: `test_e2e_self_trade_no_fill` in `lifecycle.rs`. Same wallet maker-buy + taker-sell at same price → 0 fills (self-trade excluded).
 
@@ -157,12 +157,12 @@ SBF_OUT_DIR=target/deploy cargo +stable test -p mgk-perps-core --test lifecycle 
   - `test_e2e_gtc_rests_then_matches_next_batch` — DFBA resting order across 2 batches
   - `test_e2e_settle_creates_next_batch_pda` — verifies batch 1+2 PDA creation via SettleBatch
   - `test_e2e_liquidate_user_happy_path` — DFBA mark + pre-built underwater portfolio liquidation
-  - `test_e2e_liquidate_user_adl_stub_fires` — ADL when insurance < bad debt
+  - the removed ADL-stub e2e test — ADL when insurance < bad debt
   - `test_e2e_cancel_all_resting_orders` — CancelAllRestingOrders clears book
   - All `#[ignore]` attributes removed. 10 e2e tests total (5 original DFBA + 5 rewritten).
 - **Helper functions added** — `build_cancel_all_resting_data`, `build_oracle_data`, `build_underwater_portfolio_data`, `build_vault_data`, `build_liquidate_data`
 - **Initialize instruction accounts fixed** — root cause of pre-existing `InvalidArgument`: vault and system_program account indices were swapped in all Initialize calls. BPF entrypoint expects `system_program` at index 3 and `vault` at index 4, but tests had them reversed. Fixed across all11 e2e tests.
-- **BPF e2e mark_valid assertions fixed** — liquidate tests (happy_path, adl_stub) needed dual-side orders (bid + ask auctions) to produce `mark_valid=1`. Added maker-sell + taker-buy PostOrder calls alongside existing maker-buy + taker-sell.
+- **BPF e2e mark_valid assertions fixed** — liquidate tests (happy_path and the removed ADL-stub test) needed dual-side orders (bid + ask auctions) to produce `mark_valid=1`. Added maker-sell + taker-buy PostOrder calls alongside existing maker-buy + taker-sell.
 - **CU budget helper** — added `submit_cu` helper that wraps `ComputeBudgetInstruction::set_compute_unit_limit` for CU-heavy transactions (ClearBatch with book iteration).
 - **Known issue — CU exhaustion (program-test only)** — 4 e2e tests `#[ignore]`: `ComputeBudgetInstruction` is parsed by program-test 2.1 but the CU meter still enforces 200k. **Not a production blocker**: empty-book ClearBatch on devnet uses ~2.6k CU.
 

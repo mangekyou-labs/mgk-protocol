@@ -50,14 +50,24 @@ pub fn process_withdraw(
         return Err(MgkError::InsufficientFunds.into());
     }
 
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
+
     // Transfer SOL from vault to user
+    let vault_lamports = vault_account
+        .lamports()
+        .checked_sub(amount)
+        .ok_or(MgkError::Underflow)?;
+    let user_lamports = user_account
+        .lamports()
+        .checked_add(amount)
+        .ok_or(MgkError::Overflow)?;
     unsafe {
-        *vault_account.borrow_mut_lamports_unchecked() -= amount;
-        *user_account.borrow_mut_lamports_unchecked() += amount;
+        *vault_account.borrow_mut_lamports_unchecked() = vault_lamports;
+        *user_account.borrow_mut_lamports_unchecked() = user_lamports;
     }
 
     // Update state
-    vault.balance = vault.balance.saturating_sub(amount);
+    vault.balance = vault.balance.checked_sub(amount).ok_or(MgkError::Underflow)?;
 
     let amount_i128 = amount as i128;
     portfolio.principal = portfolio
@@ -70,6 +80,7 @@ pub fn process_withdraw(
         .ok_or(MgkError::Underflow)?;
     portfolio.recalc_margin();
 
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("Withdraw successful");
     Ok(())
 }

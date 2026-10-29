@@ -1,4 +1,4 @@
-use crate::state::Portfolio;
+use crate::state::{Portfolio, Vault};
 use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
@@ -16,6 +16,7 @@ pub const MATCHER_MODIFY_RESTING: u8 = 2;
 /// 4. [] Registry
 /// 5. [] Instrument PDA
 /// 6. [] Conversion oracle
+/// 7. [] Vault PDA (exposure limits and risk-off gate for quantity increases)
 ///
 /// Data: order_id(8) + new_qty(8)
 #[allow(clippy::too_many_arguments)]
@@ -28,6 +29,7 @@ pub fn process_modify_resting_order(
     registry_account: &AccountInfo,
     instrument_account: &AccountInfo,
     oracle_account: &AccountInfo,
+    vault_account: &AccountInfo,
     order_id: u64,
     new_qty: u64,
 ) -> ProgramResult {
@@ -63,8 +65,22 @@ pub fn process_modify_resting_order(
         return Err(MgkError::OperationPaused.into());
     }
     if order.reduce_only != 0 {
-        let qty = portfolio.find_position(order.instrument_id).map_or(0, |(_, p)| p.qty);
+        let qty = portfolio.position_qty(order.instrument_id);
         if qty == 0 || (qty > 0) == (order.side == 0) { return Err(MgkError::ReduceOnlyViolation.into()); }
+    }
+    validate_owner(vault_account, program_id)?;
+    if order.reduce_only == 0 && new_qty > order.remaining_qty {
+        let vault = unsafe { load_account::<Vault>(vault_account)? };
+        crate::risk::check_added_exposure(
+            vault,
+            portfolio,
+            order.instrument_id,
+            order.side,
+            new_qty - order.remaining_qty,
+        )
+        .inspect_err(|_| {
+            msg!("Error: exposure limit or risk-off reserve exceeded");
+        })?;
     }
     crate::risk::release(portfolio, index, order.remaining_qty)?;
     order.original_qty = new_qty;

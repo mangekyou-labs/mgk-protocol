@@ -1,12 +1,6 @@
 use crate::state::{Portfolio, Vault};
 use mgk_common::MgkError;
-use pinocchio::{
-    account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction},
-    msg,
-    program::invoke,
-    ProgramResult,
-};
+use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
 pub fn process_deposit(
     _portfolio_account: &AccountInfo,
@@ -32,35 +26,12 @@ pub fn process_deposit(
         return Err(MgkError::Unauthorized.into());
     }
 
-    // CPI to System Program: transfer SOL from user to vault
-    let mut instruction_data = [0u8; 12];
-    instruction_data[0..4].copy_from_slice(&2u32.to_le_bytes());
-    instruction_data[4..12].copy_from_slice(&amount.to_le_bytes());
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, vault)?;
 
-    let transfer_instruction = Instruction {
-        program_id: system_program.key(),
-        accounts: &[
-            AccountMeta {
-                pubkey: user_account.key(),
-                is_signer: true,
-                is_writable: true,
-            },
-            AccountMeta {
-                pubkey: vault_account.key(),
-                is_signer: false,
-                is_writable: true,
-            },
-        ],
-        data: &instruction_data,
-    };
-
-    invoke(
-        &transfer_instruction,
-        &[user_account, vault_account, system_program],
-    )?;
+    crate::collateral_flow::system_transfer(user_account, vault_account, system_program, amount)?;
 
     // Update state
-    vault.balance = vault.balance.saturating_add(amount);
+    vault.balance = vault.balance.checked_add(amount).ok_or(MgkError::Overflow)?;
 
     let amount_i128 = amount as i128;
     portfolio.principal = portfolio.principal
@@ -71,6 +42,7 @@ pub fn process_deposit(
         .ok_or(MgkError::Overflow)?;
     portfolio.recalc_margin();
 
+    crate::collateral_flow::verify_vault_flow(vault_account, vault, &flow)?;
     msg!("Deposit successful");
     Ok(())
 }

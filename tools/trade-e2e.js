@@ -136,7 +136,7 @@ async function deposit(conn, user, portPda, vaultPda, amount) {
   })], [user], 'Deposit');
 }
 
-function buildPostOrderIx(portPda, user, batchPda, regPda, bookPda, side, isMaker, price, qty) {
+function buildPostOrderIx(portPda, user, batchPda, regPda, bookPda, instPda, oraclePda, vaultPda, side, isMaker, price, qty) {
   const data = Buffer.alloc(22);
   data[0] = 20;
   data[1] = side;
@@ -153,6 +153,10 @@ function buildPostOrderIx(portPda, user, batchPda, regPda, bookPda, side, isMake
       { pubkey: regPda, isSigner: false, isWritable: false },
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: MATCHER_ID, isSigner: false, isWritable: false },
+      { pubkey: instPda, isSigner: false, isWritable: false },
+      { pubkey: oraclePda, isSigner: false, isWritable: false },
+      // Vault is required since issue #23 (fund-backed risk-off gate reads insurance fund + OI).
+      { pubkey: vaultPda, isSigner: false, isWritable: false },
     ],
     programId: CORE_ID,
     data,
@@ -349,6 +353,8 @@ async function main() {
   // Dual auction for mark_valid:
   //   Bid auction: maker-buy × taker-sell @ PRICE
   //   Ask auction: maker-sell × taker-buy @ PRICE
+  const instInfo = await conn.getAccountInfo(instPda);
+  const oraclePda = new PublicKey(instInfo.data.slice(60, 92));
   const posts = [
     [maker, makerPort, SIDE_BUY, true, 'maker-buy'],
     [taker, takerPort, SIDE_SELL, false, 'taker-sell'],
@@ -358,13 +364,9 @@ async function main() {
   for (const [user, port, side, isMaker, label] of posts) {
     console.log('  Posting', label, '@', PRICE.toString(), 'qty', QTY.toString());
     await send(conn, [
-      buildPostOrderIx(port, user, open.batchPda, regPda, bookPda, side, isMaker, PRICE, QTY),
+      buildPostOrderIx(port, user, open.batchPda, regPda, bookPda, instPda, oraclePda, vaultPda, side, isMaker, PRICE, QTY),
     ], [user], 'Post:' + label);
   }
-
-  // Oracle from instrument @60
-  const instInfo = await conn.getAccountInfo(instPda);
-  const oraclePda = new PublicKey(instInfo.data.slice(60, 92));
 
   console.log('\n[5/5] Crank Clear+Settle...');
   const { afterClear } = await crankWithPortfolios(

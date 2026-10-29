@@ -18,8 +18,9 @@ pub fn process_close_committing(
     let registry =
         unsafe { load_account::<Registry>(registry_account)? };
 
-    if registry.is_trading_paused() || registry.is_clears_paused() {
-        msg!("Error: Trading/clears is paused");
+    // A trading pause blocks only new exposure; clearing has its own flag.
+    if registry.is_clears_paused() {
+        msg!("Error: Clears are paused");
         return Err(MgkError::OperationPaused.into());
     }
 

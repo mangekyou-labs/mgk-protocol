@@ -1,6 +1,6 @@
 //! PostOrder (disc 20) — DFBA open limit post (replaces Commit+Reveal for v1).
 
-use crate::state::{Batch, BatchStatus, Portfolio, Registry};
+use crate::state::{Batch, BatchStatus, Portfolio, Registry, Vault};
 use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
@@ -19,6 +19,7 @@ pub const MATCHER_PLACE_RESTING: u8 = 6;
 /// 5. [] Matcher program
 /// 6. [] Instrument PDA
 /// 7. [] Conversion oracle
+/// 8. [] Vault PDA (portfolio and market exposure limits and risk-off gate)
 ///
 /// Data:
 ///   side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1)
@@ -36,6 +37,7 @@ pub fn process_post_order(
     matcher_program: &AccountInfo,
     instrument_account: &AccountInfo,
     oracle_account: &AccountInfo,
+    vault_account: &AccountInfo,
     side: u8,
     is_maker: bool,
     price: i64,
@@ -108,6 +110,14 @@ pub fn process_post_order(
 
             }
         }
+    }
+
+    validate_owner(vault_account, program_id)?;
+    if !reduce_only {
+        let vault = unsafe { load_account::<Vault>(vault_account)? };
+        crate::risk::check_added_exposure(vault, portfolio, instrument_id, side, qty).inspect_err(|_| {
+            msg!("Error: exposure limit or risk-off reserve exceeded");
+        })?;
     }
 
     let conversion = crate::risk::conversion(program_id, instrument_account, oracle_account, instrument_id)?;

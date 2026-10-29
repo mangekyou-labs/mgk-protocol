@@ -75,8 +75,8 @@ Forced reduction of a portfolio whose equity has fallen below maintenance margin
 _Avoid_: Auto-close, margin call
 
 **Exposure limit**:
-A cap on position size, either per portfolio or as total open interest for the market.
-_Avoid_: Risk limit, position cap
+A ceiling on position size: the portfolio exposure limit caps one portfolio's position, and the market exposure limit caps the open interest on each side of the market.
+_Avoid_: Risk limit, position cap, open-interest cap
 
 **Liquidator**:
 A portfolio that takes over part of a liquidated position at the conversion price in exchange for a penalty paid by the liquidated portfolio.
@@ -92,7 +92,11 @@ _Avoid_: Rounding, slippage
 
 **Bad debt**:
 Negative equity left in a portfolio after its positions are fully closed.
-_Avoid_: Deficit, shortfall
+_Avoid_: Deficit
+
+**Uncovered bad debt**:
+The part of a winner's payout that the insurance fund could not pay; the winner is credited in full, the unpaid amount is recorded on the vault, and trading and withdrawals pause until top-ups repay it. Distinct from bad debt, which is a loser's negative equity: a loser's unpaid loss is never recorded as uncovered bad debt.
+_Avoid_: Shortfall, deficit
 
 ### Operations
 

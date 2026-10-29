@@ -19,7 +19,9 @@ use core::mem::offset_of;
 use core::ops::Range;
 use mgk_common::book::OrderBook;
 use mgk_common::layout::{discriminator, ACCOUNT_HEADER_LEN, LAYOUT_VERSION_1};
-use mgk_perps_core::state::{Batch, Commitment, Instrument, Portfolio, Position, Registry, Vault};
+use mgk_perps_core::state::{
+    Batch, Commitment, Instrument, OrderReservation, Portfolio, Position, Registry, Vault,
+};
 #[allow(deprecated)]
 use solana_program_test::ProgramTest;
 #[allow(deprecated)]
@@ -35,8 +37,9 @@ use solana_sdk::{
 
 /// Spec 13 / issue 16: every account starts with an 8-byte header
 /// (discriminator + layout version + reserved). The BATCH_RESULTS payload
-/// follows it, so every raw results offset below is `RES + body_offset`.
-const RES: usize = ACCOUNT_HEADER_LEN;
+/// follows it behind a 9-byte envelope (batch_id u64 + spent u8), so every raw
+/// results offset below is `RES + body_offset`.
+const RES: usize = ACCOUNT_HEADER_LEN + mgk_common::matcher::RESULTS_ENVELOPE_LEN;
 /// DFBA results: header 8 + payload header 34 + 58 bytes/fill (cap 128 fills).
 const RESULTS_ACCOUNT_SIZE: usize = RES + 34 + 128 * 58;
 /// Matcher `BookState` on-disk size (header included).
@@ -104,6 +107,8 @@ const P_POSITIONS_LEN: Range<usize> = rng(offset_of!(Portfolio, positions_len), 
 const V_BALANCE: Range<usize> = rng(offset_of!(Vault, balance), 8);
 const V_INSURANCE: Range<usize> = rng(offset_of!(Vault, insurance_fund), 16);
 const V_UNCOVERED: Range<usize> = rng(offset_of!(Vault, uncovered_bad_debt), 16);
+const V_OI_LONG: Range<usize> = rng(offset_of!(Vault, open_interest_long), 8);
+const V_OI_SHORT: Range<usize> = rng(offset_of!(Vault, open_interest_short), 8);
 // Registry (packed)
 const R_GOVERNANCE: Range<usize> = rng(offset_of!(Registry, governance), 32);
 const R_INSTRUMENT_COUNT: Range<usize> = rng(offset_of!(Registry, instrument_count), 2);
@@ -119,7 +124,6 @@ const RES_NUM_FILLS: Range<usize> = rng(RES + 32, 2);
 const RES_FILL0_USER: Range<usize> = rng(RES + 34, 32);
 const RES_FILL0_QTY: Range<usize> = rng(RES + 34 + 40, 8);
 const RES_FILL0_PRICE: Range<usize> = rng(RES + 34 + 48, 8);
-const RES_FILL0_ROLE: usize = RES + 34 + 57;
 
 /// Resting orders on a book account (bids + asks), read from the typed header.
 fn book_resting_count(data: &[u8]) -> u32 {
@@ -188,7 +192,9 @@ fn program_test_with_pdas() -> (ProgramTest, TestPdas) {
         instrument_pda,
         Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID),
     );
-    pt.add_account(vault_pda, Account::new(1_000_000, VAULT_SIZE, &CORE_ID));
+    // The vault holds exactly its rent-exempt minimum: the vault invariant
+    // `lamports - rent == collateral + fund - debt` has zero tolerance.
+    pt.add_account(vault_pda, Account::new(vault_rent(), VAULT_SIZE, &CORE_ID));
     // Registry / instrument / vault stay zeroed: `Initialize` stamps them. The
     // book is normally stamped by the matcher's `InitializeBook`; the harness
     // seeds it directly, so give it its `OrderBook` header here.
@@ -479,7 +485,13 @@ fn seed_valid_oracle(pt: &mut ProgramTest, key: Pubkey, instrument: Pubkey) {
 /// Stamp the account header (discriminator + layout version) onto a fixture.
 fn stamp_header(data: &mut [u8], disc: u8) {
     data[0] = disc;
-    data[1] = if disc == discriminator::PORTFOLIO { <Portfolio as mgk_common::layout::AccountLayout>::LAYOUT_VERSION } else { LAYOUT_VERSION_1 };
+    data[1] = if disc == discriminator::PORTFOLIO {
+        <Portfolio as mgk_common::layout::AccountLayout>::LAYOUT_VERSION
+    } else if disc == discriminator::VAULT {
+        <Vault as mgk_common::layout::AccountLayout>::LAYOUT_VERSION
+    } else {
+        LAYOUT_VERSION_1
+    };
 }
 
 /// Pre-built Portfolio account data for a single-position underwater
@@ -532,6 +544,11 @@ fn build_underwater_portfolio_data(
     data
 }
 
+/// Rent-exempt minimum for the vault account (what the invariant subtracts).
+fn vault_rent() -> u64 {
+    solana_sdk::rent::Rent::default().minimum_balance(VAULT_SIZE)
+}
+
 /// Pre-built Vault account data (header stamped, offsets from `offset_of!`).
 fn build_vault_data(insurance_fund: u128, uncovered_bad_debt: u128) -> Vec<u8> {
     let mut data = vec![0u8; VAULT_SIZE];
@@ -541,6 +558,21 @@ fn build_vault_data(insurance_fund: u128, uncovered_bad_debt: u128) -> Vec<u8> {
     let u = offset_of!(Vault, uncovered_bad_debt);
     data[u..u + 16].copy_from_slice(&uncovered_bad_debt.to_le_bytes());
     data
+}
+
+/// A stamped vault account whose lamports satisfy the invariant for the given
+/// ledger: `lamports = rent + collateral + fund - debt`.
+fn vault_account(collateral: u64, insurance_fund: u128, debt: u128) -> Account {
+    let mut data = build_vault_data(insurance_fund, debt);
+    data[V_BALANCE].copy_from_slice(&collateral.to_le_bytes());
+    let lamports = vault_rent() as u128 + collateral as u128 + insurance_fund - debt;
+    Account {
+        lamports: lamports as u64,
+        data,
+        owner: CORE_ID,
+        executable: false,
+        rent_epoch: 0,
+    }
 }
 
 /// LiquidateUser data: `num_instruments(2)`.
@@ -702,7 +734,7 @@ const USER_DEPOSIT_LAMPORTS: u64 = 10_000_000; // 0.01 SOL
 /// Test instrument id (matches the default instrument seeded by `Initialize`).
 const INSTRUMENT_ID: u16 = 0;
 /// Limit price used by DFBA posts.
-const ORDER_PRICE: i64 = 100_000;
+const ORDER_PRICE: i64 = 100_000_000; // equals the seeded oracle price
 /// Order quantity for DFBA posts.
 const ORDER_QTY: u64 = 10;
 
@@ -713,6 +745,60 @@ fn with_disc(disc: u8, payload: Vec<u8>) -> Vec<u8> {
     out.extend(payload);
     out
 }
+
+/// `TopUp` (disc 26): anyone moves real lamports into the vault and the fund.
+/// Accounts: payer [signer, writable], vault [writable], system program.
+fn top_up_ix(payer: &Pubkey, vault: &Pubkey, amount: u64) -> Instruction {
+    Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(*payer, true),
+            AccountMeta::new(*vault, false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: with_disc(26, amount.to_le_bytes().to_vec()),
+    }
+}
+
+/// Fund the insurance reserve through a signed top-up from the test payer.
+async fn top_up_fund(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    pdas: &TestPdas,
+    amount: u64,
+) {
+    let payer = ctx.payer.pubkey();
+    submit(ctx, top_up_ix(&payer, &pdas.vault, amount), &[])
+        .await
+        .expect("top-up");
+}
+
+/// Add open interest to the vault for a synthetic position fixture (a seeded
+/// portfolio holds a position that no fill ever opened, so the vault's side
+/// counters must be raised to match before the position can be reduced).
+async fn seed_vault_open_interest(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    pdas: &TestPdas,
+    long_lots: u64,
+    short_lots: u64,
+) {
+    let mut vault = ctx
+        .banks_client
+        .get_account(pdas.vault)
+        .await
+        .unwrap()
+        .expect("vault");
+    let add = |data: &mut [u8], r: Range<usize>, by: u64| {
+        let cur = u64::from_le_bytes(data[r.clone()].try_into().unwrap());
+        data[r].copy_from_slice(&(cur + by).to_le_bytes());
+    };
+    add(&mut vault.data, V_OI_LONG, long_lots);
+    add(&mut vault.data, V_OI_SHORT, short_lots);
+    ctx.set_account(&pdas.vault, &vault.into());
+}
+
+/// Insurance fund used by the lifecycle fixtures: 1 SOL covers 2_500 lots of
+/// open interest (0.4 SOL reserve per SOL of larger-side open interest).
+const FUND_TOP_UP: u64 = 1_000_000_000;
 
 /// Helper: submit one instruction signed by the given signers, paid by `ctx.payer`.
 async fn submit(
@@ -758,9 +844,23 @@ async fn submit_cu(
 /// E2E: DFBA dual-clear lifecycle with PostOrder (disc 20).
 #[tokio::test]
 async fn test_e2e_full_lifecycle_with_fill() {
+    full_lifecycle_with_fill(0).await;
+}
+
+/// A trading pause blocks only new exposure: with TRADING and WITHDRAWALS
+/// paused after the orders are posted, close, clear and settle still run and
+/// produce the same fills, fees and balances as the unpaused lifecycle.
+#[tokio::test]
+async fn test_e2e_trading_pause_does_not_block_close_clear_and_settle() {
+    full_lifecycle_with_fill(PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT).await;
+}
+
+/// Run the full close -> clear -> settle lifecycle, setting `pause_flags` on
+/// the registry once the orders are posted.
+async fn full_lifecycle_with_fill(pause_flags: u8) {
     if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
         eprintln!(
-            "skipping test_e2e_full_lifecycle_with_fill: \
+            "skipping full_lifecycle_with_fill: \
              set BPF_OUT_DIR=target/deploy to enable"
         );
         return;
@@ -873,6 +973,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
         };
         submit(&mut ctx, ix, &[user]).await.unwrap();
     }
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
 
     // Helper: PostOrder (disc 20).
     let post = |user: &Keypair, portfolio: Pubkey, side: u8, is_maker: bool| -> Instruction {
@@ -885,6 +986,9 @@ async fn test_e2e_full_lifecycle_with_fill() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
@@ -924,6 +1028,12 @@ async fn test_e2e_full_lifecycle_with_fill() {
     .await
     .unwrap();
 
+    if pause_flags != 0 {
+        let mut registry = get_account(&mut ctx, &pdas.registry).await;
+        registry.data[R_PAUSE_FLAGS] = pause_flags;
+        ctx.set_account(&pdas.registry, &registry.into());
+    }
+
     // Close collecting → Clearing (n_min=5 in init; 4 posts → warp past deadline).
     let clock = ctx
         .banks_client
@@ -951,7 +1061,7 @@ async fn test_e2e_full_lifecycle_with_fill() {
             AccountMeta::new(pdas.book, false),
             AccountMeta::new(results_pda, false),
             AccountMeta::new_readonly(MATCHER_ID, false),
-            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new(pdas.registry, false),
             AccountMeta::new_readonly(pdas.instrument, false),
         ],
         data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -965,9 +1075,9 @@ async fn test_e2e_full_lifecycle_with_fill() {
             AccountMeta::new(maker_pdas.batch, false),
             AccountMeta::new(pdas.registry, false),
             AccountMeta::new(pdas.vault, false),
-            AccountMeta::new_readonly(results_pda, false),
+            AccountMeta::new(results_pda, false),
             AccountMeta::new(pdas.instrument, false),
-            AccountMeta::new_readonly(pdas.book, false),
+            AccountMeta::new(pdas.book, false),
             AccountMeta::new_readonly(oracle, false),
             AccountMeta::new_readonly(MATCHER_ID, false),
             AccountMeta::new(maker_pdas.portfolio, false),
@@ -1056,8 +1166,14 @@ async fn test_e2e_full_lifecycle_with_fill() {
         .unwrap()
         .expect("vault");
     let vault_balance = u64::from_le_bytes(vault_acct.data[V_BALANCE].try_into().unwrap());
-    assert_eq!(vault_balance, 2 * USER_DEPOSIT_LAMPORTS, "vault balance");
-    // Dual legs cancel notional; fees: maker zero, taker fee 2×500.
+    // Dual legs cancel notional; fees: maker zero, taker pays 5 bps on each of
+    // its two fills (5_000 lamports each at this order size and oracle price).
+    const TAKER_FEES: u64 = 10_000;
+    assert_eq!(
+        vault_balance,
+        2 * USER_DEPOSIT_LAMPORTS - TAKER_FEES,
+        "collateral falls by the fee that moved into the fund"
+    );
     // (Instrument fee fields must match #[repr(C)] — fixed in initialize.rs.)
     let maker_principal =
         i128::from_le_bytes(maker_portfolio_acct.data[P_PRINCIPAL].try_into().unwrap());
@@ -1071,11 +1187,16 @@ async fn test_e2e_full_lifecycle_with_fill() {
     );
     assert_eq!(
         taker_equity,
-        USER_DEPOSIT_LAMPORTS as i128 - 1_000,
+        USER_DEPOSIT_LAMPORTS as i128 - TAKER_FEES as i128,
         "taker equity after dual fill + fees"
     );
     let insurance = u128::from_le_bytes(vault_acct.data[V_INSURANCE].try_into().unwrap());
-    assert_eq!(insurance, 1_000, "vault insurance net fees");
+    assert_eq!(
+        insurance,
+        FUND_TOP_UP as u128 + TAKER_FEES as u128,
+        "fund = signed top-up + collected fees"
+    );
+    assert_eq!(vault_acct.lamports, vault_rent() + vault_balance + insurance as u64);
     let _ = num_fills;
 
     let book_acct = ctx
@@ -1212,6 +1333,7 @@ async fn test_e2e_dfba_one_sided_liq_paused() {
         .await
         .unwrap();
     }
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
 
     // Only ask auction: maker-sell × taker-buy (no bid side).
     let post = |user: &Keypair, portfolio: Pubkey, side: u8, is_maker: bool| Instruction {
@@ -1223,6 +1345,9 @@ async fn test_e2e_dfba_one_sided_liq_paused() {
             AccountMeta::new_readonly(pdas.registry, false),
             AccountMeta::new(pdas.book, false),
             AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(oracle, false),
+            AccountMeta::new_readonly(pdas.vault, false),
         ],
         data: with_disc(
             20,
@@ -1273,7 +1398,7 @@ async fn test_e2e_dfba_one_sided_liq_paused() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(results_pda, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -1290,9 +1415,9 @@ async fn test_e2e_dfba_one_sided_liq_paused() {
                 AccountMeta::new(maker_pdas.batch, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(results_pda, false),
+                AccountMeta::new(results_pda, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
                 AccountMeta::new(maker_pdas.portfolio, false),
@@ -1440,6 +1565,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
         .await
         .unwrap();
     }
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
     // Batch 0: maker buy@98k only (rests)
     submit(
         &mut ctx,
@@ -1452,6 +1578,9 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
@@ -1491,7 +1620,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(r0, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -1509,9 +1638,9 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
                 AccountMeta::new(mp.batch, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r0, false),
+                AccountMeta::new(r0, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
                 AccountMeta::new(mp.portfolio, false),
@@ -1549,6 +1678,9 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
@@ -1582,7 +1714,7 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(r1, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -1600,15 +1732,16 @@ async fn test_e2e_gtc_rests_then_matches_next_batch() {
                 AccountMeta::new(b1, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r1, false),
+                AccountMeta::new(r1, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new(mp.portfolio, false),
                 AccountMeta::new(tp.portfolio, false),
                 AccountMeta::new(b2, false),
             ],
-            data: with_disc(8, build_settle_batch_data(0, 1)),
+            data: with_disc(8, build_settle_batch_data(0, 2)),
         },
         &[],
     )
@@ -1739,6 +1872,7 @@ async fn test_e2e_settle_creates_next_batch_pda() {
         .await
         .unwrap();
     }
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
     // Dual fill -> mark_valid -> settle creates batch 1
     submit(
         &mut ctx,
@@ -1751,10 +1885,13 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_BUY, true, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_BUY, true, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&maker],
@@ -1772,10 +1909,13 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_SELL, false, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_SELL, false, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&taker],
@@ -1811,7 +1951,7 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(r0, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -1829,9 +1969,9 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new(mp.batch, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r0, false),
+                AccountMeta::new(r0, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
                 AccountMeta::new(mp.portfolio, false),
@@ -1882,10 +2022,13 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_BUY, true, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_BUY, true, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&maker],
@@ -1903,10 +2046,13 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_SELL, false, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_SELL, false, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&taker],
@@ -1936,7 +2082,7 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(r1, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -1954,9 +2100,9 @@ async fn test_e2e_settle_creates_next_batch_pda() {
                 AccountMeta::new(b1, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r1, false),
+                AccountMeta::new(r1, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
                 AccountMeta::new(mp.portfolio, false),
@@ -2119,6 +2265,7 @@ async fn test_e2e_liquidate_user_happy_path() {
         .await
         .unwrap();
     }
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
     // Dual fill -> mark_valid (bid: maker-buy × taker-sell; ask: maker-sell × taker-buy)
     submit(
         &mut ctx,
@@ -2131,10 +2278,13 @@ async fn test_e2e_liquidate_user_happy_path() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(opk, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_BUY, true, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_BUY, true, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&maker],
@@ -2152,10 +2302,13 @@ async fn test_e2e_liquidate_user_happy_path() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(opk, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_SELL, false, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_SELL, false, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&taker],
@@ -2174,10 +2327,13 @@ async fn test_e2e_liquidate_user_happy_path() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(opk, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_SELL, true, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_SELL, true, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&maker],
@@ -2195,10 +2351,13 @@ async fn test_e2e_liquidate_user_happy_path() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(opk, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
-                build_post_order_data(SIDE_BUY, false, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
+                build_post_order_data(SIDE_BUY, false, ORDER_PRICE, ORDER_QTY, INSTRUMENT_ID, false),
             ),
         },
         &[&taker],
@@ -2234,7 +2393,7 @@ async fn test_e2e_liquidate_user_happy_path() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(r0, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 0)),
@@ -2252,9 +2411,9 @@ async fn test_e2e_liquidate_user_happy_path() {
                 AccountMeta::new(mp.batch, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r0, false),
+                AccountMeta::new(r0, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(opk, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
                 AccountMeta::new(mp.portfolio, false),
@@ -2275,6 +2434,8 @@ async fn test_e2e_liquidate_user_happy_path() {
         .unwrap();
     assert_eq!(ba.data[B_STATUS], 3, "Settled");
     assert_eq!(ba.data[B_MARK_VALID], 1, "mark_valid (dual auction)");
+    // The seeded victim holds 100 long lots that no fill opened.
+    seed_vault_open_interest(&mut ctx, &pdas, 100, 0).await;
     // Liquidate underwater victim
     let liq = Keypair::new();
     submit(
@@ -2283,7 +2444,7 @@ async fn test_e2e_liquidate_user_happy_path() {
             program_id: CORE_ID,
             accounts: vec![
                 AccountMeta::new(vp, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
                 AccountMeta::new(liq.pubkey(), true),
                 AccountMeta::new_readonly(mp.batch, false),
@@ -2299,341 +2460,6 @@ async fn test_e2e_liquidate_user_happy_path() {
     let va = ctx.banks_client.get_account(vp).await.unwrap().unwrap();
     let vp_len = u16::from_le_bytes(va.data[P_POSITIONS_LEN].try_into().unwrap());
     assert!(vp_len <= 1, "position reduced after liquidation");
-}
-
-/// E2E: ADL fires when insurance cannot cover bad debt.
-#[tokio::test]
-async fn test_e2e_liquidate_user_adl_stub_fires() {
-    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
-        eprintln!("skipping: set BPF_OUT_DIR");
-        return;
-    }
-    let maker = Keypair::new();
-    let taker = Keypair::new();
-    let victim = Keypair::new();
-    let mp = derive_user_pdas(&maker.pubkey(), 0, 0);
-    let tp = derive_user_pdas(&taker.pubkey(), 0, 0);
-    let (mut pt, pdas) = program_test_with_pdas();
-    pt.add_account(
-        maker.pubkey(),
-        Account::new(USER_FUNDING_LAMPORTS, 0, &system_program::id()),
-    );
-    pt.add_account(
-        taker.pubkey(),
-        Account::new(USER_FUNDING_LAMPORTS, 0, &system_program::id()),
-    );
-    pt.add_account(
-        victim.pubkey(),
-        Account::new(USER_FUNDING_LAMPORTS, 0, &system_program::id()),
-    );
-    seed_user_accounts(&mut pt, &mp);
-    pt.add_account(
-        tp.portfolio,
-        Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID),
-    );
-    // Underwater with large loss: qty=100 long @200_000, equity=-10M
-    let (vp, vb) =
-        Pubkey::find_program_address(&[PORTFOLIO_SEED, victim.pubkey().as_ref()], &CORE_ID);
-    pt.add_account(
-        vp,
-        Account {
-            lamports: 1_000_000,
-            data: build_underwater_portfolio_data(
-                victim.pubkey(),
-                vb,
-                INSTRUMENT_ID,
-                100,
-                200_000,
-                -10_000_000,
-                0,
-                0,
-            ),
-            owner: CORE_ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    );
-    // Low insurance: only 1 SOL (will be insufficient)
-    pt.add_account(
-        pdas.vault,
-        Account {
-            lamports: 1_000_000,
-            data: build_vault_data(1_000_000, 0),
-            owner: CORE_ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    );
-    let (r0, _) = Pubkey::find_program_address(&[b"results", &0u64.to_le_bytes()], &MATCHER_ID);
-    pt.add_account(
-        r0,
-        Account::new(1_000_000, RESULTS_ACCOUNT_SIZE, &MATCHER_ID),
-    );
-    let (b1, _) = Pubkey::find_program_address(&[BATCH_SEED, &1u64.to_le_bytes()], &CORE_ID);
-    pt.add_account(b1, Account::new(1_000_000, BATCH_SIZE, &CORE_ID));
-    let opk = Pubkey::new_unique();
-    pt.add_account(
-        opk,
-        Account {
-            lamports: 1_000_000,
-            data: build_oracle_data(100_000_000, 0),
-            owner: CORE_ID,
-            executable: false,
-            rent_epoch: 0,
-        },
-    );
-    seed_valid_oracle(&mut pt, opk, pdas.instrument);
-    let mut ctx = pt.start_with_context().await;
-    let gov = Keypair::new();
-    let (_, rb) = Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID);
-    let (_, ib) = Pubkey::find_program_address(&[INSTRUMENT_SEED, &0u16.to_le_bytes()], &CORE_ID);
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(pdas.registry, false),
-                AccountMeta::new(gov.pubkey(), true),
-                AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(system_program::id(), false),
-                AccountMeta::new(pdas.vault, false),
-            ],
-            data: with_disc(
-                0,
-                build_initialize_data(gov.pubkey(), rb, ib, opk)[1..].to_vec(),
-            ),
-        },
-        &[&gov],
-    )
-    .await
-    .unwrap();
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new(pdas.registry, false),
-            ],
-            data: with_disc(16, build_create_batch_data(mp.batch_bump)),
-        },
-        &[],
-    )
-    .await
-    .unwrap();
-    for (u, p) in [(&maker, &mp), (&taker, &tp)] {
-        submit(
-            &mut ctx,
-            Instruction {
-                program_id: CORE_ID,
-                accounts: vec![
-                    AccountMeta::new(p.portfolio, false),
-                    AccountMeta::new(u.pubkey(), true),
-                ],
-                data: with_disc(1, build_init_portfolio_data(&u.pubkey(), p.portfolio_bump)),
-            },
-            &[u],
-        )
-        .await
-        .unwrap();
-        submit(
-            &mut ctx,
-            Instruction {
-                program_id: CORE_ID,
-                accounts: vec![
-                    AccountMeta::new(p.portfolio, false),
-                    AccountMeta::new(u.pubkey(), true),
-                    AccountMeta::new_readonly(system_program::id(), false),
-                    AccountMeta::new(pdas.vault, false),
-                ],
-                data: with_disc(2, build_deposit_data(USER_DEPOSIT_LAMPORTS)),
-            },
-            &[u],
-        )
-        .await
-        .unwrap();
-    }
-    // Dual fill -> mark_valid (bid + ask auctions)
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(mp.portfolio, false),
-                AccountMeta::new(maker.pubkey(), true),
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-                AccountMeta::new(pdas.book, false),
-                AccountMeta::new_readonly(MATCHER_ID, false),
-            ],
-            data: with_disc(
-                20,
-                build_post_order_data(SIDE_BUY, true, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
-            ),
-        },
-        &[&maker],
-    )
-    .await
-    .unwrap();
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(tp.portfolio, false),
-                AccountMeta::new(taker.pubkey(), true),
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-                AccountMeta::new(pdas.book, false),
-                AccountMeta::new_readonly(MATCHER_ID, false),
-            ],
-            data: with_disc(
-                20,
-                build_post_order_data(SIDE_SELL, false, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
-            ),
-        },
-        &[&taker],
-    )
-    .await
-    .unwrap();
-    // Ask auction: maker-sell × taker-buy
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(mp.portfolio, false),
-                AccountMeta::new(maker.pubkey(), true),
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-                AccountMeta::new(pdas.book, false),
-                AccountMeta::new_readonly(MATCHER_ID, false),
-            ],
-            data: with_disc(
-                20,
-                build_post_order_data(SIDE_SELL, true, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
-            ),
-        },
-        &[&maker],
-    )
-    .await
-    .unwrap();
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(tp.portfolio, false),
-                AccountMeta::new(taker.pubkey(), true),
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-                AccountMeta::new(pdas.book, false),
-                AccountMeta::new_readonly(MATCHER_ID, false),
-            ],
-            data: with_disc(
-                20,
-                build_post_order_data(SIDE_BUY, false, 100_000, ORDER_QTY, INSTRUMENT_ID, false),
-            ),
-        },
-        &[&taker],
-    )
-    .await
-    .unwrap();
-    let c = ctx
-        .banks_client
-        .get_sysvar::<solana_sdk::clock::Clock>()
-        .await
-        .unwrap();
-    ctx.warp_to_slot(c.slot + 200).unwrap();
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-            ],
-            data: with_disc(6, build_close_committing_data()),
-        },
-        &[],
-    )
-    .await
-    .unwrap();
-    submit_cu(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new(pdas.book, false),
-                AccountMeta::new(r0, false),
-                AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-                AccountMeta::new_readonly(pdas.instrument, false),
-            ],
-            data: with_disc(7, build_clear_batch_data(0, 1, 0)),
-        },
-        &[],
-        1_400_000,
-    )
-    .await
-    .unwrap();
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(mp.batch, false),
-                AccountMeta::new(pdas.registry, false),
-                AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r0, false),
-                AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
-                AccountMeta::new_readonly(opk, false),
-                AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new(mp.portfolio, false),
-                AccountMeta::new(tp.portfolio, false),
-                AccountMeta::new(b1, false),
-            ],
-            data: with_disc(8, build_settle_batch_data(0, 2)),
-        },
-        &[],
-    )
-    .await
-    .unwrap();
-    // Liquidate -- ADL should fire because insurance < loss
-    let liq = Keypair::new();
-    submit(
-        &mut ctx,
-        Instruction {
-            program_id: CORE_ID,
-            accounts: vec![
-                AccountMeta::new(vp, false),
-                AccountMeta::new_readonly(pdas.registry, false),
-                AccountMeta::new(pdas.vault, false),
-                AccountMeta::new(liq.pubkey(), true),
-                AccountMeta::new_readonly(mp.batch, false),
-                AccountMeta::new_readonly(pdas.instrument, false),
-                AccountMeta::new_readonly(opk, false),
-            ],
-            data: with_disc(9, build_liquidate_data(1)),
-        },
-        &[&liq],
-    )
-    .await
-    .unwrap();
-    let va = ctx.banks_client.get_account(vp).await.unwrap().unwrap();
-    let vault = ctx
-        .banks_client
-        .get_account(pdas.vault)
-        .await
-        .unwrap()
-        .unwrap();
-    let _uncovered = u128::from_le_bytes(vault.data[V_UNCOVERED].try_into().unwrap());
-    // ADL: some bad debt may be uncovered when insurance is insufficient
-    // The liquidation still succeeds (positions reduced)
-    let vp_len = u16::from_le_bytes(va.data[P_POSITIONS_LEN].try_into().unwrap());
-    assert!(vp_len <= 1, "position reduced after ADL");
 }
 
 /// E2E: CancelAllRestingOrders clears the book.
@@ -2732,6 +2558,7 @@ async fn test_e2e_cancel_all_resting_orders() {
     )
     .await
     .unwrap();
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
     // Post resting maker buy@98k
     submit(
         &mut ctx,
@@ -2744,6 +2571,9 @@ async fn test_e2e_cancel_all_resting_orders() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
@@ -2784,7 +2614,7 @@ async fn test_e2e_cancel_all_resting_orders() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(r0, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 1)),
@@ -2802,9 +2632,9 @@ async fn test_e2e_cancel_all_resting_orders() {
                 AccountMeta::new(mp.batch, false),
                 AccountMeta::new(pdas.registry, false),
                 AccountMeta::new(pdas.vault, false),
-                AccountMeta::new_readonly(r0, false),
+                AccountMeta::new(r0, false),
                 AccountMeta::new(pdas.instrument, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
                 AccountMeta::new(mp.portfolio, false),
@@ -3000,6 +2830,7 @@ async fn test_e2e_resting_across_batch() {
         .await
         .unwrap();
     }
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
 
     // Post orders: maker buy@100k+98k, taker sell@99k
     let pi = |u: &Keypair, p: Pubkey, s: u8, m: bool, pr: i64| Instruction {
@@ -3011,6 +2842,9 @@ async fn test_e2e_resting_across_batch() {
             AccountMeta::new_readonly(pdas.registry, false),
             AccountMeta::new(pdas.book, false),
             AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(oracle, false),
+            AccountMeta::new_readonly(pdas.vault, false),
         ],
         data: with_disc(
             20,
@@ -3063,7 +2897,7 @@ async fn test_e2e_resting_across_batch() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(results_0_pda, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 2)),
@@ -3084,7 +2918,7 @@ async fn test_e2e_resting_across_batch() {
                 AccountMeta::new(results_0_pda, false),
                 AccountMeta::new(pdas.vault, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new(maker_pdas.portfolio, false),
                 AccountMeta::new(taker0_pdas.portfolio, false),
@@ -3149,7 +2983,7 @@ async fn test_e2e_resting_across_batch() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(results_1_pda, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 1)),
@@ -3305,6 +3139,7 @@ async fn test_e2e_self_trade_no_fill() {
     )
     .await
     .unwrap();
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
 
     // Same user: maker-buy@100k AND taker-sell@100k (self-trade)
     let pi = |side: u8, is_maker: bool| Instruction {
@@ -3316,6 +3151,9 @@ async fn test_e2e_self_trade_no_fill() {
             AccountMeta::new_readonly(pdas.registry, false),
             AccountMeta::new(pdas.book, false),
             AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(oracle, false),
+            AccountMeta::new_readonly(pdas.vault, false),
         ],
         data: with_disc(
             20,
@@ -3353,7 +3191,7 @@ async fn test_e2e_self_trade_no_fill() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(results_pda, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 1)),
@@ -3374,7 +3212,7 @@ async fn test_e2e_self_trade_no_fill() {
                 AccountMeta::new(results_pda, false),
                 AccountMeta::new(pdas.vault, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new(user_pdas.portfolio, false),
                 AccountMeta::new(batch_1_pda, false),
@@ -3512,6 +3350,7 @@ async fn test_e2e_cancel_resting_between_batches() {
     )
     .await
     .unwrap();
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
 
     // Post maker buy@98k (no taker -> rests)
     submit(
@@ -3525,6 +3364,9 @@ async fn test_e2e_cancel_resting_between_batches() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(
                 20,
@@ -3560,7 +3402,7 @@ async fn test_e2e_cancel_resting_between_batches() {
                 AccountMeta::new(pdas.book, false),
                 AccountMeta::new(results_0_pda, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
             ],
             data: with_disc(7, build_clear_batch_data(0, 1, 1)),
@@ -3581,7 +3423,7 @@ async fn test_e2e_cancel_resting_between_batches() {
                 AccountMeta::new(results_0_pda, false),
                 AccountMeta::new(pdas.vault, false),
                 AccountMeta::new_readonly(MATCHER_ID, false),
-                AccountMeta::new_readonly(pdas.book, false),
+                AccountMeta::new(pdas.book, false),
                 AccountMeta::new_readonly(oracle, false),
                 AccountMeta::new(maker_pdas.portfolio, false),
                 AccountMeta::new(batch_1_pda, false),
@@ -3646,21 +3488,26 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         return;
     }
     let (mut pt, pdas) = program_test_with_pdas();
-    let batch_key = Pubkey::new_unique();
-    let next_key = Pubkey::new_unique();
-    let bad_next_key = Pubkey::new_unique();
-    let results_key = Pubkey::new_unique();
-    let portfolio_key = Pubkey::new_unique();
+    let batch_key = Pubkey::find_program_address(&[BATCH_SEED, &7u64.to_le_bytes()], &CORE_ID).0;
+    // Settlement derives and verifies these PDAs, so the fixture uses them.
+    let next_key =
+        Pubkey::find_program_address(&[BATCH_SEED, &8u64.to_le_bytes()], &CORE_ID).0;
+    let bad_next_key = next_key;
+    let results_key =
+        Pubkey::find_program_address(&[b"results", &7u64.to_le_bytes()], &MATCHER_ID).0;
     let oracle_key = Pubkey::new_unique();
     let user = Pubkey::new_unique();
+    let portfolio_key = Pubkey::find_program_address(&[PORTFOLIO_SEED, user.as_ref()], &CORE_ID).0;
+    let maker_user = Pubkey::new_unique();
+    let maker_portfolio_key =
+        Pubkey::find_program_address(&[PORTFOLIO_SEED, maker_user.as_ref()], &CORE_ID).0;
     let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
     stamp_header(&mut batch.data, discriminator::BATCH);
     batch.data[B_ID].copy_from_slice(&7u64.to_le_bytes());
-    batch.data[B_STATUS] = 2; // Clearing
+    batch.data[B_STATUS] = 4; // Cleared: matcher output awaits settlement
     batch.data[B_CLEARING_PRICE].copy_from_slice(&110i64.to_le_bytes());
     batch.data[B_MARK_VALID] = 1; // valid mark
     pt.add_account(batch_key, batch);
-    pt.add_account(next_key, Account::new(1_000_000, BATCH_SIZE, &CORE_ID));
     // Already-initialised batch account: creating the next batch over it must
     // fail late with AlreadyInitialized and roll everything back.
     let mut bad_next = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
@@ -3673,28 +3520,57 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
     registry.data[R_T_MAX].copy_from_slice(&20u64.to_le_bytes());
     pt.add_account(pdas.registry, registry);
     // Replace the zeroed genesis vault with an initialised (stamped) one.
-    let mut vault_seed = Account::new(1_000_000, VAULT_SIZE, &CORE_ID);
-    stamp_header(&mut vault_seed.data, discriminator::VAULT);
-    pt.add_account(pdas.vault, vault_seed);
+    // Both portfolios' 20_000 lamports of equity are collateral held by the vault.
+    pt.add_account(pdas.vault, vault_account(40_000, 0, 0));
     let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
     stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
     instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle_key.as_ref());
     // Same fee offsets as Initialize; funding disabled by zero interval.
     instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
     pt.add_account(pdas.instrument, instrument);
-    let mut results = Account::new(1_000_000, RES + 34 + 58, &MATCHER_ID);
+    // Settlement requires authenticated reservations and clips one-sided
+    // auctions, so the fixture crosses a taker buy with a maker sell (both in
+    // auction 1) for the same quantity and price. Each fill is 58 bytes:
+    // user@0, order_id@32, qty@40, price@48, maker@56, auction@57.
+    let mut results = Account::new(1_000_000, RES + 34 + 2 * 58, &MATCHER_ID);
     stamp_header(&mut results.data, discriminator::BATCH_RESULTS);
-    results.data[RES_NUM_FILLS].copy_from_slice(&1u16.to_le_bytes());
-    results.data[RES_FILL0_USER].copy_from_slice(user.as_ref());
-    results.data[RES_FILL0_QTY].copy_from_slice(&1u64.to_le_bytes());
-    results.data[RES_FILL0_PRICE].copy_from_slice(&10000i64.to_le_bytes());
-    results.data[RES_FILL0_ROLE] = 1; // ask taker buys
+    results.data[ACCOUNT_HEADER_LEN..ACCOUNT_HEADER_LEN + 8].copy_from_slice(&7u64.to_le_bytes());
+    results.data[RES_NUM_FILLS].copy_from_slice(&2u16.to_le_bytes());
+    for (i, (who, order_id, maker)) in [(user, 1u64, 0u8), (maker_user, 2u64, 1u8)]
+        .into_iter()
+        .enumerate()
+    {
+        let off = RES + 34 + i * 58;
+        results.data[off..off + 32].copy_from_slice(who.as_ref());
+        results.data[off + 32..off + 40].copy_from_slice(&order_id.to_le_bytes());
+        results.data[off + 40..off + 48].copy_from_slice(&1u64.to_le_bytes());
+        results.data[off + 48..off + 56].copy_from_slice(&10000i64.to_le_bytes());
+        results.data[off + 56] = maker;
+        results.data[off + 57] = 1;
+    }
     pt.add_account(results_key, results);
-    let mut portfolio = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
-    stamp_header(&mut portfolio.data, discriminator::PORTFOLIO);
-    portfolio.data[P_USER].copy_from_slice(user.as_ref());
-    portfolio.data[P_EQUITY].copy_from_slice(&20000i128.to_le_bytes());
-    pt.add_account(portfolio_key, portfolio);
+    for (who, key, order_id, side) in [
+        (user, portfolio_key, 1u64, 0u8),
+        (maker_user, maker_portfolio_key, 2u64, 1u8),
+    ] {
+        let mut portfolio = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
+        stamp_header(&mut portfolio.data, discriminator::PORTFOLIO);
+        portfolio.data[P_USER].copy_from_slice(who.as_ref());
+        portfolio.data[P_EQUITY].copy_from_slice(&20000i128.to_le_bytes());
+        // Reservation provenance for the fill (no collateral reserved).
+        let order = offset_of!(Portfolio, orders);
+        let field = |f: usize| order + f;
+        portfolio.data[field(offset_of!(OrderReservation, order_id))..][..8]
+            .copy_from_slice(&order_id.to_le_bytes());
+        portfolio.data[field(offset_of!(OrderReservation, original_qty))..][..8]
+            .copy_from_slice(&1u64.to_le_bytes());
+        portfolio.data[field(offset_of!(OrderReservation, remaining_qty))..][..8]
+            .copy_from_slice(&1u64.to_le_bytes());
+        portfolio.data[field(offset_of!(OrderReservation, price))..][..8]
+            .copy_from_slice(&10000i64.to_le_bytes());
+        portfolio.data[field(offset_of!(OrderReservation, side))] = side;
+        pt.add_account(key, portfolio);
+    }
     pt.add_account(
         oracle_key,
         Account::new(1_000_000, 0, &system_program::id()),
@@ -3707,15 +3583,16 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
             AccountMeta::new(batch_key, false),
             AccountMeta::new(pdas.registry, false),
             AccountMeta::new(pdas.vault, false),
-            AccountMeta::new_readonly(results_key, false),
+            AccountMeta::new(results_key, false),
             AccountMeta::new(pdas.instrument, false),
-            AccountMeta::new_readonly(pdas.book, false),
+            AccountMeta::new(pdas.book, false),
             AccountMeta::new_readonly(oracle_key, false),
             AccountMeta::new_readonly(MATCHER_ID, false),
             AccountMeta::new(portfolio_key, false),
+            AccountMeta::new(maker_portfolio_key, false),
             AccountMeta::new(next, false),
         ],
-        data: with_disc(8, build_settle_batch_data(0, 1)),
+        data: with_disc(8, build_settle_batch_data(0, 2)),
     };
     let keys = [
         batch_key,
@@ -3723,6 +3600,7 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         pdas.vault,
         pdas.instrument,
         portfolio_key,
+        maker_portfolio_key,
         bad_next_key,
     ];
     let mut before = Vec::new();
@@ -3732,10 +3610,13 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
     let error = submit(&mut ctx, instruction(bad_next_key), &[])
         .await
         .unwrap_err();
-    assert!(format!("{error:?}").contains(&format!(
-        "Custom({})",
-        u64::from(mgk_common::MgkError::AlreadyInitialized)
-    )));
+    assert!(
+        format!("{error:?}").contains(&format!(
+            "Custom({})",
+            u64::from(mgk_common::MgkError::AlreadyInitialized)
+        )),
+        "unexpected error: {error:?}"
+    );
     for (key, account) in keys.into_iter().zip(before) {
         assert_eq!(
             ctx.banks_client.get_account(key).await.unwrap().unwrap(),
@@ -3748,6 +3629,8 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .get_sysvar::<solana_sdk::clock::Clock>()
         .await
         .unwrap();
+    // Replace the pre-initialised account with an unallocated-but-sized one.
+    ctx.set_account(&next_key, &Account::new(1_000_000, BATCH_SIZE, &CORE_ID).into());
     submit(&mut ctx, instruction(next_key), &[]).await.unwrap();
     let settled = ctx
         .banks_client
@@ -3758,15 +3641,15 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
     assert_eq!(settled.data[B_STATUS], 3);
     assert_eq!(
         u32::from_le_bytes(settled.data[B_TOTAL_SETTLED].try_into().unwrap()),
-        1
+        2
     );
     assert_eq!(
         u64::from_le_bytes(settled.data[B_TOTAL_VOLUME].try_into().unwrap()),
-        1
+        2
     );
     assert_eq!(
         u128::from_le_bytes(settled.data[B_TOTAL_NOTIONAL].try_into().unwrap()),
-        10000
+        20000
     );
     let portfolio = ctx
         .banks_client
@@ -3774,9 +3657,21 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .await
         .unwrap()
         .unwrap();
+    // Opening a position realises no PnL. The taker pays the 5 bps fee, which is
+    // ceil(100 lamports * 5 / 10_000) = 1 lamport; the maker pays none.
     assert_eq!(
         i128::from_le_bytes(portfolio.data[P_EQUITY].try_into().unwrap()),
-        9995
+        19999
+    );
+    let maker_portfolio = ctx
+        .banks_client
+        .get_account(maker_portfolio_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        i128::from_le_bytes(maker_portfolio.data[P_EQUITY].try_into().unwrap()),
+        20000
     );
     let registry = ctx
         .banks_client
@@ -3800,8 +3695,11 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .unwrap();
     assert_eq!(
         u128::from_le_bytes(vault.data[V_INSURANCE].try_into().unwrap()),
-        5
+        1,
+        "the fee is collected into the cash-backed fund"
     );
+    assert_eq!(u64::from_le_bytes(vault.data[V_OI_LONG].try_into().unwrap()), 1);
+    assert_eq!(u64::from_le_bytes(vault.data[V_OI_SHORT].try_into().unwrap()), 1);
     let instrument = ctx
         .banks_client
         .get_account(pdas.instrument)
@@ -3874,9 +3772,7 @@ async fn test_e2e_wrong_account_header_is_rejected_with_distinct_errors() {
         // Owner of the portfolio, so the accepted case gets past the user check.
         portfolio.data[P_USER].copy_from_slice(user.pubkey().as_ref());
         pt.add_account(user_pdas.portfolio, portfolio);
-        let mut vault = Account::new(1_000_000, VAULT_SIZE, &CORE_ID);
-        stamp_header(&mut vault.data, discriminator::VAULT);
-        pt.add_account(pdas.vault, vault);
+        pt.add_account(pdas.vault, vault_account(0, 0, 0));
         let mut ctx = pt.start_with_context().await;
 
         let result = submit(
@@ -3948,10 +3844,9 @@ async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
         .copy_from_slice(&100_000_000i128.to_le_bytes());
     portfolio.data[offset_of!(Portfolio, bump)] = up.portfolio_bump;
     pt.add_account(up.portfolio, portfolio);
-    let mut vault = Account::new(130_000_000, VAULT_SIZE, &CORE_ID);
-    stamp_header(&mut vault.data, discriminator::VAULT);
-    vault.data[V_BALANCE].copy_from_slice(&100_000_000u64.to_le_bytes());
-    pt.add_account(pdas.vault, vault);
+    // The fund (100M lamports) covers the 0.4 reserve for up to 250 lots, so
+    // the 100- and 200-lot orders below clear the risk-off gate.
+    pt.add_account(pdas.vault, vault_account(100_000_000, 100_000_000, 0));
     let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
     stamp_header(&mut batch.data, discriminator::BATCH);
     batch.data[offset_of!(Batch, bump)] = up.batch_bump;
@@ -3968,6 +3863,7 @@ async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
             AccountMeta::new_readonly(MATCHER_ID, false),
             AccountMeta::new_readonly(pdas.instrument, false),
             AccountMeta::new_readonly(oracle, false),
+            AccountMeta::new_readonly(pdas.vault, false),
         ],
         data: with_disc(
             20,
@@ -4048,6 +3944,7 @@ async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
                 AccountMeta::new_readonly(pdas.registry, false),
                 AccountMeta::new_readonly(pdas.instrument, false),
                 AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
             ],
             data: with_disc(12, modify_data),
         },
@@ -4117,4 +4014,996 @@ async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
         ),
         0
     );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #23: cash-backed insurance fund, exposure limits, risk-off, exhaustion, recovery
+// ---------------------------------------------------------------------------
+
+const R_PAUSE_FLAGS: usize = offset_of!(Registry, pause_flags);
+const PAUSE_TRADING_BIT: u8 = 1 << 0;
+const PAUSE_WITHDRAWALS_BIT: u8 = 1 << 1;
+
+/// Assert that a failed transaction carries the given program error code.
+fn assert_custom(
+    result: Result<(), solana_program_test::BanksClientError>,
+    code: mgk_common::MgkError,
+) {
+    let error = result.expect_err("instruction must fail");
+    assert!(
+        format!("{error:?}").contains(&format!("Custom({})", u64::from(code))),
+        "expected {code:?}, got {error:?}"
+    );
+}
+
+/// The vault ledger plus its lamports, read back from the bank.
+#[derive(Debug, PartialEq, Eq)]
+struct VaultView {
+    lamports: u64,
+    balance: u64,
+    fund: u128,
+    debt: u128,
+    oi_long: u64,
+    oi_short: u64,
+}
+
+impl VaultView {
+    /// Lamports above rent plus the ledger backing (`collateral + fund -
+    /// debt`): unsolicited donations. Negative means under-backed.
+    fn surplus(&self) -> i128 {
+        self.lamports as i128
+            - vault_rent() as i128
+            - (self.balance as i128 + self.fund as i128 - self.debt as i128)
+    }
+
+    /// Exact check for runs where nobody donated to the vault.
+    fn assert_balanced(&self) {
+        self.assert_surplus(0);
+    }
+
+    /// The vault is never under-backed and holds exactly `donated` lamports of
+    /// surplus.
+    fn assert_surplus(&self, donated: u64) {
+        assert_eq!(
+            self.surplus(),
+            donated as i128,
+            "vault lamports must equal rent + ledger backing + donations: {self:?}"
+        );
+    }
+}
+
+/// A plain system transfer into the vault PDA: the donation anyone can make.
+async fn donate_to_vault(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    pdas: &TestPdas,
+    amount: u64,
+) {
+    let payer = ctx.payer.pubkey();
+    submit(
+        ctx,
+        solana_sdk::system_instruction::transfer(&payer, &pdas.vault, amount),
+        &[],
+    )
+    .await
+    .expect("donation");
+}
+
+async fn get_account(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    key: &Pubkey,
+) -> Account {
+    ctx.banks_client
+        .get_account(*key)
+        .await
+        .unwrap()
+        .expect("account exists")
+}
+
+async fn read_vault(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    pdas: &TestPdas,
+) -> VaultView {
+    let a = get_account(ctx, &pdas.vault).await;
+    VaultView {
+        lamports: a.lamports,
+        balance: u64::from_le_bytes(a.data[V_BALANCE].try_into().unwrap()),
+        fund: u128::from_le_bytes(a.data[V_INSURANCE].try_into().unwrap()),
+        debt: u128::from_le_bytes(a.data[V_UNCOVERED].try_into().unwrap()),
+        oi_long: u64::from_le_bytes(a.data[V_OI_LONG].try_into().unwrap()),
+        oi_short: u64::from_le_bytes(a.data[V_OI_SHORT].try_into().unwrap()),
+    }
+}
+
+async fn read_equity(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    portfolio: &Pubkey,
+) -> i128 {
+    let a = get_account(ctx, portfolio).await;
+    i128::from_le_bytes(a.data[P_EQUITY].try_into().unwrap())
+}
+
+async fn read_pause_flags(
+    ctx: &mut solana_program_test::ProgramTestContext,
+    pdas: &TestPdas,
+) -> u8 {
+    get_account(ctx, &pdas.registry).await.data[R_PAUSE_FLAGS]
+}
+
+/// Raise the open interest counters of a vault fixture.
+fn with_open_interest(mut vault: Account, long_lots: u64, short_lots: u64) -> Account {
+    vault.data[V_OI_LONG].copy_from_slice(&long_lots.to_le_bytes());
+    vault.data[V_OI_SHORT].copy_from_slice(&short_lots.to_le_bytes());
+    vault
+}
+
+fn unpause_ix(
+    pdas: &TestPdas,
+    governance: &Pubkey,
+    resume_withdrawals: bool,
+    resume_trading: bool,
+) -> Instruction {
+    Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(pdas.registry, false),
+            AccountMeta::new_readonly(pdas.vault, false),
+            AccountMeta::new_readonly(*governance, true),
+        ],
+        data: with_disc(28, vec![resume_withdrawals as u8, resume_trading as u8]),
+    }
+}
+
+fn fund_withdraw_ix(pdas: &TestPdas, governance: &Pubkey, amount: u64) -> Instruction {
+    Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(pdas.vault, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new(*governance, true),
+        ],
+        data: with_disc(27, amount.to_le_bytes().to_vec()),
+    }
+}
+
+fn withdraw_ix(pdas: &TestPdas, user: &Pubkey, portfolio: &Pubkey, amount: u64) -> Instruction {
+    Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(*portfolio, false),
+            AccountMeta::new(*user, true),
+            AccountMeta::new(pdas.vault, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+        ],
+        data: with_disc(3, amount.to_le_bytes().to_vec()),
+    }
+}
+
+/// One side of a settled batch: a portfolio that may hold a seeded position
+/// and owns one order reservation covering its fills.
+struct Party {
+    user: Keypair,
+    key: Pubkey,
+    bump: u8,
+    equity: i128,
+    /// `(signed qty, entry vwap)` of a position opened before the batch.
+    position: Option<(i64, i64)>,
+    order_id: u64,
+    /// 0 = buy, 1 = sell.
+    side: u8,
+}
+
+fn party(order_id: u64, side: u8, equity: i128, position: Option<(i64, i64)>) -> Party {
+    let user = Keypair::new();
+    let (key, bump) = Pubkey::find_program_address(&[PORTFOLIO_SEED, user.pubkey().as_ref()], &CORE_ID);
+    Party { user, key, bump, equity, position, order_id, side }
+}
+
+struct SettleKeys {
+    batch: Pubkey,
+    results: Pubkey,
+    next: Pubkey,
+    oracle: Pubkey,
+    governance: Keypair,
+}
+
+/// Seed a registry that names `governance` and holds the pause flags.
+fn seed_governed_registry(pt: &mut ProgramTest, pdas: &TestPdas, governance: &Pubkey, flags: u8) {
+    let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
+    stamp_header(&mut registry.data, discriminator::REGISTRY);
+    registry.data[R_GOVERNANCE].copy_from_slice(governance.as_ref());
+    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&7u64.to_le_bytes());
+    registry.data[R_T_MAX].copy_from_slice(&20u64.to_le_bytes());
+    registry.data[R_INSTRUMENT_COUNT].copy_from_slice(&1u16.to_le_bytes());
+    registry.data[offset_of!(Registry, max_orders_per_batch)] = 12;
+    registry.data[offset_of!(Registry, bump)] =
+        Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID).1;
+    registry.data[R_PAUSE_FLAGS] = flags;
+    pt.add_account(pdas.registry, registry);
+    pt.add_account(*governance, Account::new(1_000_000, 0, &system_program::id()));
+}
+
+/// Seed a Cleared batch 7 whose results hold one fill per `(party, qty, price)`
+/// entry, in order. Fills run in the auction-1 role of their order side (buy is
+/// the taker, sell the maker), so the buyer pays the 5 bps taker fee. The
+/// matching reservations are written into each party's portfolio.
+fn seed_settlement(
+    pt: &mut ProgramTest,
+    pdas: &TestPdas,
+    vault: Account,
+    parties: &[Party],
+    fills: &[(usize, u64, i64)],
+) -> SettleKeys {
+    let governance = Keypair::new();
+    seed_governed_registry(pt, pdas, &governance.pubkey(), 0);
+    pt.add_account(pdas.vault, vault);
+    let batch = Pubkey::find_program_address(&[BATCH_SEED, &7u64.to_le_bytes()], &CORE_ID).0;
+    let next = Pubkey::find_program_address(&[BATCH_SEED, &8u64.to_le_bytes()], &CORE_ID).0;
+    let results = Pubkey::find_program_address(&[b"results", &7u64.to_le_bytes()], &MATCHER_ID).0;
+    let oracle = Pubkey::new_unique();
+
+    let mut batch_acct = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
+    stamp_header(&mut batch_acct.data, discriminator::BATCH);
+    batch_acct.data[B_ID].copy_from_slice(&7u64.to_le_bytes());
+    batch_acct.data[B_STATUS] = 4; // Cleared
+    batch_acct.data[B_CLEARING_PRICE].copy_from_slice(&fills[0].2.to_le_bytes());
+    batch_acct.data[B_MARK_VALID] = 1;
+    pt.add_account(batch, batch_acct);
+    pt.add_account(next, Account::new(1_000_000, BATCH_SIZE, &CORE_ID));
+
+    let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
+    stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
+    instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle.as_ref());
+    instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
+    pt.add_account(pdas.instrument, instrument);
+    pt.add_account(oracle, Account::new(1_000_000, 0, &system_program::id()));
+    seed_valid_oracle(pt, oracle, pdas.instrument);
+
+    let mut res = Account::new(1_000_000, RES + 34 + fills.len() * 58, &MATCHER_ID);
+    stamp_header(&mut res.data, discriminator::BATCH_RESULTS);
+    res.data[ACCOUNT_HEADER_LEN..ACCOUNT_HEADER_LEN + 8].copy_from_slice(&7u64.to_le_bytes());
+    res.data[RES_NUM_FILLS].copy_from_slice(&(fills.len() as u16).to_le_bytes());
+    for (i, (idx, qty, price)) in fills.iter().enumerate() {
+        let p = &parties[*idx];
+        let off = RES + 34 + i * 58;
+        res.data[off..off + 32].copy_from_slice(p.user.pubkey().as_ref());
+        res.data[off + 32..off + 40].copy_from_slice(&p.order_id.to_le_bytes());
+        res.data[off + 40..off + 48].copy_from_slice(&qty.to_le_bytes());
+        res.data[off + 48..off + 56].copy_from_slice(&price.to_le_bytes());
+        res.data[off + 56] = p.side; // buy => maker 0 (taker), sell => maker 1
+        res.data[off + 57] = 1;
+    }
+    pt.add_account(results, res);
+
+    for (i, p) in parties.iter().enumerate() {
+        let mut data = build_underwater_portfolio_data(
+            p.user.pubkey(),
+            p.bump,
+            INSTRUMENT_ID,
+            p.position.map_or(0, |(q, _)| q),
+            p.position.map_or(0, |(_, e)| e),
+            p.equity,
+            0,
+            0,
+        );
+        if p.position.is_none() {
+            data[P_POSITIONS_LEN].copy_from_slice(&0u16.to_le_bytes());
+        }
+        data[P_PRINCIPAL].copy_from_slice(&p.equity.to_le_bytes());
+        let (qty, price) = fills
+            .iter()
+            .filter(|(idx, _, _)| *idx == i)
+            .fold((0u64, 0i64), |(q, _), (_, fq, fp)| (q + fq, *fp));
+        let order = offset_of!(Portfolio, orders);
+        let put = |data: &mut Vec<u8>, f: usize, bytes: &[u8]| {
+            data[order + f..order + f + bytes.len()].copy_from_slice(bytes)
+        };
+        put(&mut data, offset_of!(OrderReservation, order_id), &p.order_id.to_le_bytes());
+        put(&mut data, offset_of!(OrderReservation, original_qty), &qty.to_le_bytes());
+        put(&mut data, offset_of!(OrderReservation, remaining_qty), &qty.to_le_bytes());
+        put(&mut data, offset_of!(OrderReservation, price), &price.to_le_bytes());
+        data[order + offset_of!(OrderReservation, side)] = p.side;
+        let mut portfolio = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
+        portfolio.data = data;
+        pt.add_account(p.key, portfolio);
+        // A wallet that can receive withdrawals without breaking rent rules.
+        pt.add_account(
+            p.user.pubkey(),
+            Account::new(1_000_000_000, 0, &system_program::id()),
+        );
+    }
+    SettleKeys { batch, results, next, oracle, governance }
+}
+
+fn settle_ix(pdas: &TestPdas, keys: &SettleKeys, parties: &[Party]) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new(keys.batch, false),
+        AccountMeta::new(pdas.registry, false),
+        AccountMeta::new(pdas.vault, false),
+        AccountMeta::new(keys.results, false),
+        AccountMeta::new(pdas.instrument, false),
+        AccountMeta::new(pdas.book, false),
+        AccountMeta::new_readonly(keys.oracle, false),
+        AccountMeta::new_readonly(MATCHER_ID, false),
+    ];
+    accounts.extend(parties.iter().map(|p| AccountMeta::new(p.key, false)));
+    accounts.push(AccountMeta::new(keys.next, false));
+    Instruction {
+        program_id: CORE_ID,
+        accounts,
+        data: with_disc(8, build_settle_batch_data(0, parties.len() as u16)),
+    }
+}
+
+/// Fixture for the gate tests: one funded portfolio on an open batch, a vault
+/// the caller shapes, and an optional seeded position.
+async fn post_gate_fixture(
+    vault: Account,
+    position: Option<(i64, i64)>,
+    pause_flags: u8,
+) -> (
+    solana_program_test::ProgramTestContext,
+    TestPdas,
+    Keypair,
+    UserPdas,
+    Pubkey,
+) {
+    let (mut pt, pdas) = program_test_with_pdas();
+    let user = Keypair::new();
+    let up = derive_user_pdas(&user.pubkey(), 0, 0);
+    let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut pt, oracle, pdas.instrument);
+    pt.add_account(user.pubkey(), Account::new(1_000_000_000, 0, &system_program::id()));
+    let governance = Keypair::new();
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), pause_flags);
+    let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
+    stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
+    instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle.as_ref());
+    instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, imr_bps)..][..2].copy_from_slice(&2000u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, mmr_bps)..][..2].copy_from_slice(&1000u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, max_leverage)..][..2]
+        .copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, is_active)] = 1;
+    pt.add_account(pdas.instrument, instrument);
+    let mut data = build_underwater_portfolio_data(
+        user.pubkey(),
+        up.portfolio_bump,
+        INSTRUMENT_ID,
+        position.map_or(0, |(q, _)| q),
+        position.map_or(0, |(_, e)| e),
+        100_000_000,
+        0,
+        0,
+    );
+    if position.is_none() {
+        data[P_POSITIONS_LEN].copy_from_slice(&0u16.to_le_bytes());
+    }
+    data[P_PRINCIPAL].copy_from_slice(&100_000_000i128.to_le_bytes());
+    let mut portfolio = Account::new(30_000_000, PORTFOLIO_SIZE, &CORE_ID);
+    portfolio.data = data;
+    pt.add_account(up.portfolio, portfolio);
+    pt.add_account(pdas.vault, vault);
+    let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
+    stamp_header(&mut batch.data, discriminator::BATCH);
+    batch.data[offset_of!(Batch, bump)] = up.batch_bump;
+    pt.add_account(up.batch, batch);
+    let ctx = pt.start_with_context().await;
+    (ctx, pdas, user, up, oracle)
+}
+
+fn gate_post_ix(
+    pdas: &TestPdas,
+    user: &Pubkey,
+    up: &UserPdas,
+    oracle: &Pubkey,
+    side: u8,
+    qty: u64,
+    reduce_only: bool,
+) -> Instruction {
+    Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(*user, true),
+            AccountMeta::new(up.batch, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new(pdas.book, false),
+            AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(*oracle, false),
+            AccountMeta::new_readonly(pdas.vault, false),
+        ],
+        data: with_disc(
+            20,
+            build_post_order_data(side, false, ORDER_PRICE, qty, INSTRUMENT_ID, reduce_only),
+        ),
+    }
+}
+
+/// Lamports of the fund required for `lots` of larger-side open interest.
+const fn reserve_for(lots: u64) -> u128 {
+    lots as u128 * 400_000
+}
+
+/// Acceptance 1: top-up is permissionless and moves real lamports; the admin
+/// can withdraw only the surplus above 0.4 x larger-side open interest.
+#[tokio::test]
+async fn test_e2e_top_up_is_permissionless_and_fund_withdrawal_is_limited_to_surplus() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let governance = Keypair::new();
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0);
+    // 1_000 lots of open interest need a fund of 400_000_000 lamports.
+    pt.add_account(pdas.vault, with_open_interest(vault_account(0, 0, 0), 1_000, 400));
+    let stranger = Keypair::new();
+    pt.add_account(stranger.pubkey(), Account::new(5_000_000_000, 0, &system_program::id()));
+    let mut ctx = pt.start_with_context().await;
+    let rent = vault_rent();
+
+    // A stranger tops up with real lamports.
+    let before = read_vault(&mut ctx, &pdas).await;
+    assert_eq!(before.lamports, rent);
+    let ix = top_up_ix(&stranger.pubkey(), &pdas.vault, 1_000_000_000);
+    submit(&mut ctx, ix, &[&stranger]).await.unwrap();
+    let topped = read_vault(&mut ctx, &pdas).await;
+    topped.assert_balanced();
+    assert_eq!(topped.fund, 1_000_000_000);
+    assert_eq!(topped.lamports, rent + 1_000_000_000);
+    assert_eq!(topped.balance, 0, "a top-up never touches user collateral");
+
+    // A zero top-up is refused.
+    assert_custom(
+        submit(&mut ctx, top_up_ix(&stranger.pubkey(), &pdas.vault, 0), &[&stranger]).await,
+        mgk_common::MgkError::InvalidAmount,
+    );
+
+    // Only governance may withdraw.
+    let surplus = 1_000_000_000 - reserve_for(1_000) as u64;
+    assert_eq!(surplus, 600_000_000);
+    assert_custom(
+        submit(&mut ctx, fund_withdraw_ix(&pdas, &stranger.pubkey(), 1), &[&stranger]).await,
+        mgk_common::MgkError::Unauthorized,
+    );
+    // One lamport above the surplus is refused and changes nothing.
+    assert_custom(
+        submit(
+            &mut ctx,
+            fund_withdraw_ix(&pdas, &governance.pubkey(), surplus + 1),
+            &[&governance],
+        )
+        .await,
+        mgk_common::MgkError::FundWithdrawalExceedsSurplus,
+    );
+    assert_eq!(read_vault(&mut ctx, &pdas).await, topped);
+
+    let gov_before = get_account(&mut ctx, &governance.pubkey()).await.lamports;
+    submit(
+        &mut ctx,
+        fund_withdraw_ix(&pdas, &governance.pubkey(), surplus),
+        &[&governance],
+    )
+    .await
+    .unwrap();
+    let drained = read_vault(&mut ctx, &pdas).await;
+    drained.assert_balanced();
+    assert_eq!(drained.fund, reserve_for(1_000), "the reserve stays behind");
+    assert_eq!(
+        get_account(&mut ctx, &governance.pubkey()).await.lamports,
+        gov_before + surplus
+    );
+    // The surplus is now zero.
+    assert_custom(
+        submit(&mut ctx, fund_withdraw_ix(&pdas, &governance.pubkey(), 1), &[&governance]).await,
+        mgk_common::MgkError::FundWithdrawalExceedsSurplus,
+    );
+
+    // A plain transfer to the vault is surplus the ledger never sees. It must
+    // not lock the vault: top-ups and fund withdrawals keep working around it.
+    donate_to_vault(&mut ctx, &pdas, 777).await;
+    read_vault(&mut ctx, &pdas).await.assert_surplus(777);
+    submit(
+        &mut ctx,
+        top_up_ix(&stranger.pubkey(), &pdas.vault, 1_000),
+        &[&stranger],
+    )
+    .await
+    .unwrap();
+    read_vault(&mut ctx, &pdas).await.assert_surplus(777);
+    submit(
+        &mut ctx,
+        fund_withdraw_ix(&pdas, &governance.pubkey(), 1_000),
+        &[&governance],
+    )
+    .await
+    .unwrap();
+    let after = read_vault(&mut ctx, &pdas).await;
+    after.assert_surplus(777);
+    assert_eq!(after.fund, reserve_for(1_000), "donations never reach the fund");
+}
+
+/// Acceptance 5: a vault that is under-backed (lamports below rent plus the
+/// ledger backing) reverts every instruction that moves lamports. Surplus is
+/// tolerated; a deficit is not, however small.
+#[tokio::test]
+async fn test_e2e_under_backed_vault_reverts_the_lamport_move() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let governance = Keypair::new();
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0);
+    // One lamport missing: the ledger claims more than the vault holds.
+    let mut vault = vault_account(0, 1_000_000_000, 0);
+    vault.lamports -= 1;
+    pt.add_account(pdas.vault, vault);
+    let mut ctx = pt.start_with_context().await;
+    let before = get_account(&mut ctx, &pdas.vault).await;
+    let payer = ctx.payer.pubkey();
+    assert_custom(
+        submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 1_000), &[]).await,
+        mgk_common::MgkError::VaultInvariantViolated,
+    );
+    assert_custom(
+        submit(&mut ctx, fund_withdraw_ix(&pdas, &governance.pubkey(), 1), &[&governance]).await,
+        mgk_common::MgkError::VaultInvariantViolated,
+    );
+    assert_eq!(get_account(&mut ctx, &pdas.vault).await, before, "reverted");
+}
+
+/// Donation lockout: a plain transfer to the vault PDA must not make deposit,
+/// withdraw or top-up revert. The donation stays as surplus.
+#[tokio::test]
+async fn test_e2e_donation_to_the_vault_does_not_block_deposit_or_withdraw() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut ctx, pdas, user, up, _oracle) =
+        post_gate_fixture(vault_account(100_000_000, 0, 0), None, 0).await;
+    let me = user.pubkey();
+    donate_to_vault(&mut ctx, &pdas, 1).await;
+    read_vault(&mut ctx, &pdas).await.assert_surplus(1);
+
+    let deposit = Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(me, true),
+            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new(pdas.vault, false),
+        ],
+        data: with_disc(2, build_deposit_data(5_000)),
+    };
+    submit(&mut ctx, deposit, &[&user]).await.unwrap();
+    submit(&mut ctx, withdraw_ix(&pdas, &me, &up.portfolio, 1_000), &[&user])
+        .await
+        .unwrap();
+    top_up_fund(&mut ctx, &pdas, 10_000).await;
+    let after = read_vault(&mut ctx, &pdas).await;
+    after.assert_surplus(1);
+    assert_eq!(after.balance, 100_000_000 + 5_000 - 1_000);
+    assert_eq!(after.fund, 10_000);
+}
+
+/// Acceptance 3 and 4: the fund runs dry, the winner is still credited in full,
+/// the unpaid payout becomes uncovered bad debt, trading and withdrawals pause,
+/// inflows repay the debt first, and only then can the admin unpause
+/// (withdrawals before trading).
+#[tokio::test]
+async fn test_e2e_exhaustion_pauses_then_debt_first_recovery_and_unpause() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    // A is long one lot from 100 and sells at 90: it owes 100_000 lamports but
+    // holds only 20_000. B is short one lot and buys at 90: it is owed 100_000
+    // and the fund is empty. The loser's fill comes first.
+    let parties = [
+        party(1, 1, 20_000, Some((1, 100_000_000))),
+        party(2, 0, 20_000, Some((-1, 100_000_000))),
+    ];
+    let vault = with_open_interest(vault_account(40_000, 0, 0), 1, 1);
+    let fills = [(0, 1, 90_000_000), (1, 1, 90_000_000)];
+    let keys = seed_settlement(&mut pt, &pdas, vault, &parties, &fills);
+    let mut ctx = pt.start_with_context().await;
+    let lamports_before = read_vault(&mut ctx, &pdas).await.lamports;
+
+    submit(&mut ctx, settle_ix(&pdas, &keys, &parties), &[]).await.unwrap();
+
+    // A pays the 20_000 it holds. B is credited 100_000 in full and pays its
+    // 450 lamport taker fee (ceil(900_000 x 5 / 10_000)), which repays debt.
+    assert_eq!(read_equity(&mut ctx, &parties[0].key).await, 0);
+    assert_eq!(read_equity(&mut ctx, &parties[1].key).await, 119_550);
+    let exhausted = read_vault(&mut ctx, &pdas).await;
+    exhausted.assert_balanced();
+    assert_eq!(exhausted.fund, 0);
+    assert_eq!(exhausted.debt, 79_550);
+    assert_eq!(exhausted.balance, 119_550);
+    assert_eq!(exhausted.lamports, lamports_before, "settlement moves no lamports");
+    assert_eq!((exhausted.oi_long, exhausted.oi_short), (0, 0));
+    assert_eq!(
+        read_pause_flags(&mut ctx, &pdas).await & (PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT),
+        PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT,
+        "exhaustion auto-pauses trading and withdrawals"
+    );
+
+    // The winner cannot withdraw while paused.
+    let winner = &parties[1];
+    assert_custom(
+        submit(
+            &mut ctx,
+            withdraw_ix(&pdas, &winner.user.pubkey(), &winner.key, 1),
+            &[&winner.user],
+        )
+        .await,
+        mgk_common::MgkError::OperationPaused,
+    );
+
+    // Unpause is refused while debt is outstanding.
+    let gov = keys.governance.pubkey();
+    assert_custom(
+        submit(&mut ctx, unpause_ix(&pdas, &gov, true, false), &[&keys.governance]).await,
+        mgk_common::MgkError::RecoveryConditionsNotMet,
+    );
+
+    // Inflows repay the debt before they touch the fund.
+    let payer = ctx.payer.pubkey();
+    submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 79_000), &[]).await.unwrap();
+    let partial = read_vault(&mut ctx, &pdas).await;
+    partial.assert_balanced();
+    assert_eq!((partial.debt, partial.fund), (550, 0));
+    assert_custom(
+        submit(&mut ctx, unpause_ix(&pdas, &gov, true, false), &[&keys.governance]).await,
+        mgk_common::MgkError::RecoveryConditionsNotMet,
+    );
+    submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 1_000), &[]).await.unwrap();
+    let recovered = read_vault(&mut ctx, &pdas).await;
+    recovered.assert_balanced();
+    assert_eq!((recovered.debt, recovered.fund), (0, 450), "the remainder joins the fund");
+
+    // Trading cannot resume while withdrawals stay paused.
+    assert_custom(
+        submit(&mut ctx, unpause_ix(&pdas, &gov, false, true), &[&keys.governance]).await,
+        mgk_common::MgkError::RecoveryConditionsNotMet,
+    );
+    // Only governance may unpause.
+    let stranger = Keypair::new();
+    assert!(submit(&mut ctx, unpause_ix(&pdas, &stranger.pubkey(), true, false), &[&stranger])
+        .await
+        .is_err());
+    // Withdrawals first, then trading.
+    submit(&mut ctx, unpause_ix(&pdas, &gov, true, false), &[&keys.governance]).await.unwrap();
+    assert_eq!(
+        read_pause_flags(&mut ctx, &pdas).await & (PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT),
+        PAUSE_TRADING_BIT
+    );
+    submit(
+        &mut ctx,
+        withdraw_ix(&pdas, &winner.user.pubkey(), &winner.key, 100_000),
+        &[&winner.user],
+    )
+    .await
+    .unwrap();
+    submit(&mut ctx, unpause_ix(&pdas, &gov, false, true), &[&keys.governance]).await.unwrap();
+    assert_eq!(
+        read_pause_flags(&mut ctx, &pdas).await & (PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT),
+        0
+    );
+    read_vault(&mut ctx, &pdas).await.assert_balanced();
+}
+
+/// Acceptance 6: a winner withdraws realised profit while the loser still
+/// holds its position, because the fund pays the winner in cash.
+#[tokio::test]
+async fn test_e2e_winner_withdraws_profit_before_the_loser_closes() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    // A (long) stays open. B (short) closes against C, a new short.
+    let loser = party(9, 0, 20_000, Some((1, 100_000_000)));
+    let parties = [
+        party(2, 0, 20_000, Some((-1, 100_000_000))),
+        party(3, 1, 1_000_000, None),
+    ];
+    let vault = with_open_interest(vault_account(1_040_000, 0, 0), 1, 1);
+    let fills = [(0, 1, 90_000_000), (1, 1, 90_000_000)];
+    let keys = seed_settlement(&mut pt, &pdas, vault, &parties, &fills);
+    let mut loser_acct = Account::new(1_000_000, PORTFOLIO_SIZE, &CORE_ID);
+    loser_acct.data = build_underwater_portfolio_data(
+        loser.user.pubkey(),
+        loser.bump,
+        INSTRUMENT_ID,
+        1,
+        100_000_000,
+        20_000,
+        0,
+        0,
+    );
+    pt.add_account(loser.key, loser_acct);
+    let mut ctx = pt.start_with_context().await;
+    // The reserve is funded by a signed top-up, not a fixture patch.
+    top_up_fund(&mut ctx, &pdas, FUND_TOP_UP).await;
+
+    submit(&mut ctx, settle_ix(&pdas, &keys, &parties), &[]).await.unwrap();
+
+    // B realised +100_000 and paid a 450 lamport taker fee.
+    let winner = &parties[0];
+    assert_eq!(read_equity(&mut ctx, &winner.key).await, 119_550);
+    let settled = read_vault(&mut ctx, &pdas).await;
+    settled.assert_balanced();
+    assert_eq!(settled.debt, 0);
+    assert_eq!(settled.fund, FUND_TOP_UP as u128 - 100_000 + 450);
+    assert_eq!((settled.oi_long, settled.oi_short), (1, 1));
+    assert_eq!(read_pause_flags(&mut ctx, &pdas).await & PAUSE_WITHDRAWALS_BIT, 0);
+
+    // The loser is untouched and still open.
+    assert_eq!(read_equity(&mut ctx, &loser.key).await, 20_000);
+    let loser_acct = get_account(&mut ctx, &loser.key).await;
+    assert_eq!(
+        u16::from_le_bytes(loser_acct.data[P_POSITIONS_LEN].try_into().unwrap()),
+        1
+    );
+
+    // The winner withdraws the profit now.
+    let wallet_before = get_account(&mut ctx, &winner.user.pubkey()).await.lamports;
+    submit(
+        &mut ctx,
+        withdraw_ix(&pdas, &winner.user.pubkey(), &winner.key, 100_000),
+        &[&winner.user],
+    )
+    .await
+    .unwrap();
+    assert_eq!(read_equity(&mut ctx, &winner.key).await, 19_550);
+    assert_eq!(
+        get_account(&mut ctx, &winner.user.pubkey()).await.lamports,
+        wallet_before + 100_000
+    );
+    read_vault(&mut ctx, &pdas).await.assert_balanced();
+}
+
+/// Acceptance 2: portfolio and market exposure limits and the risk-off rule.
+#[tokio::test]
+async fn test_e2e_exposure_limits_and_risk_off_gate_exposure_adding_posts_and_modifies() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    // 20_000 lots of long open interest: the reserve for a further 100 lots is
+    // 0.4 x 20_100 x 1e6 = 8_040_000_000 lamports. The fund is one lamport short.
+    let short_by_one = reserve_for(20_100) - 1;
+    let vault = with_open_interest(vault_account(100_000_000, short_by_one, 0), 20_000, 0);
+    let (mut ctx, pdas, user, up, oracle) = post_gate_fixture(vault, None, 0).await;
+    let me = user.pubkey();
+    let buy = |qty| gate_post_ix(&pdas, &me, &up, &oracle, 0, qty, false);
+
+    assert_custom(
+        submit(&mut ctx, buy(100), &[&user]).await,
+        mgk_common::MgkError::RiskOffFundBelowReserve,
+    );
+    // The top-up that restores the reserve re-opens exposure-adding posts.
+    let payer = ctx.payer.pubkey();
+    submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 1), &[]).await.unwrap();
+    submit(&mut ctx, buy(100), &[&user]).await.unwrap();
+
+    // A modify that adds exposure needs the reserve for the added quantity.
+    let modify = |new_qty: u64| {
+        let mut data = 0u64.to_le_bytes().to_vec();
+        data.extend_from_slice(&new_qty.to_le_bytes());
+        Instruction {
+            program_id: CORE_ID,
+            accounts: vec![
+                AccountMeta::new(up.portfolio, false),
+                AccountMeta::new(me, true),
+                AccountMeta::new(pdas.book, false),
+                AccountMeta::new_readonly(MATCHER_ID, false),
+                AccountMeta::new_readonly(pdas.registry, false),
+                AccountMeta::new_readonly(pdas.instrument, false),
+                AccountMeta::new_readonly(oracle, false),
+                AccountMeta::new_readonly(pdas.vault, false),
+            ],
+            data: with_disc(12, data),
+        }
+    };
+    assert_custom(
+        submit(&mut ctx, modify(300), &[&user]).await,
+        mgk_common::MgkError::RiskOffFundBelowReserve,
+    );
+    submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 40_000_000), &[]).await.unwrap();
+    submit(&mut ctx, modify(300), &[&user]).await.unwrap();
+    read_vault(&mut ctx, &pdas).await.assert_balanced();
+}
+
+#[tokio::test]
+async fn test_e2e_exposure_limits_reject_oversized_posts() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    // 10 SOL per portfolio is 10_000 lots; 50 SOL per side is 50_000 lots.
+    // The fund covers the reserve so only the exposure limits can refuse.
+    let vault = with_open_interest(
+        vault_account(100_000_000, reserve_for(60_000), 0),
+        49_999,
+        0,
+    );
+    let (mut ctx, pdas, user, up, oracle) = post_gate_fixture(vault, None, 0).await;
+    let me = user.pubkey();
+    assert_custom(
+        submit(
+            &mut ctx,
+            gate_post_ix(&pdas, &me, &up, &oracle, 0, 10_001, false),
+            &[&user],
+        )
+        .await,
+        mgk_common::MgkError::PortfolioExposureLimitExceeded,
+    );
+    // One lot past the 50_000 lot side limit, well inside the portfolio limit.
+    assert_custom(
+        submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 0, 2, false), &[&user]).await,
+        mgk_common::MgkError::MarketExposureLimitExceeded,
+    );
+    // The other side has room.
+    submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 1, 2, false), &[&user])
+        .await
+        .unwrap();
+}
+
+/// Acceptance 2: risk-off and exhaustion block exposure but leave reducing
+/// orders, cancels and withdrawals working.
+#[tokio::test]
+async fn test_e2e_risk_off_keeps_reduce_only_cancel_and_withdraw_working() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    // The fund is empty while 20_000 lots of open interest need a reserve.
+    let vault = with_open_interest(vault_account(100_000_000, 0, 0), 20_000, 20_000);
+    let (mut ctx, pdas, user, up, oracle) =
+        post_gate_fixture(vault, Some((100, 100_000_000)), 0).await;
+    let me = user.pubkey();
+    assert_custom(
+        submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 0, 10, false), &[&user]).await,
+        mgk_common::MgkError::RiskOffFundBelowReserve,
+    );
+    // Reducing the long is not exposure-adding.
+    submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 1, 50, true), &[&user])
+        .await
+        .unwrap();
+    let cancel = Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(me, true),
+            AccountMeta::new(pdas.book, false),
+            AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+        ],
+        data: with_disc(11, 0u64.to_le_bytes().to_vec()),
+    };
+    submit(&mut ctx, cancel, &[&user]).await.unwrap();
+    // A withdrawal within free collateral still works under risk-off.
+    let withdraw = Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(me, true),
+            AccountMeta::new(pdas.vault, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(oracle, false),
+        ],
+        data: with_disc(3, 1_000u64.to_le_bytes().to_vec()),
+    };
+    submit(&mut ctx, withdraw, &[&user]).await.unwrap();
+    read_vault(&mut ctx, &pdas).await.assert_balanced();
+}
+
+/// Acceptance 3: while trading is paused by exhaustion, exposure-adding posts
+/// are refused but a reduce-only post still goes through.
+#[tokio::test]
+async fn test_e2e_exhaustion_pause_refuses_new_exposure_but_not_reduce_only() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let vault = vault_account(100_000_000, reserve_for(1_000), 0);
+    let (mut ctx, pdas, user, up, oracle) = post_gate_fixture(
+        vault,
+        Some((100, 100_000_000)),
+        PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT,
+    )
+    .await;
+    let me = user.pubkey();
+    assert_custom(
+        submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 0, 10, false), &[&user]).await,
+        mgk_common::MgkError::OperationPaused,
+    );
+    submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 1, 50, true), &[&user])
+        .await
+        .unwrap();
+}
+
+/// Assert that a failed transaction carries the given builtin instruction
+/// error, named as in its `Debug` form.
+fn assert_instruction_error(
+    result: Result<(), solana_program_test::BanksClientError>,
+    name: &str,
+) {
+    let error = result.expect_err("instruction must fail");
+    assert!(
+        format!("{error:?}").contains(&format!("InstructionError(0, {name})")),
+        "expected {name}, got {error:?}"
+    );
+}
+
+/// TopUp, WithdrawInsuranceFund and Unpause only accept the registry and vault
+/// PDAs. Program-owned look-alikes at other addresses (a decoy registry that
+/// names the attacker as governance, a decoy vault with no debt) are refused
+/// and nothing changes; the real accounts keep working.
+#[tokio::test]
+async fn test_e2e_top_up_withdraw_fund_and_unpause_reject_wrong_address_accounts() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let paused = PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT;
+    let (mut pt, pdas) = program_test_with_pdas();
+    let governance = Keypair::new();
+    let attacker = Keypair::new();
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), paused);
+    pt.add_account(pdas.vault, vault_account(0, 1_000_000_000, 0));
+    let decoy_vault = Pubkey::new_unique();
+    pt.add_account(decoy_vault, vault_account(0, 1_000_000_000, 0));
+    let decoy_registry = Pubkey::new_unique();
+    let with_decoy_registry = TestPdas { registry: decoy_registry, ..pdas };
+    let with_decoy_vault = TestPdas { vault: decoy_vault, ..pdas };
+    seed_governed_registry(&mut pt, &with_decoy_registry, &attacker.pubkey(), paused);
+    let mut ctx = pt.start_with_context().await;
+    let payer = ctx.payer.pubkey();
+    let gov = governance.pubkey();
+    let evil = attacker.pubkey();
+    let decoy_vault_lamports = vault_account(0, 1_000_000_000, 0).lamports;
+
+    // TopUp into a vault that is not the vault PDA.
+    assert_instruction_error(
+        submit(&mut ctx, top_up_ix(&payer, &decoy_vault, 1_000), &[]).await,
+        "InvalidSeeds",
+    );
+    assert_eq!(get_account(&mut ctx, &decoy_vault).await.lamports, decoy_vault_lamports);
+
+    // WithdrawInsuranceFund with an attacker-governed registry, or a decoy vault.
+    assert_instruction_error(
+        submit(&mut ctx, fund_withdraw_ix(&with_decoy_registry, &evil, 1_000), &[&attacker]).await,
+        "InvalidSeeds",
+    );
+    assert_instruction_error(
+        submit(&mut ctx, fund_withdraw_ix(&with_decoy_vault, &gov, 1_000), &[&governance]).await,
+        "InvalidSeeds",
+    );
+    read_vault(&mut ctx, &pdas).await.assert_balanced();
+
+    // Unpause against a decoy registry (attacker governance) or a decoy vault.
+    assert_instruction_error(
+        submit(&mut ctx, unpause_ix(&with_decoy_registry, &evil, true, false), &[&attacker]).await,
+        "InvalidSeeds",
+    );
+    assert_eq!(get_account(&mut ctx, &decoy_registry).await.data[R_PAUSE_FLAGS], paused);
+    assert_instruction_error(
+        submit(&mut ctx, unpause_ix(&with_decoy_vault, &gov, true, false), &[&governance]).await,
+        "InvalidSeeds",
+    );
+    assert_eq!(read_pause_flags(&mut ctx, &pdas).await, paused);
+
+    // The real accounts still work.
+    submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 1_000), &[]).await.unwrap();
+    submit(&mut ctx, fund_withdraw_ix(&pdas, &gov, 1_000), &[&governance]).await.unwrap();
+    submit(&mut ctx, unpause_ix(&pdas, &gov, true, false), &[&governance]).await.unwrap();
+    assert_eq!(read_pause_flags(&mut ctx, &pdas).await, PAUSE_TRADING_BIT);
 }

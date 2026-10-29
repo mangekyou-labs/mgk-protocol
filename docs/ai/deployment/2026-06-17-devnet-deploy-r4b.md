@@ -20,7 +20,7 @@ Shipped in this build (all of M7, plus M7.7.R-R4b):
 - **7.4** Funding rate accrual (depth-weighted premium from book mid vs oracle)
 - **7.5** Mark price computation (stored on `Instrument`, not `Batch`)
 - **7.6** Risk callback (per-user notional cap + post-hoc margin check)
-- **7.7** Liquidation safety stack (iterative reduction, ADL stub, `Vault.adl_pending`)
+- **7.7** Liquidation safety stack (iterative reduction, ADL stub, an ADL field (removed in issue #23))
 - **7.8** PauseFlags (`SetPauseFlags` disc 14, four bits + reserved-mask, gate `CommitOrder`/`RevealOrder`/`Withdraw`/`LiquidateUser`/funding step)
 - **M7.7.R-R4b** BPF stack overflow fix (BSS scratch; all 12 errors → 0)
 

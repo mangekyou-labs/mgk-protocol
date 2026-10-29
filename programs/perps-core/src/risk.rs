@@ -1,5 +1,9 @@
 //! SOL-PERP risk, priced exclusively at the validated conversion price.
-use crate::state::{portfolio::ENTRY_PRICE_SCALE, Instrument, Portfolio};
+use crate::state::{
+    portfolio::{Position, ENTRY_PRICE_SCALE},
+    vault::LAMPORTS_PER_LOT,
+    Instrument, Portfolio, Vault,
+};
 use mgk_common::{layout::load_account, validate_owner, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
@@ -8,6 +12,21 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     ProgramResult,
 };
+
+/// Portfolio exposure limit, market exposure limit and risk-off gate for an
+/// order that may add `added_qty` lots of exposure. Callers skip
+/// reduce-only orders.
+pub(crate) fn check_added_exposure(
+    vault: &Vault,
+    portfolio: &Portfolio,
+    instrument_id: u16,
+    side: u8,
+    added_qty: u64,
+) -> Result<(), MgkError> {
+    let held = portfolio.position_qty(instrument_id);
+    let resting = portfolio.resting_exposure_adding(instrument_id, side);
+    vault.check_exposure_order(side == 0, added_qty, held, resting)
+}
 
 pub fn conversion(
     program_id: &Pubkey,
@@ -32,6 +51,39 @@ pub fn conversion(
     )
 }
 
+/// Lamports gained (positive) or lost (negative) by closing `lots` of
+/// `position` at `price`: `lots * 1e6 * (price - entry) / price`, with the
+/// entry's fractional remainder honoured, flipped for shorts, and rounded down
+/// so a debit never undercollects. 1_000 lots is 1 SOL, so each lot is 1e6
+/// lamports at the conversion price. Settlement, `refresh` and liquidation all
+/// price realized PnL through this one function.
+pub(crate) fn position_pnl_lamports(
+    position: &Position,
+    lots: u128,
+    price: i64,
+) -> Result<i128, ProgramError> {
+    if price <= 0 {
+        return Err(MgkError::InvalidPrice.into());
+    }
+    let scale = ENTRY_PRICE_SCALE as i128;
+    if !matches!(position.entry_denominator, 0 | ENTRY_PRICE_SCALE)
+        || position.entry_remainder as i128 >= position.entry_denominator.max(1) as i128
+    {
+        return Err(MgkError::InvalidPortfolio.into());
+    }
+    let diff = (price as i128)
+        .checked_sub(position.entry_vwap as i128)
+        .and_then(|x| x.checked_mul(scale))
+        .and_then(|x| x.checked_sub(position.entry_remainder as i128))
+        .ok_or(MgkError::Overflow)?;
+    let signed_diff = if position.qty < 0 { -diff } else { diff };
+    floor_scaled_ratio(
+        signed_diff,
+        lots.checked_mul(LAMPORTS_PER_LOT).ok_or(MgkError::Overflow)?,
+        (price as u128) * ENTRY_PRICE_SCALE as u128,
+    )
+}
+
 pub fn refresh(p: &mut Portfolio, instrument_id: u16, conversion: i64) -> ProgramResult {
     if conversion <= 0 {
         return Err(MgkError::InvalidPrice.into());
@@ -48,23 +100,7 @@ pub fn refresh(p: &mut Portfolio, instrument_id: u16, conversion: i64) -> Progra
         qty = qty
             .checked_add(position.qty.unsigned_abs() as u128)
             .ok_or(MgkError::Overflow)?;
-        let scale = ENTRY_PRICE_SCALE as i128;
-        if !matches!(position.entry_denominator, 0 | ENTRY_PRICE_SCALE)
-            || position.entry_remainder as i128 >= position.entry_denominator.max(1) as i128
-        {
-            return Err(MgkError::InvalidPortfolio.into());
-        }
-        let diff = (conversion as i128)
-            .checked_sub(position.entry_vwap as i128)
-            .and_then(|x| x.checked_mul(scale))
-            .and_then(|x| x.checked_sub(position.entry_remainder as i128))
-            .ok_or(MgkError::Overflow)?;
-        let signed_diff = if position.qty < 0 { -diff } else { diff };
-        let value = floor_scaled_ratio(
-            signed_diff,
-            (position.qty.unsigned_abs() as u128) * 1_000_000,
-            (conversion as u128) * ENTRY_PRICE_SCALE as u128,
-        )?;
+        let value = position_pnl_lamports(position, position.qty.unsigned_abs() as u128, conversion)?;
         pnl = pnl.checked_add(value).ok_or(MgkError::Overflow)?;
     }
     p.im = qty.checked_mul(200_000).ok_or(MgkError::Overflow)?;
@@ -203,6 +239,61 @@ pub fn unlocked(registry_account: &AccountInfo) -> ProgramResult {
 mod tests {
     use super::*;
     use crate::state::portfolio::OrderReservation;
+
+    fn flush_vault() -> Vault {
+        let mut v = Vault::new();
+        v.insurance_fund = u128::MAX / 4;
+        v
+    }
+
+    fn resting(order_id: u64, side: u8, qty: u64, reduce_only: u8) -> OrderReservation {
+        OrderReservation {
+            order_id,
+            original_qty: qty,
+            remaining_qty: qty,
+            price: 1,
+            initial_reserve: 0,
+            instrument_id: 0,
+            side,
+            reduce_only,
+            _padding: [0; 12],
+        }
+    }
+
+    #[test]
+    fn exposure_gate_counts_same_side_resting_and_the_held_position() {
+        let vault = flush_vault();
+        let mut p = Portfolio::new([1; 32]);
+        p.positions[0] = Position { instrument_id: 0, qty: 9_000, ..Position::default() };
+        p.positions_len = 1;
+        p.orders[0] = resting(1, 0, 400, 0);
+        // 9_000 held + 400 resting + 600 new = 10_000: at the limit.
+        assert_eq!(check_added_exposure(&vault, &p, 0, 0, 600), Ok(()));
+        assert_eq!(
+            check_added_exposure(&vault, &p, 0, 0, 601),
+            Err(MgkError::PortfolioExposureLimitExceeded)
+        );
+        // The opposite side reduces the long and is not limited by the resting buy.
+        assert_eq!(check_added_exposure(&vault, &p, 0, 1, 5_000), Ok(()));
+    }
+
+    #[test]
+    fn exposure_gate_applies_market_exposure_limit_and_risk_off() {
+        let mut vault = flush_vault();
+        vault.open_interest_long = 49_999;
+        let p = Portfolio::new([1; 32]);
+        assert_eq!(
+            check_added_exposure(&vault, &p, 0, 0, 2),
+            Err(MgkError::MarketExposureLimitExceeded)
+        );
+        let mut thin = Vault::new();
+        thin.open_interest_long = 20_000;
+        thin.insurance_fund = 8_000_000_000;
+        assert_eq!(
+            check_added_exposure(&thin, &p, 0, 1, 1),
+            Err(MgkError::RiskOffFundBelowReserve)
+        );
+    }
 
     #[test]
     fn wide_reservation_and_partial_release_preserve_exact_rounding() {

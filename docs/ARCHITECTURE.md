@@ -58,14 +58,14 @@ graph TD
 
     subgraph "Permissionless Keepers"
         CRANK[Batch Crank<br/>Closes, clears, settles batches]
-        LIQ[Liquidator<br/>Hedge-preserving optimizer<br/>ADL as last resort]
+        LIQ[Liquidator<br/>Hedge-preserving optimizer<br/>Insurance fund, then pause]
         RELAYER[Pre-signed Reveal Relayer<br/>Submits user-signed reveal<br/>within 1 slot]
     end
 
     subgraph "Safety Stack"
         OPTIMIZER[Liquidation Optimizer<br/>Hedge-preserving reduction<br/>Impact-ratio ranking<br/>Inventory tiebreaker]
-        INSURANCE[Insurance Fund<br/>Fee-accrued<br/>Base/quote inventory<br/>Absorbs bad debt]
-        ADL[Auto-Deleveraging<br/>Deleverage profitable counterparties<br/>Pro-rata by score]
+        INSURANCE[Insurance Fund<br/>Cash-backed counterparty<br/>Absorbs bad debt]
+        PAUSE[Auto-pause<br/>Trading and withdrawals<br/>until debt is repaid]
     end
 
     TRADER -->|commit_order / cancel_commit| CORE
@@ -80,7 +80,7 @@ graph TD
     LIQ -->|liquidate_user| OPTIMIZER
     OPTIMIZER -->|market sweep against book| MATCH
     OPTIMIZER -->|shortfall?| INSURANCE
-    INSURANCE -->|insufficient?| ADL
+    INSURANCE -->|exhausted?| PAUSE
     RELAYER -->|submit pre-signed RevealOrder| CORE
 ```
 
@@ -88,7 +88,7 @@ graph TD
 
 **Fair ordering principle:** 4-layer fair ordering — (1) commit-reveal as MEV protection, (2) deterministic Fisher-Yates shuffle seeded by close_slot, (3) structural priority queues (cancels → post-only/ALO → regular), (4) price-time priority CLOB. The fair-ordering and safety-stack designs follow [Bulk.Trade](https://docs.bulk.trade); commit-reveal substitutes for Bulk.Trade's BULKBFT quorum admission, which cannot be replicated on-chain.
 
-**Safety stack principle:** liquidation optimizer (hedge-preserving, impact-ratio ranked) → insurance fund → auto-deleveraging (ADL). The optimizer selectively reduces positions that contribute most to portfolio risk while preserving hedges. ADL deleverages profitable counterparties as a last resort.
+**Safety stack principle:** liquidation optimizer (hedge-preserving, impact-ratio ranked) → insurance fund → auto-pause. The optimizer selectively reduces positions that contribute most to portfolio risk while preserving hedges. If the fund is exhausted the winner is still credited in full, the unpaid amount is recorded as `uncovered_bad_debt`, and trading and withdrawals pause until governance unpauses once the debt is repaid and the reserve is met (see [ADR 0003](adr/0003-insurance-fund-is-the-cash-backed-counterparty-to-realized-pnl.md)). There is no auto-deleveraging.
 
 ### Why Not FIFO
 
@@ -163,13 +163,22 @@ Key instructions (single-byte discriminator, not Anchor's 8-byte SHA256 digest):
 | `0x06` | `CloseCommitting` | Permissionless | Close commit phase once dynamic criteria met |
 | `0x07` | `ClearBatch` | Permissionless (crank) | Shuffle + priority queues + CLOB match via CPI |
 | `0x08` | `SettleBatch` | Permissionless | Return deposits, accrue funding, finalize |
-| `0x09` | `LiquidateUser` | Permissionless (keeper) | Hedge-preserving optimizer → insurance → ADL |
+| `0x09` | `LiquidateUser` | Permissionless (keeper) | Hedge-preserving optimizer → insurance → pause |
 | `0x0A` | `AddInstrument` | Governance | Register new perp market |
 | `0x0B` | `CancelRestingOrder` | User signer | Cancel resting GTC order |
 | `0x0C` | `ModifyRestingOrder` | User signer | Modify resting order qty |
 | `0x0D` | `CancelAllRestingOrders` | User signer | Cancel all user resting orders |
-| `0x0E` | `SetPauseFlags` | Governance | 4-flag emergency pause (trading / withdrawals / liquidations / funding) |
-| `0x0F–0x13` | Bootstrap utilities | Governance / keeper | Solana 4.x PDA/account creation helpers |
+| `0x0E` | `SetPauseFlags` | Governance | 6-flag emergency pause (trading / withdrawals / liquidations / funding / post / clear) |
+| `0x0F–0x13` | Bootstrap utilities (`InitVault`, `CreateBatch`, `SetBatchCounter`, `CreatePortfolio`, `InitPortfolioForUser`) | Governance / keeper | Solana 4.x PDA/account creation helpers |
+| `0x14` (20) | `PostOrder` | User signer | DFBA single-transaction post with maker/taker flag; applies the exposure limits and risk-off gate |
+| `0x15` (21) | `SetBatchParams` | Governance | Batch size, marginal size cap and phase timing |
+| `0x16` (22) | `SetInstrumentFees` | Governance | Retune an instrument's taker and maker fees |
+| `0x17` (23) | `SetInstrumentOracle` | Governance | Bind an instrument to a price oracle account |
+| `0x18` (24) | `SetFundingParams` | Governance | Funding coefficient, rate cap and interval; resets the last funding slot |
+| `0x19` (25) | `InitializeBook` | Payer signer | Create an instrument's matcher `OrderBook` PDA via a registry-signed CPI |
+| `0x1A` (26) | `TopUp` | Permissionless | Transfer lamports into the insurance fund; repays uncovered bad debt first |
+| `0x1B` (27) | `WithdrawInsuranceFund` | Governance | Withdraw fund surplus above the required reserve |
+| `0x1C` (28) | `Unpause` | Governance | Lift the exhaustion pause once debt is 0 and the reserve is met; withdrawals resume before trading |
 
 **mgk-perps-matcher** is the matching engine. The design specifies one monolithic `ShuffleAndMatch` instruction; the shipped implementation decomposes it into 5 modular instructions for BPF stack safety (the 4 kB BPF stack frame cannot hold the full match in one call).
 
@@ -198,7 +207,7 @@ Key instructions (single-byte discriminator, not Anchor's 8-byte SHA256 digest):
 - **Security:** fund custody (Core) is isolated from matching logic (Matcher). A bug in the matcher cannot directly move user funds.
 - **Upgradability:** matching logic can be upgraded without touching the custody path.
 - **Auditing:** smaller, focused programs are easier to audit thoroughly. ~5,900 LOC matcher is the largest; Core is comparable.
-- **Risk isolation:** each safety-stack layer (optimizer → insurance → ADL) is independently reachable, so a partial failure doesn't cascade.
+- **Risk isolation:** each safety-stack layer (optimizer → insurance → pause) is independently reachable, so a partial failure doesn't cascade.
 - **CPI direction is one-way:** Core → Matcher only. Matcher → Core is forbidden. Pyth is read-only (no CPI).
 
 ### CPI Relationships
@@ -273,7 +282,7 @@ Phase closes when dynamic criteria are met: `N_commitments >= N_min AND slot_age
 
 ### Phase 2: Revealing
 
-Users reveal `order_type, side, price, qty, salt, reduce_only`. Core verifies the hash matches the stored commitment. Reveal deadline is `T_reveal` slots after the commit phase closed. **Users who do not reveal are fully slashed** — the entire commitment deposit is credited to the insurance fund, and the order is excluded from the batch.
+Users reveal `order_type, side, price, qty, salt, reduce_only`. Core verifies the hash matches the stored commitment. Reveal deadline is `T_reveal` slots after the commit phase closed. **Users who do not reveal are slashed** — the order is excluded from the batch and the commitment is marked `Slashed`. Slashing is bookkeeping only (legacy commitments never move lamports), so it does not credit the insurance fund; the fund is fed by taker fees and `TopUp` (ADR 0003).
 
 **Pre-signed reveal relayer (short-batch mode):** the user signs `CommitOrder` and `RevealOrder` in one wallet action, hands the pre-signed reveal transaction to a permissionless relayer bot, and the relayer submits the reveal within 1 slot of commit confirmation. This eliminates slash risk from tight reveal windows when batches close in ~2–4s.
 
@@ -293,7 +302,7 @@ Users reveal `order_type, side, price, qty, salt, reduce_only`. Core verifies th
 
 - Commitment deposits returned to filled users (net of trading fees)
 - Maker rebates applied (maker_fee_bps is typically negative — rebate)
-- Slashed deposits from non-revealers credited to insurance fund
+- Slashed non-revealers are recorded in `batch.slashed_deposits`; no lamports move, so the fund is not credited
 - Funding accrual: mark price computed per instrument; `cum_funding` updated; funding payments applied to portfolios with positions
 - Next batch opens; book state carries over
 
@@ -414,37 +423,15 @@ Reduction fraction by urgency:
 
 ### Insurance Fund
 
-If liquidation produces a shortfall (losses exceed account collateral), the insurance fund absorbs the bad debt. **No liquidation fee is charged to traders** — the fund is the backstop, replenished by slashed commitment deposits and protocol fees.
+The insurance fund is the cash-backed counterparty to realized PnL (ADR 0003). Its lamports live in the vault PDA next to user collateral and are tracked by `Vault.insurance_fund`. A permissionless `TopUp` (26) adds lamports; `WithdrawInsuranceFund` (27) is governance-only and limited to the surplus above the required reserve of 0.4 x larger-side open interest. Taker fees flow into the fund. A loser's collection is capped at `min(owed, max(equity, 0))` (the loser never goes below zero collateral), so the fund pays any profit the collections do not cover.
 
-The fund tracks its own base/quote inventory separately (`insurance_base_reserves` and `insurance_quote_reserves` in the `Vault` struct) so the liquidation optimizer can prefer rebalancing sweep directions. Without inventory tracking, repeated liquidations in one direction can leave the fund one-sided. The rebalancing tiebreaker keeps the fund diversified without manual intervention.
+**Exposure limits.** 10 SOL per portfolio and 50 SOL open interest per side. **Risk-off.** An exposure-adding post or modify is refused unless `fund >= 0.4 x (larger-side OI + order quantity)`; closes, reduce-only orders, cancels, settlement, liquidation and withdrawals keep working.
 
-### Auto-Deleveraging (ADL)
+**Exhaustion.** If the fund and the loser's collateral cannot cover a winner's profit, the winner is credited in full, the unpaid amount is added to `uncovered_bad_debt`, and trading and withdrawals auto-pause. Every inflow repays debt first. `Unpause` (28) is governance-only, requires debt 0 and the reserve met, and resumes withdrawals before trading.
 
-ADL activates when (a) the insurance fund cannot cover the shortfall, OR (b) there is unfilled liquidation volume (insufficient book liquidity).
+**Vault invariant.** After every lamport move: `vault lamports - rent = total collateral + fund - uncovered_bad_debt`, with zero tolerance. A violation reverts the transaction (error 607).
 
-**Ranking:** profitable counterparties on the opposite side ranked by:
-
-```
-score = max(1, PnL)^w * leverage^(1-w)
-```
-
-`w` is a configurable bias parameter (default 0.5). Highest-PnL + highest-leverage counterparties are deleveraged first.
-
-**Allocation:** `ADL_size_i = total_shortfall * (score_i / sum(scores))`, closed at the deleveraged trader's entry price.
-
-### Full Safety Stack
-
-```
-Margin breach detected
-  → Liquidation Optimizer (hedge-preserving, IR-ranked)
-    → Market sweep against book
-      → Shortfall?
-        → No:  Done
-        → Yes: Insurance Fund absorbs loss
-          → Fund sufficient?
-            → Yes: Done
-            → No:  ADL — deleverage profitable counterparties
-```
+There is no liquidation fee charged to traders, and no auto-deleveraging.
 
 ### Toxic-Taker Detection
 
@@ -556,7 +543,7 @@ Low-latency read endpoints cached in memory. Frontend polls REST; WebSocket push
 | **Oracle staleness / manipulation** | Pyth pull + admin fallback; freshness threshold + confidence check; graceful degradation to depth-weighted book mid when oracle is stale |
 | **Commit-reveal slash risk** | Pre-signed reveal relayer eliminates user-side slash risk from tight reveal windows; relayer fee aligns incentives |
 | **BPF stack overflow** | Matcher BSS scratch buffers in `.data.S` link section; modular instruction decomposition (`ComputeClearing` / `ClearAndMatch` / `CancelResting` etc.) |
-| **Liquidation failure** | Permissionless liquidator + hedge-preserving optimizer + insurance fund + ADL; multi-keeper competition for liquidations |
+| **Liquidation failure** | Permissionless liquidator + hedge-preserving optimizer + insurance fund + auto-pause; multi-keeper competition for liquidations |
 
 ### Market Risks
 
@@ -614,9 +601,9 @@ Low-latency read endpoints cached in memory. Frontend polls REST; WebSocket push
 5. Market sweep: 7.5 SOL sell against the book. Book absorbs at $139.95 → $139.85 (slightly worse than top-of-book due to depth).
 6. Recompute gap. Still below. Iterate: another 25%. Book absorbs at $139.80.
 7. After 4 iterations Dave's position is fully reduced. Residual shortfall: $50 below Dave's collateral. **Insurance fund absorbs** the $50.
-8. ADL does NOT trigger because the insurance fund is sufficient.
+8. The pause does NOT trigger because the insurance fund is sufficient.
 
-**No liquidation fee charged to Dave.** Insurance fund replenished by protocol fees + slashed commitment deposits over time.
+**No liquidation fee charged to Dave.** Insurance fund replenished by protocol fees and permissionless top-ups over time.
 
 ### Example 4 — Cancel a resting order
 
@@ -637,7 +624,7 @@ Low-latency read endpoints cached in memory. Frontend polls REST; WebSocket push
 
 ### 2. Hedge-Preserving Safety Stack vs Global Haircut
 
-**Chosen: hedge-preserving optimizer + insurance + ADL.** Global haircut (e.g., Mars Protocol) charges all positions a flat haircut — simpler but inefficient for hedged portfolios. The optimizer only reduces positions that contribute to risk, preserving hedges.
+**Chosen: hedge-preserving optimizer + insurance + auto-pause.** Global haircut (e.g., Mars Protocol) charges all positions a flat haircut — simpler but inefficient for hedged portfolios. The optimizer only reduces positions that contribute to risk, preserving hedges.
 
 ### 3. Three-Program Separation vs Monolith
 
@@ -689,7 +676,7 @@ See `docs/ai/requirements/2026-06-18-feature-onchain-perps-dex.md` § Short-Batc
 ### Reliability
 
 - Permissionless keepers: any party can run them
-- Graceful degradation: oracle failure → depth-weighted book mid + Pyth fallback; book illiquidity → ADL
+- Graceful degradation: oracle failure → depth-weighted book mid + Pyth fallback; book illiquidity → liquidation takeover at the oracle price (ADR 0002)
 - All state is on-chain — no off-chain DB is a source of truth for trading
 
 ### Test Coverage

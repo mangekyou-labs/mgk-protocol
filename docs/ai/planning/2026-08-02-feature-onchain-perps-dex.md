@@ -113,7 +113,7 @@ updated: 2026-08-24
   - **Outcome:** `read_oracle_price` now returns `(price, timestamp, is_active)`. Funding accrual skips when oracle is stale (>600s) or inactive. Mark path unaffected (pure DFBA).
   - **Tests:** T-INDEX-FUNDING covered by existing funding_skip tests
 - [x] **T9.4.5** Insurance inventory fields ✅ 2026-08-06 (already implemented)
-  - **Outcome:** `Vault.insurance_fund` (u128) credited from taker fees + slashed deposits; `uncovered_bad_debt` (u128) tracks insurance shortfall; `adl_debt`/`adl_pending` for ADL tracking.
+  - **Outcome:** `Vault.insurance_fund` (u128) credited from taker fees + slashed deposits; `uncovered_bad_debt` (u128) tracks insurance shortfall; an ADL field (removed in issue #23)/an ADL field (removed in issue #23) for ADL tracking.
   - **Validation:** `settle_batch.rs:535-575` fee/rebate flow; `vault.rs` struct + helpers
   - **Tests:** Existing vault + settle tests cover insurance flow
 

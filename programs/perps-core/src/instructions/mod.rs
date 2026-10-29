@@ -21,7 +21,10 @@ pub mod set_instrument_fees;
 pub mod set_instrument_oracle;
 pub mod set_pause_flags;
 pub mod settle_batch;
+pub mod top_up;
+pub mod unpause;
 pub mod withdraw;
+pub mod withdraw_insurance_fund;
 
 pub use add_instrument::*;
 pub use cancel_all_resting_orders::*;
@@ -46,7 +49,10 @@ pub use set_instrument_fees::*;
 pub use set_instrument_oracle::*;
 pub use set_pause_flags::*;
 pub use settle_batch::*;
+pub use top_up::*;
+pub use unpause::*;
 pub use withdraw::*;
+pub use withdraw_insurance_fund::*;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,4 +110,12 @@ pub enum CoreInstruction {
     /// Resets last_funding_slot to prevent backfill.
     SetFundingParams = 24,
     InitializeBook = 25,
+    /// Permissionless transfer of lamports into the insurance fund (disc 26).
+    /// Repays uncovered bad debt first.
+    TopUp = 26,
+    /// Governance-only: withdraw fund surplus above the required reserve (disc 27).
+    WithdrawInsuranceFund = 27,
+    /// Governance-only: lift the exhaustion pause once debt is 0 and the
+    /// reserve is met; withdrawals resume before trading (disc 28).
+    Unpause = 28,
 }

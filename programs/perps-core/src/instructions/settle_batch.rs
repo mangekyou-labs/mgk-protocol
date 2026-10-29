@@ -100,6 +100,11 @@ pub fn process_settle_batch(
         .map_err(|_| MgkError::InvalidAccount)?;
     let batch_id = batch.batch_id;
     let results = mgk_common::matcher::unspent_results(&results_raw, batch_id)?;
+    // Settlement moves no lamports: fills, fees and payouts shuffle ledger
+    // balance and the fund. The vault backing must come out unchanged.
+    let flow = crate::collateral_flow::begin_vault_flow(vault_account, unsafe {
+        load_account::<Vault>(vault_account)?
+    })?;
     transition::settle(
         batch,
         instrument,
@@ -117,6 +122,11 @@ pub fn process_settle_batch(
         },
     )?;
     drop(results_raw);
+    crate::collateral_flow::verify_vault_flow(
+        vault_account,
+        unsafe { load_account::<Vault>(vault_account)? },
+        &flow,
+    )?;
     let mut data = [8u8; 9];
     data[1..].copy_from_slice(&batch_id.to_le_bytes());
     let metas = [
@@ -209,6 +219,12 @@ impl transition::Environment for RuntimeEnvironment<'_> {
         unsafe { load_account::<Registry>(self.registry_account)? };
         let data = unsafe { self.registry_account.borrow_mut_data_unchecked() };
         Registry::write_batch_id_counter(data, value);
+        Ok(())
+    }
+    fn pause_trading_and_withdrawals(&mut self) -> ProgramResult {
+        // The registry is writable for settlement (also used for the batch counter).
+        unsafe { load_account_mut::<Registry>(self.registry_account)? }
+            .pause_trading_and_withdrawals();
         Ok(())
     }
     fn next_batch_size(&self) -> usize {

@@ -11,9 +11,11 @@ use crate::instructions::{
     process_liquidate_user, process_modify_resting_order, process_post_order, process_reveal_order,
     process_set_batch_counter, process_set_batch_params, process_set_funding_params,
     process_set_instrument_fees, process_set_instrument_oracle, process_set_pause_flags,
-    process_settle_batch, process_withdraw, CoreInstruction,
+    process_settle_batch, process_top_up, process_unpause, process_withdraw,
+    process_withdraw_insurance_fund, CoreInstruction,
 };
 use crate::state::{Portfolio, Registry, Vault};
+use crate::matcher_cpi::{validate_registry, validate_vault};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 
 #[cfg(all(target_os = "solana", not(test)))]
@@ -57,6 +59,9 @@ pub fn process_instruction(
         23 => CoreInstruction::SetInstrumentOracle,
         24 => CoreInstruction::SetFundingParams,
         25 => CoreInstruction::InitializeBook,
+        26 => CoreInstruction::TopUp,
+        27 => CoreInstruction::WithdrawInsuranceFund,
+        28 => CoreInstruction::Unpause,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(MgkError::InvalidInstruction.into());
@@ -167,7 +172,122 @@ pub fn process_instruction(
             msg!("Instruction: SetFundingParams");
             process_set_funding_params_inner(program_id, accounts, &instruction_data[1..])
         }
+        CoreInstruction::TopUp => {
+            msg!("Instruction: TopUp");
+            process_top_up_inner(program_id, accounts, &instruction_data[1..])
+        }
+        CoreInstruction::WithdrawInsuranceFund => {
+            msg!("Instruction: WithdrawInsuranceFund");
+            process_withdraw_insurance_fund_inner(program_id, accounts, &instruction_data[1..])
+        }
+        CoreInstruction::Unpause => {
+            msg!("Instruction: Unpause");
+            process_unpause_inner(program_id, accounts, &instruction_data[1..])
+        }
     }
+}
+
+/// TopUp (disc 26) - permissionless insurance fund top-up.
+///
+/// Accounts:
+///   0. [signer, writable] Payer
+///   1. [writable]         Vault PDA
+///   2. []                 System program
+///
+/// Data: amount(8)
+fn process_top_up_inner(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    if accounts.len() < 3 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if data.len() < 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let payer_account = &accounts[0];
+    let vault_account = &accounts[1];
+    let system_program = &accounts[2];
+
+    validate_writable(payer_account)?;
+    validate_owner(vault_account, program_id)?;
+    validate_writable(vault_account)?;
+    validate_vault(program_id, vault_account)?;
+
+    let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
+    let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
+    process_top_up(payer_account, vault_account, vault, system_program, amount)
+}
+
+/// WithdrawInsuranceFund (disc 27) - governance-only surplus withdrawal.
+///
+/// Accounts:
+///   0. [writable]         Vault PDA
+///   1. []                 Registry PDA
+///   2. [signer, writable] Governance (receives the lamports)
+///
+/// Data: amount(8)
+fn process_withdraw_insurance_fund_inner(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    if accounts.len() < 3 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if data.len() < 8 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let vault_account = &accounts[0];
+    let registry_account = &accounts[1];
+    let governance_account = &accounts[2];
+
+    validate_owner(vault_account, program_id)?;
+    validate_writable(vault_account)?;
+    validate_owner(registry_account, program_id)?;
+    validate_writable(governance_account)?;
+    validate_vault(program_id, vault_account)?;
+    validate_registry(registry_account)?;
+
+    let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
+    let registry = unsafe { load_account::<Registry>(registry_account)? };
+    let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
+    process_withdraw_insurance_fund(vault_account, vault, registry, governance_account, amount)
+}
+
+/// Unpause (disc 28) - governance-only recovery from the exhaustion pause.
+///
+/// Accounts:
+///   0. [writable] Registry PDA
+///   1. []         Vault PDA
+///   2. [signer]   Governance
+///
+/// Data: resume_withdrawals(1) + resume_trading(1)
+fn process_unpause_inner(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    if accounts.len() < 3 {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    if data.len() < 2 {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let registry_account = &accounts[0];
+    let vault_account = &accounts[1];
+    let governance_account = &accounts[2];
+
+    validate_owner(registry_account, program_id)?;
+    validate_writable(registry_account)?;
+    validate_owner(vault_account, program_id)?;
+    validate_registry(registry_account)?;
+    validate_vault(program_id, vault_account)?;
+
+    let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
+    let vault = unsafe { load_account::<Vault>(vault_account)? };
+    process_unpause(registry, vault, governance_account, data[0] != 0, data[1] != 0)
 }
 
 /// DFBA PostOrder (disc 20).
@@ -179,6 +299,9 @@ pub fn process_instruction(
 /// 3. [] Registry
 /// 4. [writable] Book (matcher-owned)
 /// 5. [] Matcher program
+/// 6. [] Instrument PDA
+/// 7. [] Conversion oracle
+/// 8. [] Vault PDA
 ///
 /// Data: side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1) = 21
 fn process_post_order_inner(
@@ -186,7 +309,7 @@ fn process_post_order_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 8 {
+    if accounts.len() < 9 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 21 {
@@ -209,6 +332,7 @@ fn process_post_order_inner(
         &accounts[5],
         &accounts[6],
         &accounts[7],
+        &accounts[8],
         side,
         is_maker,
         price,
@@ -1090,6 +1214,8 @@ fn process_liquidate_user_inner(
     validate_owner(portfolio_account, program_id)?;
     validate_writable(portfolio_account)?;
     validate_owner(registry_account, program_id)?;
+    // Writable so an exhausted fund can pause trading and withdrawals.
+    validate_writable(registry_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
     validate_owner(batch_account, program_id)?;
@@ -1152,6 +1278,10 @@ fn process_cancel_resting_order_inner(
 /// 1. [signer, writable] User wallet
 /// 2. [writable] Book account (matcher-owned)
 /// 3. [] Matcher program
+/// 4. [] Registry
+/// 5. [] Instrument PDA
+/// 6. [] Conversion oracle
+/// 7. [] Vault PDA
 ///
 /// Data: order_id(8) + new_qty(8) = 16
 fn process_modify_resting_order_inner(
@@ -1159,7 +1289,7 @@ fn process_modify_resting_order_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 7 {
+    if accounts.len() < 8 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     if data.len() < 16 {
@@ -1183,6 +1313,7 @@ fn process_modify_resting_order_inner(
         &accounts[4],
         &accounts[5],
         &accounts[6],
+        &accounts[7],
         order_id,
         new_qty,
     )

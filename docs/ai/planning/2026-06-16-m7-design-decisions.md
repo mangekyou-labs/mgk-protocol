@@ -131,7 +131,7 @@ Implementation phases:
    - After each round, recompute `health`. If `health >= 0`, stop.
    - If still underwater after 5 rounds: full-flat remaining positions.
 3. **Insurance fund** — already implemented (`vault.insurance_fund` claimed when `equity < 0`).
-4. **ADL stub** — when `uncovered_bad_debt > 0` after insurance, set an `adl_pending: bool` flag on the Vault. Do not implement ADL counterparty deleveraging yet. A keeper can monitor this flag and trigger manual resolution (or we implement ADL as a follow-up).
+4. **ADL stub** — when `uncovered_bad_debt > 0` after insurance, set an an ADL field (removed in issue #23) flag on the Vault. Do not implement ADL counterparty deleveraging yet. A keeper can monitor this flag and trigger manual resolution (or we implement ADL as a follow-up).
 
 ### Post-MVP (not in 7.7):
 - Hedge-preserving detection (skip positions where closing increases margin requirement)
@@ -142,14 +142,14 @@ Implementation phases:
 **Why this works for pre-testnet:**
 - Iterative reduction prevents the worst case of full-flatting a hedged portfolio.
 - Oracle marking is already implemented and correct — it's just not capital-efficient.
-- The ADL stub ensures bad debt doesn't silently accumulate — the `adl_pending` flag makes it observable.
+- The ADL stub ensures bad debt doesn't silently accumulate — the an ADL field (removed in issue #23) flag makes it observable.
 - Market sweep via CPI during liquidation is architecturally tricky (the liquidation instruction would need to CPI to the matcher, which means liquidation needs to hold the book account writable). This is doable but adds CPI complexity that's not required for testnet.
 
 **Implementation notes:**
 - New instruction addition: `CancelCommitment` or batch-cancel all commitments for a user (or we handle this in liquidation by zeroing commitments in-place).
 - `LiquidateUser` currently takes: portfolio, registry, vault, liquidator, oracle_accounts. It will now also need the book account (writable) for CancelRestingOrder, or we skip book cleanup and just zero positions at oracle price.
 - For MVP, skip the book account in liquidation. Mark at oracle, reduce positions, claim insurance. Cancel resting orders via a separate `CancelAllRestingOrders` instruction called by the keeper before liquidation (or as step 0 of the liquidation flow).
-- ADL stub: add `adl_pending: bool` and `adl_debt: u128` to Vault.
+- ADL stub: add an ADL field (removed in issue #23) and an ADL field (removed in issue #23) to Vault.
 
 ---
 
