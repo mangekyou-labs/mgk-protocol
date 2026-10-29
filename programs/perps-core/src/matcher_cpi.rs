@@ -1,5 +1,5 @@
 //! Canonical matcher boundary. Every mutation uses the registry PDA signature.
-use crate::state::Registry;
+use crate::state::{Registry, Vault};
 use mgk_common::{book::OrderBook, layout::load_account, program_ids::PERPS_MATCHER_ID};
 use pinocchio::{
     account_info::AccountInfo,
@@ -18,6 +18,17 @@ pub fn validate_registry(registry: &AccountInfo) -> ProgramResult {
     }
     unsafe {
         load_account::<Registry>(registry)?;
+    }
+    Ok(())
+}
+/// The vault must be the program-owned `[b"vault"]` PDA: a look-alike vault
+/// account at another address is refused.
+pub fn validate_vault(program_id: &Pubkey, vault: &AccountInfo) -> ProgramResult {
+    if vault.owner() != program_id || vault.key() != &crate::pda::derive_vault_pda(program_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    unsafe {
+        load_account::<Vault>(vault)?;
     }
     Ok(())
 }

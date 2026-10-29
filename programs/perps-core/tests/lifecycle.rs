@@ -4929,3 +4929,81 @@ async fn test_e2e_exhaustion_pause_refuses_new_exposure_but_not_reduce_only() {
         .await
         .unwrap();
 }
+
+/// Assert that a failed transaction carries the given builtin instruction
+/// error, named as in its `Debug` form.
+fn assert_instruction_error(
+    result: Result<(), solana_program_test::BanksClientError>,
+    name: &str,
+) {
+    let error = result.expect_err("instruction must fail");
+    assert!(
+        format!("{error:?}").contains(&format!("InstructionError(0, {name})")),
+        "expected {name}, got {error:?}"
+    );
+}
+
+/// TopUp, WithdrawInsuranceFund and Unpause only accept the registry and vault
+/// PDAs. Program-owned look-alikes at other addresses (a decoy registry that
+/// names the attacker as governance, a decoy vault with no debt) are refused
+/// and nothing changes; the real accounts keep working.
+#[tokio::test]
+async fn test_e2e_top_up_withdraw_fund_and_unpause_reject_wrong_address_accounts() {
+    if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
+        eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
+        return;
+    }
+    let paused = PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT;
+    let (mut pt, pdas) = program_test_with_pdas();
+    let governance = Keypair::new();
+    let attacker = Keypair::new();
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), paused);
+    pt.add_account(pdas.vault, vault_account(0, 1_000_000_000, 0));
+    let decoy_vault = Pubkey::new_unique();
+    pt.add_account(decoy_vault, vault_account(0, 1_000_000_000, 0));
+    let decoy_registry = Pubkey::new_unique();
+    let with_decoy_registry = TestPdas { registry: decoy_registry, ..pdas };
+    let with_decoy_vault = TestPdas { vault: decoy_vault, ..pdas };
+    seed_governed_registry(&mut pt, &with_decoy_registry, &attacker.pubkey(), paused);
+    let mut ctx = pt.start_with_context().await;
+    let payer = ctx.payer.pubkey();
+    let gov = governance.pubkey();
+    let evil = attacker.pubkey();
+    let decoy_vault_lamports = vault_account(0, 1_000_000_000, 0).lamports;
+
+    // TopUp into a vault that is not the vault PDA.
+    assert_instruction_error(
+        submit(&mut ctx, top_up_ix(&payer, &decoy_vault, 1_000), &[]).await,
+        "InvalidSeeds",
+    );
+    assert_eq!(get_account(&mut ctx, &decoy_vault).await.lamports, decoy_vault_lamports);
+
+    // WithdrawInsuranceFund with an attacker-governed registry, or a decoy vault.
+    assert_instruction_error(
+        submit(&mut ctx, fund_withdraw_ix(&with_decoy_registry, &evil, 1_000), &[&attacker]).await,
+        "InvalidSeeds",
+    );
+    assert_instruction_error(
+        submit(&mut ctx, fund_withdraw_ix(&with_decoy_vault, &gov, 1_000), &[&governance]).await,
+        "InvalidSeeds",
+    );
+    read_vault(&mut ctx, &pdas).await.assert_balanced();
+
+    // Unpause against a decoy registry (attacker governance) or a decoy vault.
+    assert_instruction_error(
+        submit(&mut ctx, unpause_ix(&with_decoy_registry, &evil, true, false), &[&attacker]).await,
+        "InvalidSeeds",
+    );
+    assert_eq!(get_account(&mut ctx, &decoy_registry).await.data[R_PAUSE_FLAGS], paused);
+    assert_instruction_error(
+        submit(&mut ctx, unpause_ix(&with_decoy_vault, &gov, true, false), &[&governance]).await,
+        "InvalidSeeds",
+    );
+    assert_eq!(read_pause_flags(&mut ctx, &pdas).await, paused);
+
+    // The real accounts still work.
+    submit(&mut ctx, top_up_ix(&payer, &pdas.vault, 1_000), &[]).await.unwrap();
+    submit(&mut ctx, fund_withdraw_ix(&pdas, &gov, 1_000), &[&governance]).await.unwrap();
+    submit(&mut ctx, unpause_ix(&pdas, &gov, true, false), &[&governance]).await.unwrap();
+    assert_eq!(read_pause_flags(&mut ctx, &pdas).await, PAUSE_TRADING_BIT);
+}

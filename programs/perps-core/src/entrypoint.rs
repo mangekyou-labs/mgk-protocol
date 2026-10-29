@@ -15,6 +15,7 @@ use crate::instructions::{
     process_withdraw_insurance_fund, CoreInstruction,
 };
 use crate::state::{Portfolio, Registry, Vault};
+use crate::matcher_cpi::{validate_registry, validate_vault};
 use mgk_common::{validate_owner, validate_writable, MgkError};
 
 #[cfg(all(target_os = "solana", not(test)))]
@@ -212,6 +213,7 @@ fn process_top_up_inner(
     validate_writable(payer_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
+    validate_vault(program_id, vault_account)?;
 
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
@@ -245,6 +247,8 @@ fn process_withdraw_insurance_fund_inner(
     validate_writable(vault_account)?;
     validate_owner(registry_account, program_id)?;
     validate_writable(governance_account)?;
+    validate_vault(program_id, vault_account)?;
+    validate_registry(registry_account)?;
 
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
     let registry = unsafe { load_account::<Registry>(registry_account)? };
@@ -278,6 +282,8 @@ fn process_unpause_inner(
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
     validate_owner(vault_account, program_id)?;
+    validate_registry(registry_account)?;
+    validate_vault(program_id, vault_account)?;
 
     let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
     let vault = unsafe { load_account::<Vault>(vault_account)? };
