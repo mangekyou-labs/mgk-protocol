@@ -37,7 +37,7 @@ export function activeBatchIdFromCounter(batchIdCounter: bigint): bigint {
 }
 
 export function postOrderAccountCount(): number {
-  return 6;
+  return 9;
 }
 
 /** Match the wallet-adapter / web3.js error format for a custom program
@@ -128,11 +128,19 @@ export function usePostOrder() {
           config.bookAddress ??
           sdk.deriveBookPda(params.instrumentId, config.matcherProgramId)[0];
 
-        const [registryAcc, portfolioAcc, bookAcc] =
+        const [instrumentPda] = sdk.deriveInstrumentPda(
+          params.instrumentId,
+          config.coreProgramId,
+        );
+        const vaultPda =
+          config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+
+        const [registryAcc, portfolioAcc, bookAcc, instrumentAcc] =
           await connection.getMultipleAccountsInfo([
             registryPda,
             portfolioPda,
             bookPda,
+            instrumentPda,
           ]);
         if (!registryAcc) {
           throw new Error('Registry not found on-chain. Is the program deployed?');
@@ -148,6 +156,12 @@ export function usePostOrder() {
           );
         }
 
+        if (!instrumentAcc) {
+          throw new Error('Instrument not found on-chain.');
+        }
+        const oraclePda = sdk.state.readInstrumentOracle(
+          new Uint8Array(instrumentAcc.data),
+        );
         const registry = sdk.state.decodeRegistry(new Uint8Array(registryAcc.data));
         const { batchPda, batchId } = await resolveOpenBatch({
           connection,
@@ -171,6 +185,8 @@ export function usePostOrder() {
 
         // Accounts per process_post_order:
         // 0. portfolio  1. user  2. batch  3. registry  4. book  5. matcher
+        // 6. instrument  7. conversion oracle  8. vault (insurance fund for the
+        //    risk-off gate)
         const ix = new TransactionInstruction({
           keys: [
             { pubkey: portfolioPda, isSigner: false, isWritable: true },
@@ -179,6 +195,9 @@ export function usePostOrder() {
             { pubkey: registryPda, isSigner: false, isWritable: false },
             { pubkey: bookPda, isSigner: false, isWritable: true },
             { pubkey: config.matcherProgramId, isSigner: false, isWritable: false },
+            { pubkey: instrumentPda, isSigner: false, isWritable: false },
+            { pubkey: oraclePda, isSigner: false, isWritable: false },
+            { pubkey: vaultPda, isSigner: false, isWritable: false },
           ],
           programId: config.coreProgramId,
           data: Buffer.from(ixData),

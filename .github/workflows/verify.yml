@@ -61,6 +61,8 @@ jobs:
         run: |
           cargo build-sbf --tools-version v1.52
           node tools/runtime/candidate.js target/deploy "$MGK_CANDIDATE_MANIFEST"
+      - name: Perps-core lifecycle tests on the built SBF programs
+        run: BPF_OUT_DIR="$PWD/target/deploy" cargo test -p mgk-perps-core --test lifecycle --features host-hash
       - name: Harness contract tests
         run: node --test tools/runtime/harness.test.js tools/oracle-confidence.test.js
       - name: Signed runtime lifecycle and independent model assertions

@@ -33,6 +33,22 @@ const { publishedConfidence } = require('./oracle-sources');
 const { homedir } = require('os');
 const { join } = require('path');
 
+/** Mirror of `programs/oracle/src/state.rs` (PriceOracle, header layout). */
+const PRICE_ORACLE_SIZE = 128;
+const PRICE_ORACLE_DISCRIMINATOR = 9;
+const PRICE_ORACLE_LAYOUT_VERSION = 1;
+
+const SECRET_KEYS = [
+  'rpcUrl',
+  'RPC_URL',
+  'NEXT_PUBLIC_RPC_URL',
+  'keypairPath',
+  'keeperKeypair',
+  'secretKey',
+  'privateKey',
+  'apiKey',
+];
+
 // ---------------------------------------------------------------------------
 // Canonical program ID
 // ---------------------------------------------------------------------------
@@ -241,6 +257,109 @@ async function main() {
     await cycle();
   }
 }
+
+function decodePriceOracleAccount(buf) {
+  if (!buf || buf.length < PRICE_ORACLE_SIZE) {
+    const len = buf ? buf.length : 0;
+    throw new Error(
+      `decodePriceOracleAccount: buffer too small (${len} < ${PRICE_ORACLE_SIZE})`,
+    );
+  }
+
+  const discriminator = buf.readUInt8(0);
+  const layoutVersion = buf.readUInt8(1);
+  if (discriminator !== PRICE_ORACLE_DISCRIMINATOR) {
+    throw new Error(
+      `decodePriceOracleAccount: wrong discriminator ${discriminator}, expected ${PRICE_ORACLE_DISCRIMINATOR}`,
+    );
+  }
+  if (layoutVersion !== PRICE_ORACLE_LAYOUT_VERSION) {
+    throw new Error(
+      `decodePriceOracleAccount: unsupported layout version ${layoutVersion}, expected ${PRICE_ORACLE_LAYOUT_VERSION}`,
+    );
+  }
+
+  return {
+    discriminator,
+    layoutVersion,
+    bump: buf.readUInt8(9),
+    isActive: buf.readUInt8(10) !== 0,
+    authority: new PublicKey(buf.subarray(16, 48)),
+    instrument: new PublicKey(buf.subarray(48, 80)),
+    price: buf.readBigInt64LE(80),
+    timestamp: buf.readBigInt64LE(88),
+    confidence: buf.readBigInt64LE(96),
+  };
+}
+
+/** Warn at 3 consecutive post failures or 60s on-chain age; critical (and stop) at 10 / 600s. */
+function evaluateOracleHealth(snapshot) {
+  const s = snapshot || {};
+  const consecutiveFailures = s.consecutiveFailures || 0;
+  const onChainAgeSecs = s.onChainAgeSecs || 0;
+  const alerts = [];
+
+  if (consecutiveFailures >= 10) {
+    alerts.push({
+      metric: 'oracle_post_failures',
+      level: 'critical',
+      message: consecutiveFailures + ' consecutive oracle post failures',
+    });
+  } else if (consecutiveFailures >= 3) {
+    alerts.push({
+      metric: 'oracle_post_failures',
+      level: 'warning',
+      message: consecutiveFailures + ' consecutive oracle post failures',
+    });
+  }
+
+  if (onChainAgeSecs >= 600) {
+    alerts.push({
+      metric: 'oracle_staleness',
+      level: 'critical',
+      message: 'on-chain price age ' + onChainAgeSecs + 's',
+    });
+  } else if (onChainAgeSecs >= 60) {
+    alerts.push({
+      metric: 'oracle_staleness',
+      level: 'warning',
+      message: 'on-chain price age ' + onChainAgeSecs + 's',
+    });
+  }
+
+  let severity = 'ok';
+  for (const a of alerts) {
+    if (a.level === 'critical') severity = 'critical';
+    else if (a.level === 'warning' && severity !== 'critical') severity = 'warning';
+  }
+
+  return {
+    ok: severity !== 'critical',
+    severity,
+    alerts,
+    stopLoop: consecutiveFailures >= 10 || onChainAgeSecs >= 600,
+  };
+}
+
+function sanitizeHealthPayload(payload) {
+  const out = {};
+  if (!payload || typeof payload !== 'object') return out;
+  for (const [k, v] of Object.entries(payload)) {
+    if (SECRET_KEYS.includes(k)) continue;
+    if (/rpcurl|api-key|apikey|keypair|secret/i.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+module.exports = {
+  PRICE_ORACLE_SIZE,
+  PRICE_ORACLE_DISCRIMINATOR,
+  PRICE_ORACLE_LAYOUT_VERSION,
+  decodePriceOracleAccount,
+  evaluateOracleHealth,
+  sanitizeHealthPayload,
+};
 
 if (require.main === module) {
   main().catch(e => { console.error('Fatal:', e); process.exit(1); });

@@ -242,7 +242,7 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
     console.log('  Instrument not found — skipping');
     return;
   }
-  const oraclePda = new PublicKey(instInfo.data.slice(60, 92));
+  const oraclePda = new PublicKey(instInfo.data.slice(68, 100));
 
   console.log(`  Batch #${currentBatchId}: status=${batch.status} markValid=${batch.markValid} deadline=${batch.commitDeadlineSlot}`);
 

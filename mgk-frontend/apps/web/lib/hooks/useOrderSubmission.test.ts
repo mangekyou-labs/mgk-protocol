@@ -112,7 +112,7 @@ describe('devnet PostOrder account construction', () => {
     expect(() => activeBatchIdFromCounter(0n)).toThrow(/No active batch/i);
   });
 
-  it('includes six PostOrder accounts including the user signer', () => {
-    expect(postOrderAccountCount()).toBe(6);
+  it('includes nine PostOrder accounts: instrument, oracle and vault after the matcher', () => {
+    expect(postOrderAccountCount()).toBe(9);
   });
 });
