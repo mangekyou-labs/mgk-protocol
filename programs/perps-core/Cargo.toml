@@ -21,6 +21,7 @@ test-sbf = []
 host-hash = ["sha2"]
 
 [dev-dependencies]
+serde_json = "1"
 proptest = { workspace = true }
 solana-program-test.workspace = true
 solana-sdk.workspace = true

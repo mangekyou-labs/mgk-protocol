@@ -520,7 +520,7 @@ fn lamports(n: i128, d: i128, price: i64) -> Result<i128, ProgramError> {
     ))
 }
 
-fn apply_fill(
+pub(crate) fn apply_fill(
     p: &mut Portfolio,
     instrument_id: u16,
     qty: i64,

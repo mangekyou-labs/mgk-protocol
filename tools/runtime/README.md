@@ -152,11 +152,19 @@ by the runtime. Long grow/reduce arithmetic stress remains covered through the
 native transition seam; signed runtime coverage uses authenticated posted
 orders and matcher output.
 
-Other
-account layouts and instruction encodings remain version 1. Future protocol
+Other account layouts and instruction encodings remain version 1. Future protocol
 layout changes must update this adapter. This coverage does not complete the
-parent release gate (liquidation takeover is issue #24). All transactions are ephemeral
-local simulation; no external cluster is used. CI builds fresh SBF artifacts,
+parent release gate. The issue #24 takeover additionally runs in the real-SBF
+BanksClient lifecycle suite against `tools/gate/takeover_scenario.py`; it covers
+partial and full liquidation, opposite liquidator positions, fund exhaustion,
+10,000-lot compute bounds, oracle/account rejection and atomic cancellation
+rollback. Run it after rebuilding artifacts:
+
+```sh
+BPF_OUT_DIR="$PWD/target/deploy" cargo test -p mgk-perps-core --test lifecycle --all-features test_e2e_takeover -- --test-threads=1
+```
+
+All transactions use ephemeral local simulation; no external cluster is used. CI builds fresh SBF artifacts,
 records their hashes, runs these tests and uploads the candidate manifest and
 runtime report even when the smoke fails.
 

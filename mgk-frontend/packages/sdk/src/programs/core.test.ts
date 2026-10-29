@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CORE_INSTRUCTION,
+  buildLiquidateUser,
+  encodeLiquidateUser,
   MATCHER_INSTRUCTION,
   encodeCommitOrder,
   encodeDeposit,
@@ -314,5 +316,23 @@ describe('encodeRevealOrder', () => {
   it('encodes reduceOnly=true as byte 1', () => {
     const buf = encodeRevealOrder({ ...params, reduceOnly: true });
     expect(buf[4]).toBe(1);
+  });
+});
+
+
+describe('liquidation takeover instruction', () => {
+  it('requires one market and binds the signing liquidator and both portfolios', async () => {
+    const { PublicKey } = await import('@solana/web3.js');
+    const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
+    expect([...encodeLiquidateUser(1)]).toEqual([9, 1, 0]);
+    expect(() => encodeLiquidateUser(2)).toThrow();
+    const addresses = {victimPortfolio:key(1), registry:key(2), vault:key(3), liquidator:key(4), liquidatorPortfolio:key(5), instrument:key(6), oracle:key(7), book:key(8), matcher:key(9)};
+    const ix = buildLiquidateUser(key(10), addresses);
+    expect(ix.keys.map(meta => [meta.pubkey.toBase58(), meta.isSigner, meta.isWritable])).toEqual([
+      [key(1).toBase58(),false,true], [key(2).toBase58(),false,true], [key(3).toBase58(),false,true],
+      [key(4).toBase58(),true,false], [key(5).toBase58(),false,true], [key(6).toBase58(),false,false],
+      [key(7).toBase58(),false,false], [key(8).toBase58(),false,true], [key(9).toBase58(),false,false],
+    ]);
+    expect([...ix.data]).toEqual([9,1,0]);
   });
 });

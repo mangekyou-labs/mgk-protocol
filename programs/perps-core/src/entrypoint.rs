@@ -1188,47 +1188,28 @@ fn process_liquidate_user_inner(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if accounts.len() < 6 {
+    if accounts.len() != 9 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
-    if data.len() < 2 {
+    if data != 1u16.to_le_bytes() {
         return Err(ProgramError::InvalidInstructionData);
     }
-
-    let portfolio_account = &accounts[0];
-    let registry_account = &accounts[1];
-    let vault_account = &accounts[2];
-    let liquidator_account = &accounts[3];
-    let batch_account = &accounts[4];
-
-    let num_instruments = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;
-    let inst_end = 5usize
-        .checked_add(num_instruments)
-        .ok_or(ProgramError::InvalidInstructionData)?;
-    if accounts.len() < inst_end + 1 {
-        return Err(ProgramError::NotEnoughAccountKeys);
+    for i in [0usize, 1, 2, 4] {
+        validate_owner(&accounts[i], program_id)?;
+        validate_writable(&accounts[i])?;
     }
-    let instrument_accounts = &accounts[5..inst_end];
-    let oracle_account = &accounts[inst_end];
-
-    validate_owner(portfolio_account, program_id)?;
-    validate_writable(portfolio_account)?;
-    validate_owner(registry_account, program_id)?;
-    // Writable so an exhausted fund can pause trading and withdrawals.
-    validate_writable(registry_account)?;
-    validate_owner(vault_account, program_id)?;
-    validate_writable(vault_account)?;
-    validate_owner(batch_account, program_id)?;
-
+    validate_writable(&accounts[7])?;
     process_liquidate_user(
         program_id,
-        portfolio_account,
-        registry_account,
-        vault_account,
-        liquidator_account,
-        batch_account,
-        instrument_accounts,
-        oracle_account,
+        &accounts[0],
+        &accounts[1],
+        &accounts[2],
+        &accounts[3],
+        &accounts[4],
+        &accounts[5],
+        &accounts[6],
+        &accounts[7],
+        &accounts[8],
     )
 }
 

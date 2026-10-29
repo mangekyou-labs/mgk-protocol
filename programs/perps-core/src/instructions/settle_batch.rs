@@ -1,4 +1,4 @@
-mod transition;
+pub(crate) mod transition;
 
 use crate::state::batch::{Batch, BatchStatus, Commitment};
 use crate::state::instrument::Instrument;
