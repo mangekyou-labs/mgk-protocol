@@ -209,7 +209,7 @@ async function main() {
     console.error('Instrument not found. Run init-protocol.js first.');
     process.exit(1);
   }
-  const oraclePda = new PublicKey(instInfo.data.slice(60, 92));
+  const oraclePda = new PublicKey(instInfo.data.slice(68, 100));
 
   // Ensure book is matcher-owned and large enough.
   async function ensureBook() {

@@ -354,7 +354,7 @@ async function main() {
   //   Bid auction: maker-buy × taker-sell @ PRICE
   //   Ask auction: maker-sell × taker-buy @ PRICE
   const instInfo = await conn.getAccountInfo(instPda);
-  const oraclePda = new PublicKey(instInfo.data.slice(60, 92));
+  const oraclePda = new PublicKey(instInfo.data.slice(68, 100));
   const posts = [
     [maker, makerPort, SIDE_BUY, true, 'maker-buy'],
     [taker, takerPort, SIDE_SELL, false, 'taker-sell'],

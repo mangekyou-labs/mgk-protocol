@@ -29,10 +29,16 @@ export interface OpenOrdersProps {
 
 const CU_LIMIT = 200_000;
 
+/**
+ * Cancel takes [portfolio, user, book, matcher, registry]. ModifyResting also
+ * needs [instrument, conversion oracle, vault] for the risk-off gate, passed as
+ * `extraKeys`.
+ */
 function buildCancelOrModifyIx(
   ixData: Uint8Array,
   publicKey: PublicKey,
   instrumentId: number,
+  extraKeys: PublicKey[] = [],
 ): TransactionInstruction {
   const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId);
   const bookPda =
@@ -45,6 +51,7 @@ function buildCancelOrModifyIx(
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: config.matcherProgramId, isSigner: false, isWritable: false },
       { pubkey: sdk.deriveRegistryPda(config.coreProgramId)[0], isSigner: false, isWritable: false },
+      ...extraKeys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })),
     ],
     programId: config.coreProgramId,
     data: Buffer.from(ixData),
@@ -130,7 +137,16 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
       setBusyOrderId(orderId);
       try {
         const ixData = sdk.programs.encodeModifyRestingOrder(orderId, newQty);
-        const ix = buildCancelOrModifyIx(ixData, publicKey, instrumentId);
+        const [instrumentPda] = sdk.deriveInstrumentPda(instrumentId, config.coreProgramId);
+        const instrumentAcc = await connection.getAccountInfo(instrumentPda);
+        if (!instrumentAcc) throw new Error('Instrument not found on-chain.');
+        const oraclePda = sdk.state.readInstrumentOracle(new Uint8Array(instrumentAcc.data));
+        const vaultPda = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+        const ix = buildCancelOrModifyIx(ixData, publicKey, instrumentId, [
+          instrumentPda,
+          oraclePda,
+          vaultPda,
+        ]);
         const tx = new Transaction().add(
           ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
           ix,

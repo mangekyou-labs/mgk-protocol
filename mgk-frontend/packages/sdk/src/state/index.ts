@@ -39,3 +39,4 @@ export { decodeCommitment, decodeRevealedOrder } from './commitment.js';
 export { decodePortfolio, decodePosition } from './portfolio.js';
 export { decodeBookHeader, decodeRestingOrder, decodeRestingOrders } from './book.js';
 export { decodeRegistry } from './registry.js';
+export { INSTRUMENT_ORACLE_OFFSET, readInstrumentOracle } from './instrument.js';
