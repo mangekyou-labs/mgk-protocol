@@ -844,9 +844,23 @@ async fn submit_cu(
 /// E2E: DFBA dual-clear lifecycle with PostOrder (disc 20).
 #[tokio::test]
 async fn test_e2e_full_lifecycle_with_fill() {
+    full_lifecycle_with_fill(0).await;
+}
+
+/// A trading pause blocks only new exposure: with TRADING and WITHDRAWALS
+/// paused after the orders are posted, close, clear and settle still run and
+/// produce the same fills, fees and balances as the unpaused lifecycle.
+#[tokio::test]
+async fn test_e2e_trading_pause_does_not_block_close_clear_and_settle() {
+    full_lifecycle_with_fill(PAUSE_TRADING_BIT | PAUSE_WITHDRAWALS_BIT).await;
+}
+
+/// Run the full close -> clear -> settle lifecycle, setting `pause_flags` on
+/// the registry once the orders are posted.
+async fn full_lifecycle_with_fill(pause_flags: u8) {
     if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
         eprintln!(
-            "skipping test_e2e_full_lifecycle_with_fill: \
+            "skipping full_lifecycle_with_fill: \
              set BPF_OUT_DIR=target/deploy to enable"
         );
         return;
@@ -1013,6 +1027,12 @@ async fn test_e2e_full_lifecycle_with_fill() {
     )
     .await
     .unwrap();
+
+    if pause_flags != 0 {
+        let mut registry = get_account(&mut ctx, &pdas.registry).await;
+        registry.data[R_PAUSE_FLAGS] = pause_flags;
+        ctx.set_account(&pdas.registry, &registry.into());
+    }
 
     // Close collecting → Clearing (n_min=5 in init; 4 posts → warp past deadline).
     let clock = ctx

@@ -5,7 +5,7 @@ use pinocchio::pubkey::Pubkey;
 ///
 /// | Bit  | Name                  | Effect                                                |
 /// |------|-----------------------|-------------------------------------------------------|
-/// | 0    | `trading_paused`      | Blocks `CommitOrder`, `RevealOrder`                   |
+/// | 0    | `trading_paused`      | Blocks new exposure: non-reduce-only `PostOrder`/`ModifyRestingOrder`. Clear, settle, cancel, reduce-only and liquidation keep working |
 /// | 1    | `withdrawals_paused`  | Blocks `Withdraw` (deposits stay open — user safety)  |
 /// | 2    | `liquidations_paused` | Blocks `LiquidateUser`                                |
 /// | 3    | `funding_paused`      | Skips funding accrual step in `SettleBatch`           |
