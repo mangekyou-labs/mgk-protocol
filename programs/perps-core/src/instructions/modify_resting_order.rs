@@ -16,7 +16,7 @@ pub const MATCHER_MODIFY_RESTING: u8 = 2;
 /// 4. [] Registry
 /// 5. [] Instrument PDA
 /// 6. [] Conversion oracle
-/// 7. [] Vault PDA (caps and risk-off gate for quantity increases)
+/// 7. [] Vault PDA (exposure limits and risk-off gate for quantity increases)
 ///
 /// Data: order_id(8) + new_qty(8)
 #[allow(clippy::too_many_arguments)]
@@ -79,7 +79,7 @@ pub fn process_modify_resting_order(
             new_qty - order.remaining_qty,
         )
         .inspect_err(|_| {
-            msg!("Error: exposure caps or risk-off reserve exceeded");
+            msg!("Error: exposure limit or risk-off reserve exceeded");
         })?;
     }
     crate::risk::release(portfolio, index, order.remaining_qty)?;

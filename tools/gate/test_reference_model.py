@@ -190,7 +190,7 @@ class InsuranceFundLimitTests(unittest.TestCase):
         self.assertEqual(ledger.open_interest(), (500, 600))
         self.assertEqual(ledger.reserve_requirement(), Ledger.required_reserve(600))
 
-    def test_position_cap_is_ten_sol_per_portfolio(self):
+    def test_portfolio_exposure_limit_is_ten_sol(self):
         ledger = Ledger(fund_lamports=1_000_000_000_000, collateral={"A": 10_000_000_000})
         ledger.check_post("A", 10_000)
         ledger.check_post("A", -10_000)
@@ -207,7 +207,7 @@ class InsuranceFundLimitTests(unittest.TestCase):
         # Reducing is never an exposure add.
         ledger.check_post("A", -9_000, reduce_only=True)
 
-    def test_open_interest_cap_is_fifty_sol_per_side(self):
+    def test_market_exposure_limit_is_fifty_sol_per_side(self):
         ledger = _balanced_book(fund=1_000_000_000_000, per_side_accounts=4, lots=10_000)
         self.assertEqual(ledger.open_interest(), (40_000, 40_000))
         ledger.apply_fill(Fill("L4", 9_999, 100_000_000, 100_000_000, True))

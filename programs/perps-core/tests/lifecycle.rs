@@ -4017,7 +4017,7 @@ async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
 }
 
 // ---------------------------------------------------------------------------
-// Issue #23: cash-backed insurance fund, caps, risk-off, exhaustion, recovery
+// Issue #23: cash-backed insurance fund, exposure limits, risk-off, exhaustion, recovery
 // ---------------------------------------------------------------------------
 
 const R_PAUSE_FLAGS: usize = offset_of!(Registry, pause_flags);
@@ -4768,9 +4768,9 @@ async fn test_e2e_winner_withdraws_profit_before_the_loser_closes() {
     read_vault(&mut ctx, &pdas).await.assert_balanced();
 }
 
-/// Acceptance 2: position cap, open interest cap and the risk-off rule.
+/// Acceptance 2: portfolio and market exposure limits and the risk-off rule.
 #[tokio::test]
-async fn test_e2e_caps_and_risk_off_gate_exposure_adding_posts_and_modifies() {
+async fn test_e2e_exposure_limits_and_risk_off_gate_exposure_adding_posts_and_modifies() {
     if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
         eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
         return;
@@ -4821,13 +4821,13 @@ async fn test_e2e_caps_and_risk_off_gate_exposure_adding_posts_and_modifies() {
 }
 
 #[tokio::test]
-async fn test_e2e_position_cap_and_open_interest_cap_reject_oversized_posts() {
+async fn test_e2e_exposure_limits_reject_oversized_posts() {
     if std::env::var("BPF_OUT_DIR").is_err() && std::env::var("SBF_OUT_DIR").is_err() {
         eprintln!("skipping: set BPF_OUT_DIR to freshly built SBF programs");
         return;
     }
     // 10 SOL per portfolio is 10_000 lots; 50 SOL per side is 50_000 lots.
-    // The fund covers the reserve so only the caps can refuse.
+    // The fund covers the reserve so only the exposure limits can refuse.
     let vault = with_open_interest(
         vault_account(100_000_000, reserve_for(60_000), 0),
         49_999,
@@ -4842,12 +4842,12 @@ async fn test_e2e_position_cap_and_open_interest_cap_reject_oversized_posts() {
             &[&user],
         )
         .await,
-        mgk_common::MgkError::PositionCapExceeded,
+        mgk_common::MgkError::PortfolioExposureLimitExceeded,
     );
-    // One lot past the 50_000 lot side cap, well inside the position cap.
+    // One lot past the 50_000 lot side limit, well inside the portfolio limit.
     assert_custom(
         submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 0, 2, false), &[&user]).await,
-        mgk_common::MgkError::OpenInterestCapExceeded,
+        mgk_common::MgkError::MarketExposureLimitExceeded,
     );
     // The other side has room.
     submit(&mut ctx, gate_post_ix(&pdas, &me, &up, &oracle, 1, 2, false), &[&user])

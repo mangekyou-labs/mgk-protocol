@@ -94,7 +94,7 @@ issue #23 acceptance flow against the Python reference ledger: a winner
 withdraws realized profit (paid in cash from the fund) while its loser is still
 open; governance withdraws exactly the fund surplus above 0.4 x larger-side
 open interest (rejecting surplus + 1 with 611 and a non-governance signer with
-7); the 10 SOL position cap (608), the 50 SOL open-interest cap (609, the vault
+7); the 10 SOL portfolio exposure limit (608), the 50 SOL per-side market exposure limit (609, the vault
 open-interest counter is patched to 49_999 and then restored) and risk-off
 (610) reject exposure-adding posts while reduce-only posts and withdrawals
 still simulate successfully; an exhaustion settlement (fill above the post-time

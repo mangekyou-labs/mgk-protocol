@@ -544,7 +544,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   ], 100_000_000, [750, 250, 750, 250]);
   assert.deepEqual(model.positions, {}, 'both sides remain flat after clipping 1500 tentative lots to1000');
 
-  // ---- Issue 23: cash-backed insurance fund, caps, risk-off, exhaustion and recovery ----
+  // ---- Issue 23: cash-backed insurance fund, exposure limits, risk-off, exhaustion and recovery ----
   const CLOCK = new PublicKey('SysvarC1ock11111111111111111111111111111111');
   const freshOracle = async price => runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price, publishTime: Number((await runtime.account(CLOCK)).data.readBigInt64LE(32)), confidence: 12 });
@@ -608,13 +608,13 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   await assertModel('fund withdrawn down to the required reserve');
   assert.equal(model.fund, model.reserve, 'fund sits exactly at the reserve');
 
-  // Acceptance 2: caps and risk-off. The fund equals the reserve, so any exposure-adding post is refused.
+  // Acceptance 2: exposure limits and risk-off. The fund equals the reserve, so any exposure-adding post is refused.
   const postAddresses = [nextBatch, portfolios[0][0], vault, book];
-  await rejectUnchanged('position cap: 10 SOL per portfolio', [postIx(0, { qty: 10_001 })], [payer, maker], postAddresses, 608);
+  await rejectUnchanged('portfolio exposure limit: 10 SOL', [postIx(0, { qty: 10_001 })], [payer, maker], postAddresses, 608);
   const cleanVault = await runtime.account(vault);
   const patchedVault = Buffer.from(cleanVault.data); patchedVault.writeBigUInt64LE(49_999n, 48);
   await runtime.setAccount(vault, { owner: CORE, data: patchedVault, lamports: Number(cleanVault.lamports) });
-  await rejectUnchanged('open interest cap: 50 SOL per side', [postIx(0, { qty: 2 })], [payer, maker], postAddresses, 609);
+  await rejectUnchanged('market exposure limit: 50 SOL per side', [postIx(0, { qty: 2 })], [payer, maker], postAddresses, 609);
   await runtime.setAccount(vault, { owner: CORE, data: cleanVault.data, lamports: Number(cleanVault.lamports) });
   await rejectUnchanged('risk-off: fund below 0.4 x (larger-side OI + order quantity)', [postIx(0, { qty: 1 })],
     [payer, maker], postAddresses, 610);
@@ -622,7 +622,7 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   await simulateOk('risk-off still accepts reduce-only closes',
     [postIx(2, { side: 1, qty: 1, reduceOnly: true, price: 110_000_000 })], [payer, carol]);
   await simulateOk('risk-off still accepts withdrawals', [withdrawIx(0, 1)], [payer, maker]);
-  await assertModel('caps and risk-off left no state change');
+  await assertModel('exposure limits and risk-off left no state change');
 
   // Acceptance 3: exhaustion. The fill price is above the post-time oracle and the oracle then drops, so the
   // lamport value of the loser's realized loss exceeds its whole collateral and the winner's gain exceeds fund plus collection.

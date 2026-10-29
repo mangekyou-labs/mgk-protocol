@@ -4,9 +4,9 @@ use mgk_common::MgkError;
 /// Required reserve per lot of larger-side open interest: 0.4 x 0.001 SOL.
 pub const RESERVE_LAMPORTS_PER_LOT: u128 = 400_000;
 /// Max absolute position per portfolio: 10 SOL in 0.001 SOL lots.
-pub const POSITION_CAP_LOTS: u64 = 10_000;
+pub const PORTFOLIO_EXPOSURE_LIMIT_LOTS: u64 = 10_000;
 /// Max open interest per side: 50 SOL in 0.001 SOL lots.
-pub const OPEN_INTEREST_CAP_LOTS: u64 = 50_000;
+pub const MARKET_EXPOSURE_LIMIT_LOTS: u64 = 50_000;
 
 /// Vault accounting ledger (ADR 0003).
 ///
@@ -257,10 +257,10 @@ impl Vault {
         }
     }
 
-    /// Caps and risk-off gate for an exposure-adding post or modify.
+    /// Exposure limits and risk-off gate for an exposure-adding post or modify.
     /// `held` is the portfolio's signed position, `resting_same_side` the
     /// quantity already resting on the order's side. Checks, in order: the
-    /// 10 SOL position cap, the 50 SOL per-side open-interest cap, then the
+    /// 10 SOL portfolio exposure limit, the 50 SOL per-side market exposure limit, then the
     /// risk-off rule (fund >= 0.4 x (larger side + order quantity)).
     pub fn check_exposure_order(
         &self,
@@ -272,8 +272,8 @@ impl Vault {
         let worst_case_added = (resting_same_side as i128) + (quantity as i128);
         let signed_added = if is_buy { worst_case_added } else { -worst_case_added };
         let exposure = (held as i128) + signed_added;
-        if exposure.unsigned_abs() > POSITION_CAP_LOTS as u128 {
-            return Err(MgkError::PositionCapExceeded);
+        if exposure.unsigned_abs() > PORTFOLIO_EXPOSURE_LIMIT_LOTS as u128 {
+            return Err(MgkError::PortfolioExposureLimitExceeded);
         }
         let side_oi = if is_buy {
             self.open_interest_long
@@ -281,8 +281,8 @@ impl Vault {
             self.open_interest_short
         };
         let side_after = (side_oi as u128) + (quantity as u128);
-        if side_after > OPEN_INTEREST_CAP_LOTS as u128 {
-            return Err(MgkError::OpenInterestCapExceeded);
+        if side_after > MARKET_EXPOSURE_LIMIT_LOTS as u128 {
+            return Err(MgkError::MarketExposureLimitExceeded);
         }
         let larger = self.open_interest_long.max(self.open_interest_short) as u128;
         if self.insurance_fund < Self::reserve_for(larger + quantity as u128) {
@@ -528,45 +528,45 @@ mod tests {
     }
 
     #[test]
-    fn test_position_cap_is_ten_sol_per_portfolio() {
+    fn test_portfolio_exposure_limit_is_ten_sol() {
         let v = vault(0, u128::MAX / 4, 0);
         assert_eq!(v.check_exposure_order(true, 10_000, 0, 0), Ok(()));
         assert_eq!(
             v.check_exposure_order(true, 10_001, 0, 0),
-            Err(MgkError::PositionCapExceeded)
+            Err(MgkError::PortfolioExposureLimitExceeded)
         );
         assert_eq!(
             v.check_exposure_order(false, 10_001, 0, 0),
-            Err(MgkError::PositionCapExceeded)
+            Err(MgkError::PortfolioExposureLimitExceeded)
         );
         assert_eq!(v.check_exposure_order(true, 1_000, 9_000, 0), Ok(()));
         assert_eq!(
             v.check_exposure_order(true, 1_001, 9_000, 0),
-            Err(MgkError::PositionCapExceeded)
+            Err(MgkError::PortfolioExposureLimitExceeded)
         );
         // Same-side resting exposure counts toward the worst case.
         assert_eq!(v.check_exposure_order(true, 600, 9_000, 400), Ok(()));
         assert_eq!(
             v.check_exposure_order(true, 600, 9_000, 401),
-            Err(MgkError::PositionCapExceeded)
+            Err(MgkError::PortfolioExposureLimitExceeded)
         );
-        // A short may buy back into the cap without tripping it.
+        // A short may buy back into the limit without tripping it.
         assert_eq!(v.check_exposure_order(true, 10_000, -10_000, 0), Ok(()));
     }
 
     #[test]
-    fn test_open_interest_cap_is_fifty_sol_per_side() {
+    fn test_market_exposure_limit_is_fifty_sol_per_side() {
         let mut v = vault(0, u128::MAX / 4, 0);
         v.open_interest_long = 49_999;
         v.open_interest_short = 49_999;
         assert_eq!(v.check_exposure_order(true, 1, 0, 0), Ok(()));
         assert_eq!(
             v.check_exposure_order(true, 2, 0, 0),
-            Err(MgkError::OpenInterestCapExceeded)
+            Err(MgkError::MarketExposureLimitExceeded)
         );
         assert_eq!(
             v.check_exposure_order(false, 2, 0, 0),
-            Err(MgkError::OpenInterestCapExceeded)
+            Err(MgkError::MarketExposureLimitExceeded)
         );
     }
 

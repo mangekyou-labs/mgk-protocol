@@ -416,7 +416,7 @@ Reduction fraction by urgency:
 
 The insurance fund is the cash-backed counterparty to realized PnL (ADR 0003). Its lamports live in the vault PDA next to user collateral and are tracked by `Vault.insurance_fund`. A permissionless `TopUp` (26) adds lamports; `WithdrawInsuranceFund` (27) is governance-only and limited to the surplus above the required reserve of 0.4 x larger-side open interest. Taker fees flow into the fund. A loser's collection is capped at `min(owed, max(equity, 0))` (the loser never goes below zero collateral), so the fund pays any profit the collections do not cover.
 
-**Caps.** 10 SOL per portfolio and 50 SOL open interest per side. **Risk-off.** An exposure-adding post or modify is refused unless `fund >= 0.4 x (larger-side OI + order quantity)`; closes, reduce-only orders, cancels, settlement, liquidation and withdrawals keep working.
+**Exposure limits.** 10 SOL per portfolio and 50 SOL open interest per side. **Risk-off.** An exposure-adding post or modify is refused unless `fund >= 0.4 x (larger-side OI + order quantity)`; closes, reduce-only orders, cancels, settlement, liquidation and withdrawals keep working.
 
 **Exhaustion.** If the fund and the loser's collateral cannot cover a winner's profit, the winner is credited in full, the shortfall is added to `uncovered_bad_debt`, and trading and withdrawals auto-pause. Every inflow repays debt first. `Unpause` (28) is governance-only, requires debt 0 and the reserve met, and resumes withdrawals before trading.
 

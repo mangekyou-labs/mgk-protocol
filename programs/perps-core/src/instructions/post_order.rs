@@ -23,7 +23,7 @@ pub(crate) fn resting_exposure_adding(portfolio: &Portfolio, instrument_id: u16,
         .fold(0u64, |acc, o| acc.saturating_add(o.remaining_qty))
 }
 
-/// Position cap, open-interest cap and risk-off gate for an order that may
+/// Portfolio exposure limit, market exposure limit and risk-off gate for an order that may
 /// add `added_qty` lots of exposure. Callers skip reduce-only orders.
 pub(crate) fn check_added_exposure(
     vault: &Vault,
@@ -50,7 +50,7 @@ pub(crate) fn check_added_exposure(
 /// 5. [] Matcher program
 /// 6. [] Instrument PDA
 /// 7. [] Conversion oracle
-/// 8. [] Vault PDA (position cap, open-interest cap and risk-off gate)
+/// 8. [] Vault PDA (portfolio and market exposure limits and risk-off gate)
 ///
 /// Data:
 ///   side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1)
@@ -147,7 +147,7 @@ pub fn process_post_order(
     if !reduce_only {
         let vault = unsafe { load_account::<Vault>(vault_account)? };
         check_added_exposure(vault, portfolio, instrument_id, side, qty).inspect_err(|_| {
-            msg!("Error: exposure caps or risk-off reserve exceeded");
+            msg!("Error: exposure limit or risk-off reserve exceeded");
         })?;
     }
 
@@ -220,13 +220,13 @@ mod tests {
         p.positions[0] = Position { instrument_id: 0, qty: 9_000, ..Position::default() };
         p.positions_len = 1;
         p.orders[0] = resting(1, 0, 400, 0);
-        // 9_000 held + 400 resting + 600 new = 10_000: at the cap.
+        // 9_000 held + 400 resting + 600 new = 10_000: at the limit.
         assert_eq!(check_added_exposure(&vault, &p, 0, 0, 600), Ok(()));
         assert_eq!(
             check_added_exposure(&vault, &p, 0, 0, 601),
-            Err(MgkError::PositionCapExceeded)
+            Err(MgkError::PortfolioExposureLimitExceeded)
         );
-        // The opposite side reduces the long and is not capped by the resting buy.
+        // The opposite side reduces the long and is not limited by the resting buy.
         assert_eq!(check_added_exposure(&vault, &p, 0, 1, 5_000), Ok(()));
     }
 
@@ -243,13 +243,13 @@ mod tests {
     }
 
     #[test]
-    fn exposure_gate_applies_open_interest_cap_and_risk_off() {
+    fn exposure_gate_applies_market_exposure_limit_and_risk_off() {
         let mut vault = flush_vault();
         vault.open_interest_long = 49_999;
         let p = Portfolio::new(Pubkey::from([1u8; 32]));
         assert_eq!(
             check_added_exposure(&vault, &p, 0, 0, 2),
-            Err(MgkError::OpenInterestCapExceeded)
+            Err(MgkError::MarketExposureLimitExceeded)
         );
         let mut thin = Vault::new();
         thin.open_interest_long = 20_000;

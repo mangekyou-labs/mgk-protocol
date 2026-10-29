@@ -11,4 +11,4 @@ Converting each trader's realized USD PnL at its own conversion price (ADR 0001)
 
 ## Consequences
 
-The demo needs real seed capital and small exposure limits: 20 devnet SOL backs a 10 SOL per-portfolio cap and a 50 SOL per-side open-interest cap. Setting `insurance_fund` to a number no longer counts as funding. After every instruction that moves lamports, the program checks `vault lamports − rent = total collateral + fund − uncovered bad debt`.
+The demo needs real seed capital and small exposure limits: 20 devnet SOL backs a 10 SOL per-portfolio exposure limit and a 50 SOL per-side market exposure limit. Setting `insurance_fund` to a number no longer counts as funding. After every instruction that moves lamports, the program checks `vault lamports − rent = total collateral + fund − uncovered bad debt`.
