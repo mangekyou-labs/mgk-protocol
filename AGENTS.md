@@ -58,7 +58,7 @@ Tests are inline in `#[cfg(test)] mod tests` blocks within instruction/state sou
 
 ```sh
 cargo test -p mgk-perps-matcher      # 130 tests + 1 ignored
-cargo test -p mgk-perps-core         # 279 lib tests (282 with --all-features) + 24 lifecycle (20 run, 4 ignored for CU)
+cargo test -p mgk-perps-core         # 280 lib tests (283 with --all-features) + 24 lifecycle (20 run, 4 ignored for CU)
 cargo test -p mgk-oracle           # 9 tests
 cargo test -p mgk-common           # 71 tests
 cargo test -p mgk-deployment       # 20 tests
