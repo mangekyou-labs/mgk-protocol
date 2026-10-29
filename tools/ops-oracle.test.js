@@ -14,7 +14,8 @@ const {
 } = require('./oracle-sources');
 const {
   PRICE_ORACLE_SIZE,
-  PRICE_ORACLE_MAGIC,
+  PRICE_ORACLE_DISCRIMINATOR,
+  PRICE_ORACLE_LAYOUT_VERSION,
   decodePriceOracleAccount,
   evaluateOracleHealth,
   sanitizeHealthPayload,
@@ -261,8 +262,8 @@ test('fetchAllAndAggregate handles mixed venue failures gracefully', async () =>
 
 test('decodePriceOracleAccount correctly unpacks 128-byte layout', () => {
   const buf = Buffer.alloc(PRICE_ORACLE_SIZE);
-  buf.writeBigUInt64LE(PRICE_ORACLE_MAGIC, 0); // magic
-  buf.writeUInt8(0, 8); // version
+  buf.writeUInt8(PRICE_ORACLE_DISCRIMINATOR, 0); // header: discriminator
+  buf.writeUInt8(PRICE_ORACLE_LAYOUT_VERSION, 1); // header: layout version
   buf.writeUInt8(5, 9); // bump
   buf.writeUInt8(1, 10); // isActive = true
 
@@ -276,8 +277,8 @@ test('decodePriceOracleAccount correctly unpacks 128-byte layout', () => {
   buf.writeBigInt64LE(50_000n, 96); // confidence
 
   const decoded = decodePriceOracleAccount(buf);
-  assert.equal(decoded.magic, PRICE_ORACLE_MAGIC);
-  assert.equal(decoded.version, 0);
+  assert.equal(decoded.discriminator, PRICE_ORACLE_DISCRIMINATOR);
+  assert.equal(decoded.layoutVersion, PRICE_ORACLE_LAYOUT_VERSION);
   assert.equal(decoded.bump, 5);
   assert.equal(decoded.isActive, true);
   assert.equal(decoded.authority.toBuffer().toString('hex'), authority.toString('hex'));
@@ -285,6 +286,22 @@ test('decodePriceOracleAccount correctly unpacks 128-byte layout', () => {
   assert.equal(decoded.price, 87_500_000n);
   assert.equal(decoded.timestamp, 1_700_000_000n);
   assert.equal(decoded.confidence, 50_000n);
+});
+
+test('decodePriceOracleAccount rejects a wrong discriminator, version and short buffer', () => {
+  const good = Buffer.alloc(PRICE_ORACLE_SIZE);
+  good.writeUInt8(PRICE_ORACLE_DISCRIMINATOR, 0);
+  good.writeUInt8(PRICE_ORACLE_LAYOUT_VERSION, 1);
+
+  const wrongDisc = Buffer.from(good);
+  wrongDisc.writeUInt8(PRICE_ORACLE_DISCRIMINATOR + 1, 0);
+  assert.throws(() => decodePriceOracleAccount(wrongDisc), /wrong discriminator/);
+
+  const wrongVersion = Buffer.from(good);
+  wrongVersion.writeUInt8(PRICE_ORACLE_LAYOUT_VERSION + 1, 1);
+  assert.throws(() => decodePriceOracleAccount(wrongVersion), /unsupported layout version/);
+
+  assert.throws(() => decodePriceOracleAccount(good.subarray(0, 64)), /buffer too small/);
 });
 
 // ---------------------------------------------------------------------------
