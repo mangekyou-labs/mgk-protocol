@@ -93,24 +93,13 @@ services:
         sync: false  # set in Render dashboard
       - key: ORACLE_AUTHORITY_KEYPAIR
         sync: false  # mounted as Render secret file
-      # PRICE_ORACLE_ADDRESS / INSTRUMENT_ADDRESS below belong to the abandoned
-      # deployment under the old program IDs (ADR 0004); they are replaced by
-      # deployments/devnet.json when workers are wired to the manifest.
-      - key: PRICE_ORACLE_ADDRESS
-        value: "5NSDGAaRqfxe6mkZG9fEAZdzK4r77nEBEobohZGYP6PN"
-      - key: INSTRUMENT_ADDRESS
-        value: "Hz9UtmSXyKFnp1pGvrhrAmizMsvEkYRh5Eih1r7Lf1hG"
-      - key: ORACLE_PROGRAM_ID
-        value: "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm"
-      - key: QUORUM_VENUES
-        value: "binance,okx,bybit"
-      - key: ORACLE_LOOP_INTERVAL
-        value: "10000"
-      - key: MAX_FRESHNESS_SEC
-        value: "30"
-      - key: MAX_DEVIATION_BPS
-        value: "50"
+      - key: DEPLOYMENT_MANIFEST
+        value: "deployments/devnet.json"
+      - key: PYTH_HERMES_URL
+        value: "https://pyth.dourolabs.app/hermes"
+      - key: PYTH_API_KEY
+        sync: false  # provision a Hermes API key; never log it
       - key: LOG_LEVEL
         value: "info"
-    buildCommand: cd tools && npm install @solana/web3.js
+    buildCommand: cd tools && npm install --ignore-scripts --no-audit --no-fund
     startCommand: node tools/ops-oracle.js --loop
