@@ -52,7 +52,7 @@ function rollbackAncestor(tx: ReturnType<typeof nestedTransaction>) {
     `Program ${core} success`, `Program ${wrapper} failed: custom program error: 0x1`, `Program ${outer} success`];
 }
 
-async function replay(tx = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:')) { const fills: Record<string, unknown>[] = [];
+async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:')) { const fills: Record<string, unknown>[] = [];
   const {batchData, resultsData} = accounts();
   const connection = {getBlocks: async () => [100], getBlock: async () => ({blockTime: 1700000000, transactions: [tx]}),
     getAccountInfo: async (pk: PublicKey) => getInfo ? getInfo(pk) : ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
@@ -132,6 +132,17 @@ describe('CPI settlement history through syncChunk', () => {
       const retry = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100});
       expect(retry.success).toBe(true); expect(retry.fillsInserted).toBe(0);
     } finally {store.close(); rmSync(directory, {recursive: true, force: true});}
+  });
+  it('accepts unrelated transactions without requiring complete program logs', async () => {
+    const tx = nestedTransaction();
+    const {result, store} = await replay({...tx, meta: {...tx.meta, innerInstructions: null,
+      logMessages: [`Program ${wrapper} invoke [1]`, 'Log truncated']}});
+    try {expect(result.success).toBe(true); expect(store.getSyncState().processedThroughSlot).toBe(100);} finally {store.close();}
+  });
+  it.each([{name: 'null', instructions: null}, {name: 'empty', instructions: []}])('holds the cursor when core CPI logs have $name inner-instruction metadata', async ({instructions: innerInstructions}) => {
+    const tx = nestedTransaction();
+    const {result, store} = await replay({...tx, meta: {...tx.meta, innerInstructions}});
+    try {expect(result.success).toBe(false); expect(store.getSyncState().processedThroughSlot).toBeNull();} finally {store.close();}
   });
   it.each(['missing', 'truncated', 'depth mismatch'])('holds the replay cursor on %s invocation logs', async fault => {
     const tx = nestedTransaction();

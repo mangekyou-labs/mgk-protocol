@@ -21,7 +21,11 @@ export function coreInvocations(message: Message | MessageV0, meta: Pick<Confirm
       data: bs58.decode(inner.data), depth: (inner as typeof inner & {stackHeight?: number | null}).stackHeight ?? undefined,
     })),
   ]).filter(ix => keys.get(ix.programIdIndex)?.equals(core));
-  if (!instructions.length) return [];
+  // Missing inner metadata must not hide core calls visible in runtime logs.
+  // Transactions unrelated to core need no complete invocation history.
+  const coreProgram = core.toBase58();
+  const hasCoreInvocation = meta.logMessages?.some(log => log.startsWith(`Program ${coreProgram} invoke [`));
+  if (!instructions.length && !hasCoreInvocation) return [];
 
   const stack: Invocation[] = [], frames: Invocation[] = [];
   for (const log of meta.logMessages ?? []) {
@@ -31,7 +35,7 @@ export function coreInvocations(message: Message | MessageV0, meta: Pick<Confirm
       if (depth !== stack.length + 1) throw new Error('Malformed invocation depth');
       const frame: Invocation = {program: invoke[1]!, depth, parent: stack.at(-1), success: false, logs: [log]};
       stack.push(frame);
-      if (frame.program === core.toBase58()) frames.push(frame);
+      if (frame.program === coreProgram) frames.push(frame);
       continue;
     }
     const exit = /^Program (\S+) (success|failed:.*)$/.exec(log);
