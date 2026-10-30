@@ -11,7 +11,7 @@ From the repository root:
 npm install --prefix tools --ignore-scripts --no-audit --no-fund
 cargo build-sbf --tools-version v1.52
 node tools/runtime/candidate.js target/deploy /tmp/candidate.json
-node --test tools/runtime/harness.test.js
+node --test tools/runtime/harness.test.js tools/runtime/invariants.test.js tools/runtime/audit.test.js
 MGK_CANDIDATE_MANIFEST=/tmp/candidate.json \
 MGK_RUNTIME_REPORT=/tmp/runtime-report.json \
 node --test tools/runtime/smoke.test.js
@@ -192,3 +192,48 @@ The standalone keeper scripts now derive the batch results PDA and forward its
 allocation payer and writable accounts. Their older account decoding and full
 worker migration remain separate work tracked by issue #28; this runtime test
 executes the candidate instructions directly.
+
+## Invariant checker (issue #26)
+
+`tools/runtime/invariants.js` checks six protocol invariants from decoded RPC
+state (SDK layout decoders, canonical PDAs only; zeroed or forged non-PDA
+accounts are ignored):
+
+1. **vault balance**: vault lamports + uncovered bad debt cover rent + recorded
+   collateral + fund (surplus tolerated), recorded collateral equals the sum of
+   portfolio equity, and open interest equals the summed long/short positions.
+2. **per-auction signed base quantity sums to 0**, for every results account
+   and per instrument across settled positions.
+3. **fills never exceed eligible submitted size**: each pending (cleared,
+   unspent) fill matches one live reservation of the same user and side, at
+   most once, with quantity no larger than its remaining quantity.
+4. **each receipt applied exactly once**: cleared batches have unspent results,
+   settled batches have spent results with the same batch ID, and neither
+   settled status nor the spent flag ever reverts.
+5. **a valid reduce never increases exposure**: when results are applied, a
+   user whose fills were all reduce-only never grows or flips a position.
+6. **no withdrawable balance is negative**: equity is never negative; a
+   transaction that lowers principal or raises reservations, or a flat
+   portfolio without orders, never leaves negative free collateral. Negative
+   free collateral after an adverse mark alone is liquidation territory.
+
+`LocalRuntime.send` snapshots state immediately before each transaction and
+checks it after confirmation, so test-only `setAccount` patches between sends
+are not attributed to a transaction. A failure throws `InvariantViolation`
+with the message `invariant "<name>" violated after transaction "<label>"
+(<signature>): ...` and records the violations in the runtime report entry.
+
+The standalone end-of-run audit is read-only: its RPC client accepts only
+`getProgramAccounts`, `getMultipleAccounts`, `getAccountInfo`,
+`getMinimumBalanceForRentExemption` and `getSlot`, and it loads no keys.
+
+```sh
+node tools/runtime/audit.js                       # devnet, deployments/devnet.json
+node tools/runtime/audit.js --rpc URL --deployment path/to/deployment.json
+```
+
+It prints a JSON report (invariant statuses, account counts, violations) and
+exits 1 on any violation, 2 on RPC or usage errors. The transition-only
+invariant (5) is reported as not evaluable from one snapshot. The smoke runs
+the same CLI against the local runtime at the end of the run; tests use local
+fixtures and never contact devnet.
