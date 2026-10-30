@@ -35,6 +35,8 @@ interface PortfolioStore {
 // "is polling active right now" from a non-React caller.
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: PortfolioPollParams | null = null;
+let requestId = 0;
+const consumers = new Set<symbol>();
 
 export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   data: null,
@@ -46,12 +48,13 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   startPolling: async (params) => {
     if (pollHandle) clearInterval(pollHandle);
     currentParams = params;
-    set({ isPolling: true });
+    set({ isPolling: true, data: null, error: null, lastFetchedAt: null });
     // Run an initial fetch synchronously with `await` so callers (including
     // tests) can wait for the first result before continuing. The handle is
     // installed *after* the initial fetch so the interval doesn't tick
     // concurrently with the initial fetch.
     await get().refresh();
+    if (currentParams !== params) return;
     pollHandle = setInterval(() => {
       void get().refresh();
     }, params.intervalMs);
@@ -63,16 +66,20 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       pollHandle = null;
     }
     currentParams = null;
-    set({ isPolling: false });
+    requestId++;
+    set({ isPolling: false, data: null, error: null, loading: false, lastFetchedAt: null });
   },
 
   refresh: async () => {
     if (!currentParams) return;
+    const params = currentParams;
+    const id = ++requestId;
     set({ loading: true, error: null });
     try {
-      const { user, connection, programId } = currentParams;
+      const { user, connection, programId } = params;
       const [pda] = sdk.derivePortfolioPda(user, programId);
-      const accounts = await connection.getMultipleAccountsInfo([pda]);
+      const accounts = await connection.getMultipleAccountsInfo([pda], 'confirmed');
+      if (currentParams !== params || id !== requestId) return;
       const acc = accounts[0] ?? null;
       if (!acc) {
         set({
@@ -86,7 +93,9 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
       // `acc.data` is typed as `Buffer` in `@solana/web3.js`; in the browser
       // it can be a Buffer or Uint8Array depending on the polyfill. Wrap in
       // a fresh Uint8Array so `decodePortfolio` always sees a plain view.
+      if (!acc.owner.equals(programId)) throw new Error('Portfolio owner does not match the deployment manifest.');
       const data = sdk.state.decodePortfolio(new Uint8Array(acc.data));
+      if (!data.user.equals(user)) throw new Error('Portfolio user does not match the connected wallet.');
       set({
         data,
         loading: false,
@@ -94,7 +103,9 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         lastFetchedAt: Date.now(),
       });
     } catch (e) {
+      if (currentParams !== params || id !== requestId) return;
       set({
+        data: null,
         loading: false,
         error: e instanceof Error ? e.message : String(e),
       });
@@ -123,23 +134,22 @@ export function usePortfolioPolling(intervalMs = 5000): {
   const stopPolling = usePortfolioStore((s) => s.stopPolling);
 
   useEffect(() => {
-    if (!connected || !publicKey) {
-      stopPolling();
-      return;
+    if (!connected || !publicKey) return;
+    const consumer = Symbol();
+    consumers.add(consumer);
+    if (!currentParams || !currentParams.user.equals(publicKey) || currentParams.connection !== connection || currentParams.intervalMs !== intervalMs) {
+      void startPolling({ user: publicKey, connection, programId: config.coreProgramId, intervalMs });
     }
-    startPolling({
-      user: publicKey,
-      connection,
-      programId: config.coreProgramId,
-      intervalMs,
-    });
     return () => {
-      stopPolling();
+      consumers.delete(consumer);
+      if (consumers.size === 0) stopPolling();
     };
   }, [connected, publicKey, connection, intervalMs, startPolling, stopPolling]);
 
+  const data = usePortfolioStore((s) => s.data);
+  const current = connected && publicKey && currentParams?.user.equals(publicKey) && currentParams.connection === connection;
   return {
-    data: usePortfolioStore((s) => s.data),
+    data: current ? data : null,
     loading: usePortfolioStore((s) => s.loading),
     error: usePortfolioStore((s) => s.error),
     lastFetchedAt: usePortfolioStore((s) => s.lastFetchedAt),

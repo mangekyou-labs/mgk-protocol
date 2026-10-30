@@ -1,3 +1,5 @@
+vi.mock('@/lib/hooks/useReadiness', () => ({ useReadiness: () => ({ walletLamports: 1000000000n, signingBlockedReason: null, error: null, refresh: vi.fn(), getDevnetSol: vi.fn() }) }));
+vi.mock('@/lib/hooks/useAccountActions', () => ({ useAccountActions: () => ({ deposit: vi.fn(), withdraw: vi.fn() }) }));
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -170,7 +172,7 @@ describe('OrderForm', () => {
   it('renders the account actions footer with init portfolio button when no portfolio', () => {
     render(<OrderForm bestBid={null} bestAsk={null} />);
     expect(screen.getByTestId('order-form-account-actions')).toBeInTheDocument();
-    expect(screen.getByTestId('account-actions-init-portfolio')).toBeInTheDocument();
+    expect(screen.getByTestId('account-actions-deposit')).toBeInTheDocument();
   });
 
   it('renders deposit/withdraw buttons when portfolio exists', () => {
@@ -183,7 +185,7 @@ describe('OrderForm', () => {
       />,
     );
     // No portfolio data → init button is shown
-    expect(screen.getByTestId('account-actions-init-portfolio')).toBeInTheDocument();
+    expect(screen.getByTestId('account-actions-deposit')).toBeInTheDocument();
   });
 
   it('applies className to the root', () => {

@@ -1,0 +1,34 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { PublicKey } from '@solana/web3.js';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { useReadiness } from './useReadiness';
+const mocks = vi.hoisted(() => ({ wallet: '11111111111111111111111111111111', connected: true, balance: vi.fn(), genesis: vi.fn() }));
+const keys = new Map<string, PublicKey>();
+const walletKey = () => { if (!keys.has(mocks.wallet)) keys.set(mocks.wallet, new PublicKey(mocks.wallet)); return keys.get(mocks.wallet)!; };
+const connection = { getGenesisHash: mocks.genesis, getBalance: mocks.balance };
+vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => ({ publicKey: walletKey(), connected: mocks.connected }), useConnection: () => ({ connection }) }));
+vi.mock('./useSafeTransaction', () => ({ assertDeployment: vi.fn().mockResolvedValue(undefined) }));
+beforeEach(() => { mocks.wallet = '11111111111111111111111111111111'; mocks.connected = true; mocks.genesis.mockReset().mockResolvedValue('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'); mocks.balance.mockReset().mockResolvedValue(1234567891); });
+it('reads exact wallet funding anew after remount and clears it immediately for another wallet', async () => {
+  const first = renderHook(() => useReadiness());
+  await waitFor(() => expect(first.result.current.walletLamports).toBe(1234567891n));
+  mocks.wallet = '11111111111111111111111111111112';
+  first.rerender();
+  expect(first.result.current.walletLamports).toBeNull();
+  expect(first.result.current.signingBlockedReason).toMatch(/Checking/);
+  first.unmount();
+  mocks.balance.mockResolvedValue(2000000001);
+  const second = renderHook(() => useReadiness());
+  await waitFor(() => expect(second.result.current.walletLamports).toBe(2000000001n));
+  expect(mocks.balance).toHaveBeenCalledTimes(2);
+});
+it('discards late RPC funding when disconnected', async () => {
+  let resolve!: (balance: number) => void;
+  mocks.balance.mockImplementation(() => new Promise<number>(r => { resolve = r; }));
+  const { result, rerender } = renderHook(() => useReadiness());
+  await waitFor(() => expect(mocks.balance).toHaveBeenCalled());
+  mocks.connected = false; rerender();
+  await act(async () => resolve(9000000000));
+  expect(result.current.walletLamports).toBeNull();
+  expect(result.current.signingBlockedReason).toMatch(/Connect/);
+});

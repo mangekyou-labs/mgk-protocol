@@ -27,7 +27,7 @@ function makeAccountInfo(data: Uint8Array): AccountInfo<Buffer> {
     data: Buffer.from(data),
     executable: false,
     lamports: 1_000_000,
-    owner: USER_PK,
+    owner: CORE_PK,
     rentEpoch: 0,
   };
 }
@@ -199,4 +199,20 @@ describe('usePortfolioStore', () => {
     expect(conn1.calls.length).toBe(calls1);
     expect(conn2.calls.length).toBeGreaterThan(calls1);
   });
+});
+
+it('discards a wallet response completed after polling stops and rereads RPC on restart', async () => {
+  let resolve!: (accounts: (AccountInfo<Buffer> | null)[]) => void;
+  const connection = { getMultipleAccountsInfo: () => new Promise<(AccountInfo<Buffer> | null)[]>(r => { resolve = r; }) } as unknown as Connection;
+  const pending = usePortfolioStore.getState().startPolling(buildParams(connection));
+  usePortfolioStore.getState().stopPolling();
+  resolve([makeAccountInfo(makePortfolioBuffer(USER_PK, 99n))]);
+  await pending;
+  expect(usePortfolioStore.getState().data).toBeNull();
+  expect(usePortfolioStore.getState().isPolling).toBe(false);
+  const fresh = new MockConnection();
+  fresh.responses = [makeAccountInfo(makePortfolioBuffer(USER_PK, 1234567891n))];
+  await usePortfolioStore.getState().startPolling(buildParams(fresh as unknown as Connection));
+  expect(usePortfolioStore.getState().data?.freeCollateral).toBe(1234567891n);
+  usePortfolioStore.getState().stopPolling();
 });

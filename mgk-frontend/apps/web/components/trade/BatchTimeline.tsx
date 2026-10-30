@@ -12,6 +12,7 @@ import { Pill } from '@/components/common/Pill';
 import { useBatchPolling } from '@/lib/stores/useBatchStore';
 import { useSlotPolling } from '@/lib/stores/useSlotPolling';
 import { useDevtools } from '@/lib/hooks/useDevtools';
+import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
 import { resolveRegistryAddress } from '@/lib/onchainAccounts';
 import {
@@ -26,8 +27,9 @@ export function BatchTimeline() {
   const { data, registry, currentBatchId } = useBatchPolling(3000);
   const { slot: currentSlot } = useSlotPolling(1000);
   const devtools = useDevtools();
-  const { publicKey, sendTransaction, connected } = useWallet();
+  const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
+  const safeSend = useSafeTransaction();
   const [cranking, setCranking] = useState(false);
   const [crankError, setCrankError] = useState<string | null>(null);
 
@@ -64,8 +66,7 @@ export function BatchTimeline() {
         data: Buffer.from(sdk.programs.encodeCloseCommitting()),
       });
       const tx = new Transaction().add(ix);
-      if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-      const sig = await sendTransaction(tx, connection);
+      const sig = await safeSend(tx);
       await sdk.confirmSignature(connection, sig);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -74,7 +75,7 @@ export function BatchTimeline() {
     } finally {
       setCranking(false);
     }
-  }, [publicKey, currentBatchId, data, sendTransaction, connection]);
+  }, [publicKey, currentBatchId, data, safeSend, connection]);
 
   if (!data) {
     return (

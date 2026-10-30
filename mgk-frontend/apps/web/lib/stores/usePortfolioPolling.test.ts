@@ -1,3 +1,4 @@
+import { config } from '@/lib/config';
 import { renderHook, waitFor } from '@testing-library/react';
 import { PublicKey, type AccountInfo, type Connection } from '@solana/web3.js';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
@@ -52,7 +53,7 @@ function makeAccountInfo(data: Uint8Array): AccountInfo<Buffer> {
     data: Buffer.from(data),
     executable: false,
     lamports: 1_000_000,
-    owner: USER_PK,
+    owner: config.coreProgramId,
     rentEpoch: 0,
   };
 }

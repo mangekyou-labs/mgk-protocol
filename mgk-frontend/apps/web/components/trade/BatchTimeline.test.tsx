@@ -24,6 +24,8 @@ vi.mock('@mgk/sdk', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/hooks/useSafeTransaction', () => ({ useSafeTransaction: () => mockState.sendTransaction }));
+
 // --- Component (mocked hooks) ----------------------------------------
 
 function makeBatchData(
@@ -250,9 +252,8 @@ describe('<BatchTimeline />', () => {
     });
     expect(mockState.getSignatureStatuses).toHaveBeenCalledWith(['mock-sig'], {searchTransactionHistory:true});
 
-    const [tx, conn] = mockState.sendTransaction.mock.calls[0]!;
+    const [tx] = mockState.sendTransaction.mock.calls[0]!;
     expect(tx).toBeDefined();
-    expect(conn).toBeDefined();
     // The instruction data is the CloseCommitting discriminator (1 byte = 6)
     const ix = tx.instructions[0];
     expect(ix.data[0]).toBe(6);

@@ -1,0 +1,24 @@
+import { render, screen } from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
+import type * as sdk from '@mgk/sdk';
+import { ReadinessChecklist } from './ReadinessChecklist';
+const mocks = vi.hoisted(() => ({ connected: true, balance: 1000000000n as bigint | null, reason: null as string | null }));
+vi.mock('@/components/wallet/useAutoConnect', () => ({ useAutoConnect: () => ({ connected: mocks.connected }) }));
+vi.mock('@/components/wallet/WalletButton', () => ({ WalletButton: () => <button>Connect wallet</button> }));
+vi.mock('@/lib/hooks/useReadiness', () => ({ useReadiness: () => ({ walletLamports: mocks.balance, signingBlockedReason: mocks.reason, loading: false }) }));
+vi.mock('@/components/orderform/AccountActions', () => ({ AccountActions: () => <div>Collateral controls</div> }));
+it('keeps a connected wallet without collateral out of the order form', () => {
+  render(<ReadinessChecklist portfolio={null} loading={false}><div>Order form</div></ReadinessChecklist>);
+  expect(screen.getByText('Wallet connected, not ready')).toBeInTheDocument();
+  expect(screen.getByText('Collateral controls')).toBeInTheDocument();
+  expect(screen.queryByText('Order form')).not.toBeInTheDocument();
+});
+it('shows the order form only with RPC funding, collateral and a matching deployment', () => {
+  const portfolio = { principal: 100000000n, equity: 100000000n } as sdk.state.PortfolioState;
+  const { rerender } = render(<ReadinessChecklist portfolio={portfolio} loading={false}><div>Order form</div></ReadinessChecklist>);
+  expect(screen.getByText('Order form')).toBeInTheDocument();
+  mocks.reason = 'Wrong cluster. Select a devnet RPC.';
+  rerender(<ReadinessChecklist portfolio={portfolio} loading={false}><div>Order form</div></ReadinessChecklist>);
+  expect(screen.queryByText('Order form')).not.toBeInTheDocument();
+  expect(screen.getByText(mocks.reason)).toBeInTheDocument();
+});
