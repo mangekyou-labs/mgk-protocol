@@ -3,6 +3,8 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
 import { decodeStruct, layouts, decodeAccount } from '../../../../packages/layout/index.js';
 import type { DeploymentManifest } from '../../../../packages/layout/manifest.js';
+import { coreInvocations } from '../coreInvocations.js';
+import { instructions } from '../../../../packages/layout/instructions.js';
 import { splitSlotRanges } from '../backfill.js';
 import type { Store } from '../store.js';
 import type { MonitoringConfig } from '../config.js';
@@ -33,11 +35,9 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
           commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
         });
         if (!tx?.meta || tx.meta.err) throw new Error('Clear transaction history unavailable');
-        const message = tx.transaction.message;
-        const keys = message.getAccountKeys({accountKeysFromLookups: tx.meta.loadedAddresses});
-        if (tx.transaction.message.compiledInstructions.some(ix =>
-          keys.get(ix.programIdIndex)?.equals(core) && ix.data[0] === 7 &&
-          ix.accountKeyIndexes.some(i => keys.get(i)?.equals(batch)))) {
+        if (coreInvocations(tx.transaction.message, tx.meta, core).some(ix =>
+          ix.success && ix.data[0] === instructions.core.ClearBatch.disc &&
+          ix.accountKeyIndexes.some(i => ix.keys.get(i)?.equals(batch)))) {
           const time = tx.blockTime ?? await connection.getBlockTime(entry.slot);
           if (time === null) throw new Error('Clear block time unavailable');
           return time;

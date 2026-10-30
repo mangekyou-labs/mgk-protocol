@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS fills (
   maker_pubkey BLOB NOT NULL,
   tx_signature BLOB NOT NULL,
   is_maker INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (tx_signature, slot, fill_index)
+  UNIQUE (tx_signature, slot, batch_id, fill_index)
 );
 CREATE INDEX IF NOT EXISTS idx_fills_instrument_slot
   ON fills(instrument_id, slot DESC);
@@ -120,9 +120,10 @@ export function createStore(dbPath = ':memory:'): Store {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);
-  // Older caches used value-based fill identity and could collapse equal orders.
-  // Derived history is replayable: invalidate that cache rather than invent ordinals.
-  if (!(db.prepare('PRAGMA table_info(fills)').all() as {name:string}[]).some(c => c.name === 'fill_index')) {
+  // Older identities collapse equal fills or settlements from different batches.
+  // Derived history is replayable: invalidate those caches and replay from start.
+  const fillSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'fills'").get() as {sql: string};
+  if (!/UNIQUE\s*\(tx_signature,\s*slot,\s*batch_id,\s*fill_index\)/.test(fillSchema.sql)) {
     db.transaction(() => {
       db.exec('DROP TABLE fills; DELETE FROM candles_1m; DELETE FROM candles_5m; DELETE FROM candles_1h; DELETE FROM batch_events; DELETE FROM sync_state;');
       db.exec(SCHEMA.replace('PRAGMA journal_mode = WAL;', ''));

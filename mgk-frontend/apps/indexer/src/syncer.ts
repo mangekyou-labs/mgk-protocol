@@ -1,5 +1,6 @@
 import { Connection, PublicKey } from '@solana/web3.js';
-import bs58 from 'bs58';
+import { coreInvocations } from './coreInvocations.js';
+import { instructions } from '../../../packages/layout/instructions.js';
 import * as sdk from '@mgk/sdk';
 import type { Store } from './store.js';
 import { decodeBatchEvent, decodeDfbaFills } from './decoder.js';
@@ -75,25 +76,9 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
       for (const txResp of block.transactions) {
         if (!txResp.meta) throw new Error('Transaction metadata unavailable');
         if (txResp.meta.err) continue;
-        const msg = txResp.transaction.message;
-        const keys = msg.getAccountKeys({accountKeysFromLookups: txResp.meta.loadedAddresses});
-        const staticKeys = Array.from({length: keys.length}, (_, i) => keys.get(i)!);
-        const compiledIxs = msg.compiledInstructions;
-        for (const ix of compiledIxs) {
-          const progKey = staticKeys[ix.programIdIndex];
-          if (!progKey || !progKey.equals(corePk)) continue;
-
-          const data = ix.data;
-          let parsed: Uint8Array;
-          if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
-            parsed = new Uint8Array(data);
-          } else if (typeof data === 'string') {
-            parsed = bs58.decode(data);
-          } else {
-            continue;
-          }
-
-          if (parsed.length < 1 || parsed[0] !== 8) continue; // SettleBatch discriminator = 8
+        for (const ix of coreInvocations(txResp.transaction.message, txResp.meta, corePk)) {
+          if (!ix.success || ix.data[0] !== instructions.core.SettleBatch.disc) continue;
+          const staticKeys = Array.from({length: ix.keys.length}, (_, i) => ix.keys.get(i)!);
 
           const batchIdx = ix.accountKeyIndexes[0];
           const batchPk = batchIdx === undefined ? undefined : staticKeys[batchIdx];
@@ -109,7 +94,7 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
           if (!accInfo || !accInfo.owner.equals(matcherPk)) throw new Error('Settlement results unavailable or wrong owner');
           const results = sdk.state.decodeResults(accInfo.data);
           if (!results.spent || results.batchId !== batch.batchId) throw new Error('Settlement results not spent or batch mismatch');
-          const quantities = settlementQuantities(txResp.meta.logMessages, corePk.toBase58(), batch.batchId, results.fills.map(f => f.qty));
+          const quantities = settlementQuantities(ix.logs, corePk.toBase58(), batch.batchId, results.fills.map(f => f.qty));
           const adjusted = Uint8Array.from(accInfo.data);
           // Wire offsets come from the frozen shared results contract.
           const view = new DataView(adjusted.buffer);
