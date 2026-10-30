@@ -1,3 +1,4 @@
+import {encodeInstruction,instructions} from '../../../layout/instructions.js';
 /**
  * mgk perps-core instruction encoders.
  *
@@ -10,51 +11,51 @@ import { Side } from '../instruction.js';
 import { OrderType } from '../state/types.js';
 
 export const CORE_INSTRUCTION = {
-  Initialize: 0,
-  InitPortfolio: 1,
-  Deposit: 2,
-  Withdraw: 3,
-  CommitOrder: 4,
-  RevealOrder: 5,
-  CloseCommitting: 6,
-  ClearBatch: 7,
-  SettleBatch: 8,
-  LiquidateUser: 9,
-  AddInstrument: 10,
-  CancelRestingOrder: 11,
-  ModifyRestingOrder: 12,
-  CancelAllRestingOrders: 13,
-  SetPauseFlags: 14,
-  InitVault: 15,
-  CreateBatch: 16,
-  SetBatchCounter: 17,
-  CreatePortfolio: 18,
-  InitPortfolioForUser: 19,
+  Initialize: instructions.core.Initialize.disc,
+  InitPortfolio: instructions.core.InitPortfolio.disc,
+  Deposit: instructions.core.Deposit.disc,
+  Withdraw: instructions.core.Withdraw.disc,
+  CommitOrder: instructions.core.CommitOrder.disc,
+  RevealOrder: instructions.core.RevealOrder.disc,
+  CloseCommitting: instructions.core.CloseCommitting.disc,
+  ClearBatch: instructions.core.ClearBatch.disc,
+  SettleBatch: instructions.core.SettleBatch.disc,
+  LiquidateUser: instructions.core.LiquidateUser.disc,
+  AddInstrument: instructions.core.AddInstrument.disc,
+  CancelRestingOrder: instructions.core.CancelRestingOrder.disc,
+  ModifyRestingOrder: instructions.core.ModifyRestingOrder.disc,
+  CancelAllRestingOrders: instructions.core.CancelAllRestingOrders.disc,
+  SetPauseFlags: instructions.core.SetPauseFlags.disc,
+  InitVault: instructions.core.InitVault.disc,
+  CreateBatch: instructions.core.CreateBatch.disc,
+  SetBatchCounter: instructions.core.SetBatchCounter.disc,
+  CreatePortfolio: instructions.core.CreatePortfolio.disc,
+  InitPortfolioForUser: instructions.core.InitPortfolioForUser.disc,
   /** DFBA single-tx open post (replaces Commit+Reveal). */
-  PostOrder: 20,
+  PostOrder: instructions.core.PostOrder.disc,
   /** Governance-only: update batch parameters. */
-  SetBatchParams: 21,
+  SetBatchParams: instructions.core.SetBatchParams.disc,
   /** Governance-only: retune instrument taker/maker fees. */
-  SetInstrumentFees: 22,
+  SetInstrumentFees: instructions.core.SetInstrumentFees.disc,
   /** Governance-only: bind instrument to price oracle account. */
-  SetInstrumentOracle: 23,
+  SetInstrumentOracle: instructions.core.SetInstrumentOracle.disc,
   /** Governance-only: update D7 funding parameters. */
-  SetFundingParams: 24,
+  SetFundingParams: instructions.core.SetFundingParams.disc,
   /** Authenticated matcher book initialization. */
-  InitializeBook: 25,
+  InitializeBook: instructions.core.InitializeBook.disc,
 } as const;
 
 /** Matcher program discriminators (perps-matcher entrypoint). */
 export const MATCHER_INSTRUCTION = {
-  ComputeClearing: 0,
-  CancelResting: 1,
-  ModifyResting: 2,
-  ClearAndMatch: 3,
-  CancelAll: 4,
-  DfbaClear: 5,
-  PlaceResting: 6,
-  InitializeBook: 7,
-  ConsumeResults: 8,
+  ComputeClearing: instructions.matcher.ComputeClearing.disc,
+  CancelResting: instructions.matcher.CancelResting.disc,
+  ModifyResting: instructions.matcher.ModifyResting.disc,
+  ClearAndMatch: instructions.matcher.ClearAndMatch.disc,
+  CancelAll: instructions.matcher.CancelAll.disc,
+  DfbaClear: instructions.matcher.DfbaClear.disc,
+  PlaceResting: instructions.matcher.PlaceResting.disc,
+  InitializeBook: instructions.matcher.InitializeBook.disc,
+  ConsumeResults: instructions.matcher.ConsumeResults.disc,
 } as const;
 export type CoreInstruction =
   (typeof CORE_INSTRUCTION)[keyof typeof CORE_INSTRUCTION];
@@ -68,33 +69,21 @@ export type CoreInstruction =
  * by the dispatch layer before reaching the inner function.
  */
 export function encodeInitPortfolio(user: Uint8Array, bump: number): Uint8Array {
-  const buf = new Uint8Array(34);
-  buf[0] = CORE_INSTRUCTION.InitPortfolio;
-  buf.set(user, 1);
-  buf[33] = bump;
-  return buf;
+  return encodeInstruction('core','InitPortfolio',{user,bump});
 }
 
 /**
  * Deposit — discriminator + amount (u64 LE).
  */
 export function encodeDeposit(amount: bigint): Uint8Array {
-  const buf = new Uint8Array(9);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.Deposit);
-  view.setBigUint64(1, amount, true);
-  return buf;
+  return encodeInstruction('core','Deposit',{amount});
 }
 
 /**
  * Withdraw — discriminator + amount (u64 LE).
  */
 export function encodeWithdraw(amount: bigint): Uint8Array {
-  const buf = new Uint8Array(9);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.Withdraw);
-  view.setBigUint64(1, amount, true);
-  return buf;
+  return encodeInstruction('core','Withdraw',{amount});
 }
 
 export interface CommitOrderParams {
@@ -115,19 +104,7 @@ export interface CommitOrderParams {
  * programs/perps-core/src/instructions/commit_order.rs:96-105.
  */
 export function encodeCommitOrder(params: CommitOrderParams): Uint8Array {
-  const buf = new Uint8Array(39);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.CommitOrder);
-  view.setUint8(1, params.orderType);
-  view.setUint16(2, params.instrumentId, true);
-  view.setUint8(4, params.reduceOnly ? 1 : 0);
-  view.setUint8(5, params.side);
-  view.setBigInt64(6, params.price, true);
-  view.setBigUint64(14, params.qty, true);
-  view.setBigUint64(22, params.salt, true);
-  view.setBigUint64(30, params.batchId, true);
-  view.setUint8(38, params.commitmentBump);
-  return buf;
+  return encodeInstruction('core','CommitOrder',{...params});
 }
 
 export interface RevealOrderParams {
@@ -148,18 +125,7 @@ export interface RevealOrderParams {
  * Note: no `commitment_bump` (only CommitOrder takes it).
  */
 export function encodeRevealOrder(params: RevealOrderParams): Uint8Array {
-  const buf = new Uint8Array(38);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.RevealOrder);
-  view.setUint8(1, params.orderType);
-  view.setUint16(2, params.instrumentId, true);
-  view.setUint8(4, params.reduceOnly ? 1 : 0);
-  view.setUint8(5, params.side);
-  view.setBigInt64(6, params.price, true);
-  view.setBigUint64(14, params.qty, true);
-  view.setBigUint64(22, params.salt, true);
-  view.setBigUint64(30, params.batchId, true);
-  return buf;
+  return encodeInstruction('core','RevealOrder',{...params});
 }
 
 /**
@@ -168,7 +134,7 @@ export function encodeRevealOrder(params: RevealOrderParams): Uint8Array {
  * DFBA: transitions Committing → Clearing (skips reveal).
  */
 export function encodeCloseCommitting(): Uint8Array {
-  return new Uint8Array([CORE_INSTRUCTION.CloseCommitting]);
+  return encodeInstruction('core','CloseCommitting',{});
 }
 
 export interface PostOrderParams {
@@ -186,16 +152,7 @@ export interface PostOrderParams {
  * Wire: disc(1) + side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1) = 22
  */
 export function encodePostOrder(params: PostOrderParams): Uint8Array {
-  const buf = new Uint8Array(22);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.PostOrder);
-  view.setUint8(1, params.side);
-  view.setUint8(2, params.isMaker ? 1 : 0);
-  view.setBigInt64(3, params.price, true);
-  view.setBigUint64(11, params.qty, true);
-  view.setUint16(19, params.instrumentId, true);
-  view.setUint8(21, params.reduceOnly ? 1 : 0);
-  return buf;
+  return encodeInstruction('core','PostOrder',{...params});
 }
 
 /**
@@ -204,13 +161,7 @@ export function encodePostOrder(params: PostOrderParams): Uint8Array {
  * Requires the core registry PDA signer; invoked by Core ClearBatch.
  */
 export function encodeDfbaClear(batchId: bigint, marginalSizeCap: bigint = BigInt('0xFFFFFFFFFFFFFFFF')): Uint8Array {
-  const buf = new Uint8Array(19);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, MATCHER_INSTRUCTION.DfbaClear);
-  view.setBigUint64(1, marginalSizeCap, true);
-  view.setUint16(9, 0, true); // collect from book
-  view.setBigUint64(11, batchId, true);
-  return buf;
+  return encodeInstruction('matcher','DfbaClear',{batchId,marginalSizeCap,numOrders:0});
 }
 
 /**
@@ -226,17 +177,7 @@ export function encodePlaceResting(
   instrumentId: number,
   reduceOnly = false,
 ): Uint8Array {
-  const buf = new Uint8Array(54);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, MATCHER_INSTRUCTION.PlaceResting);
-  buf.set(user.subarray(0, 32), 1);
-  view.setUint8(33, side);
-  view.setUint8(34, isMaker ? 1 : 0);
-  view.setBigInt64(35, price, true);
-  view.setBigUint64(43, qty, true);
-  view.setUint16(51, instrumentId, true);
-  view.setUint8(53, reduceOnly ? 1 : 0);
-  return buf;
+  return encodeInstruction('matcher','PlaceResting',{user,side,isMaker,price,qty,instrumentId,reduceOnly});
 }
 
 /**
@@ -248,13 +189,7 @@ export function encodeClearBatch(
   numInstruments: number,
   numPortfolios: number,
 ): Uint8Array {
-  const buf = new Uint8Array(7);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.ClearBatch);
-  view.setUint16(1, numCommitments, true);
-  view.setUint16(3, numInstruments, true);
-  view.setUint16(5, numPortfolios, true);
-  return buf;
+  return encodeInstruction('core','ClearBatch',{numCommitments,numInstruments,numPortfolios});
 }
 
 /**
@@ -265,12 +200,7 @@ export function encodeSettleBatch(
   numCommitments: number,
   numPortfolios: number,
 ): Uint8Array {
-  const buf = new Uint8Array(5);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.SettleBatch);
-  view.setUint16(1, numCommitments, true);
-  view.setUint16(3, numPortfolios, true);
-  return buf;
+  return encodeInstruction('core','SettleBatch',{numCommitments,numPortfolios});
 }
 
 /**
@@ -279,8 +209,7 @@ export function encodeSettleBatch(
  * Wire: disc(9) + num_instruments(1 as u16 LE). No auction mark is required.
  */
 export function encodeLiquidateUser(numInstruments = 1): Uint8Array {
-  if (numInstruments !== 1) throw new Error('Only one SOL-PERP instrument is supported');
-  return new Uint8Array([CORE_INSTRUCTION.LiquidateUser, 1, 0]);
+  if(numInstruments!==1)throw new Error('Only one SOL-PERP instrument is supported'); return encodeInstruction('core','LiquidateUser',{numInstruments});
 }
 
 export interface LiquidateUserAccounts {
@@ -328,11 +257,7 @@ export function buildLiquidateUser(
  * Wire format: disc(1) + order_id(8) = 9.
  */
 export function encodeCancelRestingOrder(orderId: bigint): Uint8Array {
-  const buf = new Uint8Array(9);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.CancelRestingOrder);
-  view.setBigUint64(1, orderId, true);
-  return buf;
+  return encodeInstruction('core','CancelRestingOrder',{orderId});
 }
 
 /**
@@ -343,12 +268,7 @@ export function encodeModifyRestingOrder(
   orderId: bigint,
   newQty: bigint,
 ): Uint8Array {
-  const buf = new Uint8Array(17);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.ModifyRestingOrder);
-  view.setBigUint64(1, orderId, true);
-  view.setBigUint64(9, newQty, true);
-  return buf;
+  return encodeInstruction('core','ModifyRestingOrder',{orderId,newQty});
 }
 
 export interface AddInstrumentParams {
@@ -364,34 +284,19 @@ export interface AddInstrumentParams {
 }
 
 /**
- * AddInstrument (governance-only) — discriminator + 58 bytes, 59 total.
+ * AddInstrument (governance-only) — discriminator + 59 bytes, 60 total.
  * Wire format: disc(1) + instrument_id(2) + tick_size(8) + lot_size(8)
  *   + imr_bps(2) + mmr_bps(2) + taker_fee_bps(2) + maker_fee_bps(2)
- *   + oracle_addr(32) + bump(1) = 59.
+ *   + oracle_addr(32) + bump(1) = 60.
  */
 export function encodeAddInstrument(params: AddInstrumentParams): Uint8Array {
-  const buf = new Uint8Array(59);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.AddInstrument);
-  view.setUint16(1, params.instrumentId, true);
-  view.setBigUint64(3, params.tickSize, true);
-  view.setBigUint64(11, params.lotSize, true);
-  view.setUint16(19, params.imrBps, true);
-  view.setUint16(21, params.mmrBps, true);
-  view.setUint16(23, params.takerFeeBps, true);
-  view.setInt16(25, params.makerFeeBps, true);
-  buf.set(params.oracleAddr, 27);
-  view.setUint8(58, params.bump);
-  return buf;
+  return encodeInstruction('core','AddInstrument',{...params});
 }
 
 /**
- * Initialize — discriminator + 131 bytes params, 132 total.
- * Wire format (matches process_initialize_inner data layout):
- *   governance(32) + base_deposit(8) + n_min(4) + t_min(8) + t_max(8) + t_reveal(8)
- *   + instrument_id(2) + tick(8) + lot(8) + imr(2) + mmr(2) + taker_fee(2) + maker_fee(2)
- *   + oracle(32) + registry_bump(1) + instrument_bump(1) + vault_bump(1) + batch_bump(1)
- *   = 131 bytes params.
+ * Initialize — discriminator + 140-byte required body + optional vault bump.
+ * Registry parameters precede instrument parameters; see the shared instruction
+ * table and process_initialize_inner. The SDK supplies the vault bump (142 total).
  */
 export interface InitializeParams {
   governance: Uint8Array;
@@ -410,33 +315,16 @@ export interface InitializeParams {
   oracleAddr: Uint8Array;
   registryBump: number;
   instrumentBump: number;
-  vaultBump: number;
-  batchBump: number;
+  vaultBump?: number;
+  /** @deprecated Initialize no longer accepts a batch bump. */
+  batchBump?: number;
+  instrumentCount?: number;
+  volatilityMultiplier?: number;
+  batchIdCounter?: bigint;
 }
 
 export function encodeInitialize(params: InitializeParams): Uint8Array {
-  const buf = new Uint8Array(132);
-  buf.set(params.governance, 1);                              // 1..33
-  const view = new DataView(buf.buffer);
-  view.setBigUint64(33, params.baseDeposit, true);           // 33..41
-  view.setUint32(41, params.nMin, true);                     // 41..45
-  view.setBigUint64(45, params.tMinSlots, true);             // 45..53
-  view.setBigUint64(53, params.tMaxSlots, true);             // 53..61
-  view.setBigUint64(61, params.tRevealSlots, true);           // 61..69
-  view.setUint16(69, params.instrumentId, true);             // 69..71
-  view.setBigUint64(71, params.tickSize, true);              // 71..79
-  view.setBigUint64(79, params.lotSize, true);                // 79..87
-  view.setUint16(87, params.imrBps, true);                   // 87..89
-  view.setUint16(89, params.mmrBps, true);                   // 89..91
-  view.setUint16(91, params.takerFeeBps, true);             // 91..93
-  view.setInt16(93, params.makerFeeBps, true);              // 93..95
-  buf.set(params.oracleAddr, 95);                            // 95..127
-  buf[127] = params.registryBump;                           // 127
-  buf[128] = params.instrumentBump;                         // 128
-  buf[129] = params.vaultBump;                              // 129
-  buf[130] = params.batchBump;                              // 130
-  buf[0] = CORE_INSTRUCTION.Initialize;                      // disc @ 0
-  return buf;
+  return encodeInstruction('core','Initialize',{instrumentCount:1,volatilityMultiplier:10000,batchIdCounter:0n,...params});
 }
 
 /**
@@ -445,10 +333,7 @@ export function encodeInitialize(params: InitializeParams): Uint8Array {
  * Wire format: disc(1) + bump(1) = 2.
  */
 export function encodeCreatePortfolio(bump: number): Uint8Array {
-  const buf = new Uint8Array(2);
-  buf[0] = CORE_INSTRUCTION.CreatePortfolio;
-  buf[1] = bump;
-  return buf;
+  return encodeInstruction('core','CreatePortfolio',{bump});
 }
 
 /**
@@ -458,10 +343,7 @@ export function encodeCreatePortfolio(bump: number): Uint8Array {
  * Entrypoint strips disc 19, passes 32-byte user pubkey to inner function.
  */
 export function encodeInitPortfolioForUser(user: Uint8Array): Uint8Array {
-  const buf = new Uint8Array(33);
-  buf[0] = CORE_INSTRUCTION.InitPortfolioForUser;
-  buf.set(user, 1);
-  return buf;
+  return encodeInstruction('core','InitPortfolioForUser',{user});
 }
 
 /**
@@ -472,12 +354,7 @@ export function encodeSetInstrumentFees(
   takerFeeBps: number,
   makerFeeBps: number,
 ): Uint8Array {
-  const buf = new Uint8Array(5);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.SetInstrumentFees);
-  view.setUint16(1, takerFeeBps, true);
-  view.setInt16(3, makerFeeBps, true);
-  return buf;
+  return encodeInstruction('core','SetInstrumentFees',{takerFeeBps,makerFeeBps});
 }
 
 /**
@@ -485,7 +362,7 @@ export function encodeSetInstrumentFees(
  * Wire: disc(1) = 1 byte.
  */
 export function encodeSetInstrumentOracle(): Uint8Array {
-  return new Uint8Array([CORE_INSTRUCTION.SetInstrumentOracle]);
+  return encodeInstruction('core','SetInstrumentOracle',{});
 }
 
 /**
@@ -497,19 +374,10 @@ export function encodeSetFundingParams(
   maxRateBps: number,
   intervalSlots: number,
 ): Uint8Array {
-  const buf = new Uint8Array(25);
-  const view = new DataView(buf.buffer);
-  view.setUint8(0, CORE_INSTRUCTION.SetFundingParams);
-  view.setBigInt64(1, BigInt(coefficientBps), true);
-  view.setBigInt64(9, BigInt(maxRateBps), true);
-  view.setBigUint64(17, BigInt(intervalSlots), true);
-  return buf;
+  return encodeInstruction('core','SetFundingParams',{coefficientBps,maxRateBps,intervalSlots});
 }
 
 /** InitializeBook — disc(1) + instrument_id(u16 LE). */
 export function encodeInitializeBook(instrumentId: number): Uint8Array {
-  const buf = new Uint8Array(3);
-  buf[0] = CORE_INSTRUCTION.InitializeBook;
-  new DataView(buf.buffer).setUint16(1, instrumentId, true);
-  return buf;
+  return encodeInstruction('core','InitializeBook',{instrumentId});
 }

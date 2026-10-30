@@ -22,8 +22,6 @@ export async function resolveOpenBatch(params: {
   connection: Connection;
   programId: PublicKey;
   batchIdCounter: bigint;
-  batchAddress?: PublicKey | null;
-  indexerUrl?: string;
   /** Include the current batch after collection for read-only status displays. */
   includeCompletedPhases?: boolean;
 }): Promise<{ batchPda: PublicKey; batchId: bigint; batch: sdk.state.BatchState }> {
@@ -34,41 +32,9 @@ export async function resolveOpenBatch(params: {
     return includeCompletedPhases && (
       batch.status === sdk.state.BatchStatus.Revealing ||
       batch.status === sdk.state.BatchStatus.Clearing ||
-      batch.status === sdk.state.BatchStatus.Settled
+      batch.status === sdk.state.BatchStatus.Cleared
     );
   };
-
-  if (params.batchAddress) {
-    const acc = await params.connection.getAccountInfo(params.batchAddress);
-    if (!acc) {
-      throw new Error('Configured batch address not found on-chain.');
-    }
-    const batch = sdk.state.decodeBatch(new Uint8Array(acc.data));
-    if (!isUsable(batch)) {
-      throw new Error(
-        'No open collecting batch found. Wait for the keeper to open the next window.',
-      );
-    }
-    return {
-      batchPda: params.batchAddress,
-      batchId: batch.batchId,
-      batch,
-    };
-  }
-
-  const indexerBatch = await fetchIndexerBatchAddress(
-    params.batchIdCounter > 0n ? params.batchIdCounter - 1n : 0n,
-    params.indexerUrl ?? config.indexerUrl,
-  );
-  if (indexerBatch) {
-    const acc = await params.connection.getAccountInfo(indexerBatch);
-    if (acc) {
-      const batch = sdk.state.decodeBatch(new Uint8Array(acc.data));
-      if (isUsable(batch)) {
-        return { batchPda: indexerBatch, batchId: batch.batchId, batch };
-      }
-    }
-  }
 
   const c = params.batchIdCounter;
   const candidates: bigint[] = [];
@@ -98,44 +64,9 @@ export async function resolveOpenBatch(params: {
 }
 
 
-export async function fetchIndexerBatchAddress(
-  expectedBatchId: bigint,
-  indexerUrl = config.indexerUrl,
-): Promise<PublicKey | null> {
-  if (!indexerUrl) return null;
-  try {
-    const res = await fetch(`${indexerUrl}/api/batch/current`, {
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-
-    const body = (await res.json()) as Record<string, unknown>;
-    const batchAddress = body.batchAddress ?? body.batch_address;
-    if (typeof batchAddress !== 'string') return null;
-
-    // Trust the indexer's batch address even when batch IDs diverge.  The
-    // indexer tracks the keeper's keypair-based batch directly; the registry
-    // counter may race ahead during SettleBatch → CreateBatch transitions.
-    return new PublicKey(batchAddress);
-  } catch {
-    return null;
-  }
-}
-
 export async function resolveBatchAddress(params: {
   batchId: bigint;
   programId: PublicKey;
-  batchAddress?: PublicKey | null;
-  indexerUrl?: string;
 }): Promise<PublicKey> {
-  if (params.batchAddress) return params.batchAddress;
-
-  const indexerBatch = await fetchIndexerBatchAddress(
-    params.batchId,
-    params.indexerUrl ?? config.indexerUrl,
-  );
-  if (indexerBatch) return indexerBatch;
-
   return sdk.deriveBatchPda(params.batchId, params.programId)[0];
 }

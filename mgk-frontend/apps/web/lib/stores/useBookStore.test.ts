@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { PublicKey, type AccountInfo, type Connection } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useBookStore, type BookPollParams } from './useBookStore';
 
@@ -19,15 +19,16 @@ function makeBookBuffer(
   }> = {},
 ): Uint8Array {
   const buf = new Uint8Array(sdk.state.BOOK_HEADER_SIZE);
+  buf[0]=7;buf[1]=1;
   const view = new DataView(buf.buffer);
-  view.setUint16(0, overrides.instrumentId ?? 7, true);
-  view.setBigInt64(8, overrides.bestBid ?? 0n, true);
-  view.setBigInt64(16, overrides.bestAsk ?? 0n, true);
-  view.setUint32(24, bids.length, true);
-  view.setUint32(28, asks.length, true);
-  view.setBigUint64(32, overrides.nextOrderId ?? 0n, true);
-  view.setBigUint64(40, overrides.lastUpdateSlot ?? 0n, true);
-  const BIDS_OFFSET = 48;
+  view.setUint16(8, overrides.instrumentId ?? 7, true);
+  view.setBigInt64(16, overrides.bestBid ?? 0n, true);
+  view.setBigInt64(24, overrides.bestAsk ?? 0n, true);
+  view.setUint32(32, bids.length, true);
+  view.setUint32(36, asks.length, true);
+  view.setBigUint64(40, overrides.nextOrderId ?? 0n, true);
+  view.setBigUint64(48, overrides.lastUpdateSlot ?? 0n, true);
+  const BIDS_OFFSET = 56;
   const ASKS_OFFSET = BIDS_OFFSET + 64 * 24;
   for (let i = 0; i < 64; i++) {
     const b = bids[i];
@@ -199,6 +200,8 @@ describe('useBookStore', () => {
   });
 
   it('fires a refresh on every interval tick', async () => {
+    vi.useFakeTimers();
+    try {
     const conn = new MockConnection();
     conn.responses = Array.from({ length: 20 }, () =>
       makeAccountInfo(makeBookBuffer()),
@@ -209,8 +212,9 @@ describe('useBookStore', () => {
     );
     expect(conn.calls.length).toBe(1);
 
-    await wait(120);
-    expect(conn.calls.length).toBeGreaterThanOrEqual(5);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(conn.calls.length).toBe(5);
+    } finally {useBookStore.getState().stopPolling();vi.useRealTimers();}
   });
 
   it('stops polling: clears the interval and flips isPolling off', async () => {

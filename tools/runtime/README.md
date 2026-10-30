@@ -51,7 +51,7 @@ await runtime.assertState([{
   address: portfolio,
   owner: coreProgramId,
   lamports: '10000000',
-  fields: [{name: 'equity', offset: 48, bytes: 16, signed: true,
+  fields: [{name: 'equity', path: 'equity',
     value: model.collateral[wallet]}],
 }]);
 ```

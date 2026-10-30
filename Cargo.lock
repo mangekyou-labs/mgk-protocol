@@ -2422,6 +2422,7 @@ name = "mgk-perps-core"
 version = "0.1.0"
 dependencies = [
  "mgk-common",
+ "mgk-oracle",
  "mgk-perps-matcher",
  "pinocchio",
  "pinocchio-pubkey",

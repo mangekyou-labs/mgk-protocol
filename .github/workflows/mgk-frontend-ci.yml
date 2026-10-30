@@ -5,10 +5,20 @@ on:
     branches: [master]
     paths:
       - 'mgk-frontend/**'
+      - 'programs/**'
+      - 'deployments/**'
+      - 'tools/**'
+      - 'scripts/check-layouts.sh'
+      - '.github/workflows/mgk-frontend-ci.yml'
   pull_request:
     branches: [master]
     paths:
       - 'mgk-frontend/**'
+      - 'programs/**'
+      - 'deployments/**'
+      - 'tools/**'
+      - 'scripts/check-layouts.sh'
+      - '.github/workflows/mgk-frontend-ci.yml'
 
 jobs:
   test:
@@ -27,7 +37,13 @@ jobs:
           cache: pnpm
           cache-dependency-path: mgk-frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: npm install --prefix ../tools --ignore-scripts --package-lock=false
+      - run: npm test --prefix ../tools
+      - run: pnpm -F @mgk/layout test
+      - run: pnpm -F @mgk/sdk test
       - run: pnpm -F @mgk/sdk build
+      - run: pnpm -F indexer typecheck
+      - run: pnpm -F indexer test
       - run: pnpm -F web typecheck
       - run: pnpm -F web lint
       - run: pnpm -F web test
@@ -44,3 +60,11 @@ jobs:
           name: playwright-results
           path: mgk-frontend/apps/web/test-results/
           retention-days: 7
+
+  layout-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: scripts/check-layouts.sh

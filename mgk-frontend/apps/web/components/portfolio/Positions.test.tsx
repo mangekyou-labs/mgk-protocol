@@ -14,6 +14,7 @@ function makePosition(overrides: Partial<Position> = {}): Position {
   return {
     instrumentId: 1,
     qty: 0n,
+    entryRemainder:0n,entryDenominator:1n,
     entryVwap: 0n,
     ...overrides,
   };
@@ -28,7 +29,8 @@ function makePortfolio(positions: Position[], overrides: Partial<PortfolioState>
     user: USER_PK,
     equity: 1_500_000_000n,
     principal: 1_000_000_000n,
-    pnl: 500_000_000n,
+    realizedLamports:0n,feesPaid:0n,fundingPaid:0n,reservedCollateral:0n,riskPnl:0n,
+    realizedUsd: 500_000_000n,
     im: 300_000_000n,
     mm: 200_000_000n,
     freeCollateral: 1_200_000_000n,

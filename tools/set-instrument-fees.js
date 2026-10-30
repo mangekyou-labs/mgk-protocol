@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount} = require('../mgk-frontend/packages/layout/index.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * T9.10.1 — governance SetInstrumentFees (disc 22).
  *
@@ -32,10 +35,7 @@ function le16(v) {
 }
 
 function decodeFees(data) {
-  return {
-    takerFeeBps: data.readUInt16LE(TAKER_FEE_OFFSET),
-    makerFeeBps: data.readInt16LE(MAKER_FEE_OFFSET),
-  };
+const {takerFeeBps,makerFeeBps}=decodeAccount('Instrument',data);return {takerFeeBps,makerFeeBps};
 }
 
 function parseArgs(argv) {
@@ -82,10 +82,7 @@ async function main() {
   const before = decodeFees(beforeInfo.data);
   console.log('Before: taker', before.takerFeeBps, 'bps / maker', before.makerFeeBps, 'bps');
 
-  const data = Buffer.alloc(5);
-  data[0] = 22;
-  data.writeUInt16LE(taker, 1);
-  data.writeInt16LE(maker, 3);
+  const data=Buffer.from(encodeInstruction('core','SetInstrumentFees',{takerFeeBps:taker,makerFeeBps:maker}));
 
   const tx = new Transaction().add(new TransactionInstruction({
     keys: [
@@ -100,7 +97,7 @@ async function main() {
   tx.feePayer = gov.publicKey;
   tx.sign(gov);
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await conn.confirmTransaction(sig, 'confirmed');
+  await confirmSignature(conn, sig);
   console.log('TX:', sig);
 
   const afterInfo = await conn.getAccountInfo(instPDA);

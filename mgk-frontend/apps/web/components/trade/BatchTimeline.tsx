@@ -52,7 +52,6 @@ export function BatchTimeline() {
     try {
       // DFBA: batches are PDAs (or config override). Prefer configured address.
       const batchPda =
-        config.batchAddress ??
         sdk.deriveBatchPda(currentBatchId, config.coreProgramId)[0];
       const registryPda = resolveRegistryAddress(config.coreProgramId);
       // CloseCollecting (disc 6): [writable] batch, [] registry
@@ -65,8 +64,9 @@ export function BatchTimeline() {
         data: Buffer.from(sdk.programs.encodeCloseCommitting()),
       });
       const tx = new Transaction().add(ix);
+      if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
       const sig = await sendTransaction(tx, connection);
-      await connection.confirmTransaction(sig, 'confirmed');
+      await sdk.confirmSignature(connection, sig);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setCrankError(msg);

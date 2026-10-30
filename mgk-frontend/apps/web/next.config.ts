@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import type { NextConfig } from "next";
 
-const frontendRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const repositoryRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /**
  * mgk frontend — security headers.
@@ -96,18 +96,16 @@ function buildCsp(isProd: boolean): string {
 const isProd = process.env.NODE_ENV === "production";
 
 const nextConfig: NextConfig = {
-  // Worktrees sit under the primary checkout. Next 16 otherwise infers
-  // turbopack.root from the parent repo lockfile and cannot compile @mgk/sdk.
-  // pnpm does not hoist @mgk/sdk to mgk-frontend/node_modules, so alias +
-  // transpile it; do not leave it as a Node external.
+  // Include deployments/ alongside the frontend so the canonical manifest can
+  // be bundled directly; aliases are relative to this repository root.
   transpilePackages: ["@mgk/sdk"],
   serverExternalPackages: [],
   turbopack: {
-    root: frontendRoot,
+    root: repositoryRoot,
     resolveAlias: {
-      // Relative to turbopack.root (mgk-frontend). Absolute paths become
+      // Relative to turbopack.root (the repository). Absolute paths become
       // invalid `./Users/...` server-relative imports.
-      "@mgk/sdk": "./packages/sdk/dist/index.js",
+      "@mgk/sdk": "./mgk-frontend/packages/sdk/dist/index.js",
     },
   },
 

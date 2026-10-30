@@ -11,6 +11,8 @@ const USER = new PublicKey('2ecHahNv1LcVsmp614f8XTdpcTksNMwx7FkCJBtsMiQX');
 const getMultipleAccountsInfo = vi.fn();
 const sendTransaction = vi.fn();
 
+vi.mock('@/lib/config',()=>({config:{deploymentReady:true,bookAddress:new PublicKey('11111111111111111111111111111111'),matcherProgramId:new PublicKey('11111111111111111111111111111112')}}));
+
 vi.mock('@solana/wallet-adapter-react', () => ({
   useWallet: () => ({
     publicKey: USER,
@@ -29,11 +31,12 @@ function bookWithUserOrder(user: PublicKey): Buffer {
     sdk.state.RESTING_ORDERS_OFFSET +
       sdk.state.MAX_RESTING_ORDERS * sdk.state.RESTING_ORDER_SIZE,
   );
-  data.writeUInt16LE(0, 0);
-  data.writeBigInt64LE(150_000n, 8);
+  data[0]=7;data[1]=1;
+  data.writeUInt16LE(0, 8);
+  data.writeBigInt64LE(150_000n, 24);
   data.writeBigInt64LE(150_000n, 16);
-  data.writeUInt32LE(1, 24);
-  data.writeBigUInt64LE(2n, 32);
+  data.writeUInt32LE(1, 32);
+  data.writeBigUInt64LE(2n, 40);
 
   const orderOffset = sdk.state.BOOK_HEADER_SIZE;
   data.writeBigUInt64LE(1n, orderOffset);

@@ -94,19 +94,20 @@ describe('syncer - gap-aware slot synchronization', () => {
     };
 
     // DFBA results header (34 bytes: 8+8+8+8+2) + 2 fills (58 bytes each: 32+8+8+8+1+1)
-    const resultsBuffer = new Uint8Array(34 + 58 * 2);
-    const view = new DataView(resultsBuffer.buffer);
-    view.setUint16(32, 2, true); // num_fills = 2
+    const resultsBuffer = new Uint8Array(51 + 58 * 2);
+    resultsBuffer[0]=8;resultsBuffer[1]=1;
+    const view = new DataView(resultsBuffer.buffer);view.setBigUint64(8,1n,true);
+    view.setUint16(49, 2, true); // num_fills = 2
 
     // Fill 0: matches pre-inserted fill (price: 150_000_000, qty: 1_000_000, auction: 1 -> taker_side: 0)
-    resultsBuffer.set(takerPk, 34);
-    view.setBigUint64(34 + 40, 1_000_000n, true); // qty
-    view.setBigInt64(34 + 48, 150_000_000n, true); // price
-    resultsBuffer[34 + 56] = 0; // is_maker = 0
-    resultsBuffer[34 + 57] = 1; // auction = 1 -> taker_side = 0
+    resultsBuffer.set(takerPk, 51);
+    view.setBigUint64(51 + 40, 1_000_000n, true); // qty
+    view.setBigInt64(51 + 48, 150_000_000n, true); // price
+    resultsBuffer[51 + 56] = 0; // is_maker = 0
+    resultsBuffer[51 + 57] = 1; // auction = 1 -> taker_side = 0
 
     // Fill 1: new fill (price: 155_000_000, qty: 2_000_000, auction: 0 -> taker_side: 1)
-    const fill1Offset = 34 + 58;
+    const fill1Offset = 51 + 58;
     resultsBuffer.set(takerPk, fill1Offset);
     view.setBigUint64(fill1Offset + 40, 2_000_000n, true); // qty
     view.setBigInt64(fill1Offset + 48, 155_000_000n, true); // price
@@ -114,10 +115,11 @@ describe('syncer - gap-aware slot synchronization', () => {
     resultsBuffer[fill1Offset + 57] = 0; // auction = 0 -> taker_side = 1
 
     const batchBuffer = new Uint8Array(sdk.state.BATCH_SIZE);
+    batchBuffer[0]=2;batchBuffer[1]=1;
     const batchView = new DataView(batchBuffer.buffer);
-    batchView.setBigUint64(0, 1n, true);
-    batchView.setUint8(8, sdk.state.BatchStatus.Settled);
-    batchView.setUint8(152, 1); // markValid = true (identifies as DFBA)
+    batchView.setBigUint64(8, 1n, true);
+    batchView.setUint8(16, sdk.state.BatchStatus.Settled);
+    batchView.setUint8(168, 1); // markValid = true (identifies as DFBA)
 
     const mockConnection = {
       getBlocks: vi.fn().mockResolvedValue([100]),

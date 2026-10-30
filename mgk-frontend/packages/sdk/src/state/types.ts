@@ -1,3 +1,4 @@
+import {layouts} from '../../../layout/index.js';
 import type { PublicKey } from '@solana/web3.js';
 import { Side } from '../instruction.js';
 
@@ -46,6 +47,8 @@ export interface Position {
   instrumentId: number;
   qty: bigint;
   entryVwap: bigint;
+  entryRemainder: bigint;
+  entryDenominator: bigint;
 }
 
 export interface RevealedOrder {
@@ -103,7 +106,12 @@ export interface PortfolioState {
   user: PublicKey;
   equity: bigint;
   principal: bigint;
-  pnl: bigint;
+  realizedUsd: bigint;
+  realizedLamports: bigint;
+  feesPaid: bigint;
+  fundingPaid: bigint;
+  reservedCollateral: bigint;
+  riskPnl: bigint;
   im: bigint;
   mm: bigint;
   freeCollateral: bigint;
@@ -117,19 +125,19 @@ export interface PortfolioState {
 }
 
 /** size_of::<Batch>() after DFBA fields (was 120 pre-DFBA). */
-export const BATCH_SIZE = 160;
-export const COMMITMENT_SIZE = 168;
-export const PORTFOLIO_SIZE = 1456; // BPF layout: i128/u128 have 8-byte alignment (not 16 like native)
+export const BATCH_SIZE = layouts.Batch.size;
+export const COMMITMENT_SIZE = layouts.Commitment.size;
+export const PORTFOLIO_SIZE = layouts.Portfolio.size;
 export const MAX_POSITIONS = 32;
 export const MAX_INSTRUMENTS = 32;
 
 // Order book constants (mirrors programs/common/src/book.rs and programs/perps-matcher/src/state/book.rs)
 export const MAX_LEVELS = 64;
 export const MAX_RESTING_ORDERS = 256;
-export const BOOK_HEADER_SIZE = 3120; // 48 (header) + 64*24 (bids) + 64*24 (asks)
-export const RESTING_ORDER_SIZE = 96;
+export const BOOK_HEADER_SIZE = layouts.OrderBook.size;
+export const RESTING_ORDER_SIZE = layouts.RestingOrder.size;
 export const RESTING_ORDERS_OFFSET = BOOK_HEADER_SIZE;
-export const REGISTRY_SIZE = 86; // bytes (packed struct, no 8-byte alignment padding)
+export const REGISTRY_SIZE = layouts.Registry.size;
 
 // ---------------------------------------------------------------------------
 // Order book types

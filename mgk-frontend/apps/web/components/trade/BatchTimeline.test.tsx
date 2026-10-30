@@ -9,6 +9,8 @@ import { BatchTimeline } from './BatchTimeline';
 // nonces (see memory note 'mgk-frontend: jsdom cannot compute PDA nonces'),
 // so any test that exercises the Crank click handler must stub the derive
 // functions. Tests that only render the component (no click) don't need this.
+vi.mock('@/lib/config',()=>({config:{deploymentReady:true,coreProgramId:new PublicKey('11111111111111111111111111111111'),indexerUrl:'',registryAddress:null}}));
+
 vi.mock('@mgk/sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof sdk>();
   return {
@@ -66,7 +68,7 @@ type HooksMockState = {
   connected: boolean;
   publicKey: PublicKey | null;
   sendTransaction: ReturnType<typeof vi.fn>;
-  confirmTransaction: ReturnType<typeof vi.fn>;
+  getSignatureStatuses: ReturnType<typeof vi.fn>;
 };
 
 const mockState: HooksMockState = {
@@ -77,7 +79,7 @@ const mockState: HooksMockState = {
   connected: false,
   publicKey: null,
   sendTransaction: vi.fn(),
-  confirmTransaction: vi.fn(),
+  getSignatureStatuses: vi.fn(),
 };
 
 vi.mock('@/lib/stores/useBatchStore', () => ({
@@ -105,7 +107,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
   }),
   useConnection: () => ({
     connection: {
-      confirmTransaction: mockState.confirmTransaction,
+      getSignatureStatuses: mockState.getSignatureStatuses,
     },
   }),
 }));
@@ -118,7 +120,7 @@ function resetMockState(overrides: Partial<HooksMockState> = {}) {
   mockState.connected = false;
   mockState.publicKey = null;
   mockState.sendTransaction = vi.fn();
-  mockState.confirmTransaction = vi.fn();
+  mockState.getSignatureStatuses = vi.fn();
   Object.assign(mockState, overrides);
 }
 
@@ -184,7 +186,7 @@ describe('<BatchTimeline />', () => {
       publicKey: PUBLIC_KEY,
     });
     mockState.sendTransaction.mockResolvedValue('mock-sig');
-    mockState.confirmTransaction.mockResolvedValue(undefined);
+    mockState.getSignatureStatuses.mockResolvedValue(undefined);
 
     render(<BatchTimeline />);
     const btn = screen.getByTestId('crank-button');
@@ -238,7 +240,7 @@ describe('<BatchTimeline />', () => {
       publicKey: PUBLIC_KEY,
     });
     mockState.sendTransaction.mockResolvedValue('mock-sig');
-    mockState.confirmTransaction.mockResolvedValue(undefined);
+    mockState.getSignatureStatuses.mockResolvedValue(undefined);
 
     render(<BatchTimeline />);
     fireEvent.click(screen.getByTestId('crank-button'));
@@ -246,7 +248,7 @@ describe('<BatchTimeline />', () => {
     await waitFor(() => {
       expect(mockState.sendTransaction).toHaveBeenCalledTimes(1);
     });
-    expect(mockState.confirmTransaction).toHaveBeenCalledWith('mock-sig', 'confirmed');
+    expect(mockState.getSignatureStatuses).toHaveBeenCalledWith(['mock-sig'], {searchTransactionHistory:true});
 
     const [tx, conn] = mockState.sendTransaction.mock.calls[0]!;
     expect(tx).toBeDefined();

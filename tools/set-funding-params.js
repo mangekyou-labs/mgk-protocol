@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount} = require('../mgk-frontend/packages/layout/index.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * T9.10.5 — governance SetFundingParams (disc 24).
  *
@@ -89,12 +92,7 @@ function encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots) {
     throw new Error('interval_slots must be non-zero');
   }
 
-  const buf = Buffer.alloc(25);
-  buf[0] = 24; // discriminator
-  buf.writeBigInt64LE(BigInt(coefficientBps), 1);
-  buf.writeBigInt64LE(BigInt(maxRateBps), 9);
-  buf.writeBigUInt64LE(BigInt(intervalSlots), 17);
-  return buf;
+  return Buffer.from(encodeInstruction('core','SetFundingParams',{coefficientBps,maxRateBps,intervalSlots}));
 }
 
 // ---------------------------------------------------------------------------
@@ -106,22 +104,14 @@ function encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots) {
  * Returns { fundingCoefficientBps, maxFundingRateBps, fundingIntervalSlots, lastFundingSlot }.
  */
 function decodeInstrumentFunding(data) {
-  return {
-    fundingCoefficientBps: data.readBigInt64LE(OFFSET_FUNDING_COEFFICIENT_BPS),
-    maxFundingRateBps: data.readBigInt64LE(OFFSET_MAX_FUNDING_RATE_BPS),
-    fundingIntervalSlots: data.readBigUInt64LE(OFFSET_FUNDING_INTERVAL_SLOTS),
-    lastFundingSlot: data.readBigUInt64LE(OFFSET_LAST_FUNDING_SLOT),
-  };
+const {fundingCoefficientBps,maxFundingRateBps,fundingIntervalSlots,lastFundingSlot}=decodeAccount('Instrument',data);return {fundingCoefficientBps,maxFundingRateBps,fundingIntervalSlots,lastFundingSlot};
 }
 
 /**
  * Decode cum_funding (i128 LE) from a raw Instrument account buffer.
  */
 function decodeCumFunding(data) {
-  // Read as two i64 halves and combine
-  const lo = data.readBigInt64LE(OFFSET_CUM_FUNDING);
-  const hi = data.readBigInt64LE(OFFSET_CUM_FUNDING + 8);
-  return lo | (hi << 64n);
+return decodeAccount('Instrument',data).cumFunding;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +241,7 @@ async function setFundingParams({
   tx.sign(governanceKeypair);
 
   const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await connection.confirmTransaction(sig, 'confirmed');
+  await confirmSignature(connection, sig);
   console.log('[set-funding-params] TX:', sig);
 
   // Readback verification

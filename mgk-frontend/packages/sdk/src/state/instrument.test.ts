@@ -1,16 +1,4 @@
-import { describe, it, expect } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
-import { INSTRUMENT_ORACLE_OFFSET, readInstrumentOracle } from './instrument.js';
-
-describe('readInstrumentOracle', () => {
-  it('reads the oracle address at byte 68 of the instrument account', () => {
-    const oracle = PublicKey.unique();
-    const data = new Uint8Array(352);
-    data.set(oracle.toBytes(), INSTRUMENT_ORACLE_OFFSET);
-    expect(readInstrumentOracle(data).equals(oracle)).toBe(true);
-  });
-
-  it('rejects a truncated account', () => {
-    expect(() => readInstrumentOracle(new Uint8Array(90))).toThrow(/too small/);
-  });
-});
+import {it,expect} from 'vitest';
+import {layouts} from '../../../layout/index.js';
+import {readInstrumentOracle,INSTRUMENT_ORACLE_OFFSET} from './instrument.js';
+it('reads the conversion oracle from the actual Rust Instrument fixture',()=>{expect(INSTRUMENT_ORACLE_OFFSET).toBe(68);const b=Uint8Array.from(layouts.Instrument.fixture);expect(readInstrumentOracle(b).toBytes()).toEqual(b.slice(68,100));expect(()=>readInstrumentOracle(b.subarray(0,100))).toThrow();});

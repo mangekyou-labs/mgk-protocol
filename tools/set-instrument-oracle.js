@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {decodeAccount,layouts} = require('../mgk-frontend/packages/layout/index.js');
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * T9.10.3 — governance SetInstrumentOracle (disc 23).
  *
@@ -20,7 +23,7 @@ const { join } = require('path');
 const { loadEnvLocal } = require('./inject-persona');
 
 const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
-const ORACLE_ADDR_OFFSET = 60;
+const ORACLE_ADDR_OFFSET = layouts.Instrument.fields.oracleAddr[0];
 const ORACLE_ADDR_LEN = 32;
 
 function loadKP(p) {
@@ -38,7 +41,7 @@ function le16(v) {
 }
 
 function decodeOracleAddr(data) {
-  return new PublicKey(data.subarray(ORACLE_ADDR_OFFSET, ORACLE_ADDR_OFFSET + ORACLE_ADDR_LEN));
+  return new PublicKey(decodeAccount('Instrument',data).oracleAddr);
 }
 
 function parseArgs(argv) {
@@ -80,7 +83,7 @@ async function setInstrumentOracle({
 
   console.log(`[set-instrument-oracle] Updating instrument ${instPDA.toBase58()} oracle: ${currentOracle.toBase58()} -> ${oracleAccount.toBase58()}`);
 
-  const data = Buffer.from([23]); // CoreInstruction::SetInstrumentOracle = 23
+  const data = Buffer.from(encodeInstruction('core','SetInstrumentOracle')); // CoreInstruction::SetInstrumentOracle = 23
 
   const tx = new Transaction().add(
     new TransactionInstruction({
@@ -100,7 +103,7 @@ async function setInstrumentOracle({
   tx.sign(governanceKeypair);
 
   const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await connection.confirmTransaction(sig, 'confirmed');
+  await confirmSignature(connection, sig);
   console.log('[set-instrument-oracle] TX:', sig);
 
   const afterInfo = await connection.getAccountInfo(instPDA);

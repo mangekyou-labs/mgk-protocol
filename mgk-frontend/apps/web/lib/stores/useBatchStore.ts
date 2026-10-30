@@ -16,8 +16,6 @@ export interface BatchPollParams {
   connection: Connection;
   programId: PublicKey;
   registryAddress?: PublicKey | null;
-  batchAddress?: PublicKey | null;
-  indexerUrl?: string;
   intervalMs: number;
 }
 
@@ -79,7 +77,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
     if (!currentParams) return;
     set({ loading: true, error: null });
     try {
-      const { connection, programId, registryAddress, batchAddress, indexerUrl } = currentParams;
+      const { connection, programId, registryAddress } = currentParams;
 
       const registryPda = resolveRegistryAddress(programId, registryAddress ?? null);
       const registryAccounts =
@@ -119,8 +117,6 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
           connection,
           programId,
           batchIdCounter: registry.batchIdCounter,
-          batchAddress: batchAddress ?? null,
-          indexerUrl,
           includeCompletedPhases: true,
         });
         data = open.batch;
@@ -178,15 +174,12 @@ export function useBatchPolling(intervalMs = 5000): {
       connection,
       programId: config.coreProgramId,
       registryAddress: config.registryAddress,
-      batchAddress: config.batchAddress,
-      indexerUrl: config.indexerUrl,
       intervalMs,
     };
     const nextParamsKey = [
       connection.rpcEndpoint,
       config.coreProgramId.toBase58(),
       config.registryAddress?.toBase58() ?? '',
-      config.batchAddress?.toBase58() ?? '',
       config.indexerUrl,
       intervalMs,
     ].join('|');

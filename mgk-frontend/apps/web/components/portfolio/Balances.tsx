@@ -86,8 +86,9 @@ export function Balances({ data, loading, className }: BalancesProps) {
           <NumberDisplay value={locked} kind="lamports" />
           <span className="ml-1 text-text-faint text-[11px]">SOL</span>
         </Row>
-        <Row label="Unrealized PnL" testid="balances-pnl">
-          <PnlDisplay value={lamportsToSolNumber(data.pnl)} />
+        <Row label="Realized PnL" testid="balances-pnl">
+          <PnlDisplay value={lamportsToSolNumber(data.realizedLamports)} />
+          <span className="ml-1 text-text-faint text-[11px]">SOL</span>
         </Row>
         <Row label="Maintenance Margin" testid="balances-mm">
           <NumberDisplay value={data.mm} kind="lamports" />

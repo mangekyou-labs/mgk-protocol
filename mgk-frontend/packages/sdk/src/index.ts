@@ -49,7 +49,6 @@ export {
 export type { ErrorSeverity } from './error.js';
 export {
   decodePriceOracle,
-  PRICE_ORACLE_MAGIC,
   PRICE_ORACLE_SIZE,
 } from './oracle.js';
 export type { DecodedPriceOracle } from './oracle.js';
@@ -65,3 +64,8 @@ export type {
   NormalizedPythPrice,
   PythPriceFeed,
 } from './pyth.js';
+
+export { confirmSignature } from '../../layout/confirmation.js';
+export * as layout from '../../layout/index.js';
+
+export {encodeInstruction, instructions} from '../../layout/instructions.js';

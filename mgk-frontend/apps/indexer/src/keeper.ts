@@ -1,3 +1,4 @@
+import * as sdk from '@mgk/sdk';
 /**
  * Keeper: monitors and cranks batch lifecycle.
  *
@@ -71,7 +72,7 @@ async function sendAndConfirmTransactionPolling(
   signers: Signer[],
   opts: { commitment?: 'processed' | 'confirmed' | 'finalized' } = {},
 ): Promise<string> {
-  const { blockhash } = await connection.getLatestBlockhash();
+  const {blockhash,lastValidBlockHeight}=await connection.getLatestBlockhash('confirmed');
   tx.recentBlockhash = blockhash;
   const signerKey = signers[0]?.publicKey;
   if (signerKey) tx.feePayer = tx.feePayer ?? signerKey;
@@ -81,25 +82,7 @@ async function sendAndConfirmTransactionPolling(
     preflightCommitment: opts.commitment ?? 'confirmed',
   });
 
-  // Wait for 3 slots to advance with retry-on-error for RPC rate-limiting
-  let startSlot: number;
-  try {
-    startSlot = await connection.getSlot();
-  } catch {
-    return sig; // Return sig even if slot fetch fails
-  }
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    try {
-      const currentSlot = await connection.getSlot();
-      if (currentSlot >= startSlot + 3) {
-        return sig;
-      }
-    } catch {
-      // RPC rate-limited — keep waiting
-    }
-    process.stdout.write('.');
-  }
+  await sdk.confirmSignature(connection,sig,{lastValidBlockHeight});
   return sig;
 }
 
@@ -115,12 +98,12 @@ const BATCH_KEYPAIR_PATH = join(HOME, '.config', 'solana', 'mgk-batch-keypair.js
 const ORACLE_KEYPAIR_PATH = join(HOME, '.config', 'solana', 'mgk-oracle-keypair.json');
 
 // Account sizes
-const BOOK_SIZE = 36_000;  // BookState (~36KB)
-const VAULT_SIZE = 80;
-const INSTRUMENT_SIZE = 336; // BPF layout: size_of::<Instrument>()
-const PORTFOLIO_SPACE = 1456; // BPF layout: size_of::<Portfolio>() on sbf-solana-solana (i128 8-byte aligned)
-const RESULTS_SIZE = 2 + 64 * 49; // header(2) + max_fills(64) * 49
-const ORACLE_SIZE = 128;   // PriceOracle (verified against PRICE_ORACLE_SIZE in oracle state.rs)
+const BOOK_SIZE = sdk.state.layouts.OrderBook.size + 256 * sdk.state.layouts.RestingOrder.size + 8;  // BookState (~36KB)
+const VAULT_SIZE = sdk.state.layouts.Vault.size;
+const INSTRUMENT_SIZE = sdk.state.layouts.Instrument.size; // BPF layout: size_of::<Instrument>()
+const PORTFOLIO_SPACE = sdk.state.PORTFOLIO_SIZE; // BPF layout: size_of::<Portfolio>() on sbf-solana-solana (i128 8-byte aligned)
+const RESULTS_SIZE = sdk.state.DFBA_RESULTS_HEADER_SIZE + 12 * sdk.state.DFBA_FILL_SIZE; // header(2) + max_fills(64) * 49
+const ORACLE_SIZE = sdk.PRICE_ORACLE_SIZE;   // PriceOracle (verified against PRICE_ORACLE_SIZE in oracle state.rs)
 
 // ---------------------------------------------------------------------------
 // Encoding helpers (mirror SDK encode functions)
@@ -128,38 +111,22 @@ const ORACLE_SIZE = 128;   // PriceOracle (verified against PRICE_ORACLE_SIZE in
 
 /** CreateBatch — disc(16) + bump(1). Entrypoint strips disc 16, passes bump to inner. */
 function encodeCreateBatch(bump: number): Buffer {
-  const buf = Buffer.alloc(2);
-  buf.writeUInt8(16, 0);   // discriminator 16 → CreateBatch dispatch
-  buf.writeUInt8(bump, 1);  // bump passed to inner
-  return buf;
+  return Buffer.from(sdk.encodeInstruction('core','CreateBatch',{bump}));
 }
 
 /** CloseCommitting — discriminator 6, no data. */
 function encodeCloseCommitting(): Buffer {
-  return Buffer.from([6]);
+  return Buffer.from(sdk.encodeInstruction('core','CloseCommitting'));
 }
 
 /** ClearBatch — disc(1) + num_commitments(2) + num_instruments(2) + num_portfolios(2) = 7 bytes. */
-function encodeClearBatch(
-  numCommitments: number,
-  numInstruments: number,
-  numPortfolios: number,
-): Buffer {
-  const buf = Buffer.alloc(7);
-  buf.writeUInt8(7, 0);
-  buf.writeUInt16LE(numCommitments, 1);
-  buf.writeUInt16LE(numInstruments, 3);
-  buf.writeUInt16LE(numPortfolios, 5);
-  return buf;
+function encodeClearBatch(numCommitments: number, numInstruments: number, numPortfolios: number): Buffer {
+  return Buffer.from(sdk.encodeInstruction('core','ClearBatch',{numCommitments,numInstruments,numPortfolios}));
 }
 
 /** SettleBatch — disc(1) + num_commitments(2) + num_portfolios(2) = 5 bytes. */
 function encodeSettleBatch(numCommitments: number, numPortfolios: number): Buffer {
-  const buf = Buffer.alloc(5);
-  buf.writeUInt8(8, 0);
-  buf.writeUInt16LE(numCommitments, 1);
-  buf.writeUInt16LE(numPortfolios, 3);
-  return buf;
+  return Buffer.from(sdk.encodeInstruction('core','SettleBatch',{numCommitments,numPortfolios}));
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +191,7 @@ async function resolveInstrumentAccount(
       );
       return null;
     }
-    const actualId = Buffer.from(info.data).readUInt16LE(0);
+    const actualId = sdk.state.decodeInstrument(info.data).instrumentId;
     if (actualId !== instrumentId) {
       console.log(
         `[keeper] Ignoring ${source} instrument ${candidate.toBase58()}: instrument_id ${actualId} != ${instrumentId}`,
@@ -255,7 +222,7 @@ async function resolveInstrumentAccount(
   for (const { pubkey, account } of accounts) {
     const data = Buffer.from(account.data);
     if (data.length < INSTRUMENT_SIZE) continue;
-    if (data.readUInt16LE(0) !== instrumentId) continue;
+    if (sdk.state.decodeInstrument(data).instrumentId !== instrumentId) continue;
     state.instrumentAddress = pubkey.toBase58();
     console.log(`[keeper] Resolved live instrument #${instrumentId}: ${state.instrumentAddress}`);
     return pubkey;
@@ -479,14 +446,8 @@ interface CommitmentAccount {
   status: number; // 0=Pending, 1=Revealed, 2=Slashed, 3=Settled
 }
 
-/**
- * Find all commitment accounts for a given batch_id by scanning
- * program accounts with a memcmp filter on batch_id (offset 0, 8 bytes LE).
- * Commitment layout: batch_id(8) @0, user(32) @8, order_hash(32) @40,
- *   deposit(8) @72, status(1) @80, nonce(8) @88, revealed(72) @96.
- * instrument_id within revealed is at offset 152 (96 + 56).
- */
-async function findCommitmentsForBatch(
+/** Find commitments using the frozen account layout and validated public decoder. */
+export async function findCommitmentsForBatch(
   connection: Connection,
   programId: PublicKey,
   batchId: bigint,
@@ -496,7 +457,7 @@ async function findCommitmentsForBatch(
 
   const accounts = await connection.getProgramAccounts(programId, {
     filters: [
-      { memcmp: { offset: 0, bytes: encodeBase58(batchIdBuf) } },
+      { memcmp: { offset: state.layouts.Commitment.fields.batchId![0], bytes: encodeBase58(batchIdBuf) } },
       { dataSize: COMMITMENT_SIZE },
     ],
     encoding: 'base64',
@@ -505,11 +466,8 @@ async function findCommitmentsForBatch(
   const commitments: CommitmentAccount[] = [];
   for (const { pubkey, account } of accounts) {
     const data = Buffer.from(account.data);
-    if (data.length < 81) continue;
-    const bid = data.readBigUInt64LE(0);
+    const { batchId: bid, user, status } = state.decodeCommitment(data);
     if (bid !== batchId) continue;
-    const user = new PublicKey(data.subarray(8, 40));
-    const status = data.readUInt8(80);
     commitments.push({ pubkey, batchId: bid, user, status });
   }
   return commitments;
@@ -996,9 +954,7 @@ async function ensureOracleInitialized(state: KeeperState): Promise<void> {
 
   // Oracle Initialize: disc(0) + price(i64) + bump(u8) = 9 bytes
   // bump doesn't matter for keypair (any valid u8 works)
-  const initData = Buffer.alloc(9);
-  initData.writeBigInt64LE(0n, 0); // initial price 0 (will be updated immediately)
-  initData.writeUInt8(255, 8);     // bump (ignored for keypair-owned)
+  const initData = Buffer.from(sdk.encodeInstruction('oracle','Initialize',{initialPrice:0n,bump:255}));
 
   const initIxKeys = [
     { pubkey: activeOraclePda, isWritable: true, isSigner: true },     // oracle account (keypair signs createAccount)
@@ -1018,7 +974,7 @@ async function ensureOracleInitialized(state: KeeperState): Promise<void> {
         programId: oraclePid,
       }),
     );
-    tx.add({ keys: initIxKeys, programId: oraclePid, data: Buffer.concat([Buffer.from([0]), initData]) });
+    tx.add({ keys: initIxKeys, programId: oraclePid, data: initData });
 
     const sig = await sendAndConfirmTransactionPolling(connection, tx, [keypair, activeOracleKeypair], {
       commitment: 'confirmed',
@@ -1046,10 +1002,7 @@ async function runOracleCycle(state: KeeperState): Promise<void> {
 
   console.log(`[oracle] Posting SOL price: ${price.price}`);
   // UpdatePrice: disc(1) + price(i64) + confidence(i64) = 17 bytes
-  const data = Buffer.alloc(17);
-  data.writeUInt8(1, 0); // discriminator 1 = UpdatePrice
-  data.writeBigInt64LE(price.price, 1);
-  data.writeBigInt64LE(price.confidence, 9);
+  const data = Buffer.from(sdk.encodeInstruction('oracle','UpdatePrice',{price:price.price,confidence:price.confidence}));
 
   try {
     const tx = new Transaction();
