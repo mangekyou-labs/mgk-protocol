@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type * as sdk from '@mgk/sdk';
 import { ReadinessChecklist } from './ReadinessChecklist';
 const mocks = vi.hoisted(() => ({ connected: true, balance: 1000000000n as bigint | null, reason: null as string | null }));
@@ -21,4 +21,32 @@ it('shows the order form only with RPC funding, collateral and a matching deploy
   rerender(<ReadinessChecklist portfolio={portfolio} loading={false}><div>Order form</div></ReadinessChecklist>);
   expect(screen.queryByText('Order form')).not.toBeInTheDocument();
   expect(screen.getByText(mocks.reason)).toBeInTheDocument();
+});
+
+beforeEach(() => { mocks.connected = true; mocks.balance = 1000000000n; mocks.reason = null; });
+it('preserves form input and its mounted instance during a background portfolio refresh', () => {
+  const portfolio = { equity: 100000000n } as sdk.state.PortfolioState;
+  const form = <input aria-label="Order quantity" defaultValue="" />;
+  const { rerender } = render(<ReadinessChecklist portfolio={portfolio} loading={false}>{form}</ReadinessChecklist>);
+  const input = screen.getByLabelText('Order quantity');
+  fireEvent.change(input, { target: { value: '0.42' } });
+  rerender(<ReadinessChecklist portfolio={portfolio} loading={true}>{form}</ReadinessChecklist>);
+  expect(screen.getByLabelText('Order quantity')).toBe(input);
+  expect(input).toHaveValue('0.42');
+  rerender(<ReadinessChecklist portfolio={portfolio} loading={false}>{form}</ReadinessChecklist>);
+  expect(screen.getByLabelText('Order quantity')).toBe(input);
+});
+
+it('gates initial loading, wallet identity changes and RPC errors instead of exposing the form', () => {
+  const portfolio = { equity: 100000000n } as sdk.state.PortfolioState;
+  const form = <div>Order form</div>;
+  const { rerender } = render(<ReadinessChecklist portfolio={null} loading={true}>{form}</ReadinessChecklist>);
+  expect(screen.queryByText('Order form')).not.toBeInTheDocument();
+  expect(screen.getByText('Reading collateral from RPC…')).toBeInTheDocument();
+  rerender(<ReadinessChecklist portfolio={portfolio} loading={false} error="RPC unavailable">{form}</ReadinessChecklist>);
+  expect(screen.queryByText('Order form')).not.toBeInTheDocument();
+  expect(screen.getByText('RPC unavailable')).toBeInTheDocument();
+  mocks.connected = false;
+  rerender(<ReadinessChecklist portfolio={portfolio} loading={false}>{form}</ReadinessChecklist>);
+  expect(screen.queryByText('Order form')).not.toBeInTheDocument();
 });

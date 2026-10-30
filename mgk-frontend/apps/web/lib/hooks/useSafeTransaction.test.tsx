@@ -1,12 +1,13 @@
 import { act, renderHook } from '@testing-library/react';
 import { PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import * as sdk from '@mgk/sdk';
 import { useSafeTransaction } from './useSafeTransaction';
 
 const mocks = vi.hoisted(() => ({ send: vi.fn(), genesis: vi.fn(), ready: true, connected: true, accounts: vi.fn(), simulate: vi.fn(), latest: vi.fn() }));
 const user = new PublicKey('11111111111111111111111111111111');
 const connection = { getGenesisHash: mocks.genesis, getMultipleAccountsInfo: mocks.accounts, getLatestBlockhash: mocks.latest, simulateTransaction: mocks.simulate };
-vi.mock('@mgk/sdk', () => ({ state: { decodeRegistry: vi.fn(), decodeInstrument: () => ({ instrumentId: 0, oracleAddr: user }), decodeAccount: vi.fn() } }));
+vi.mock('@mgk/sdk', async importOriginal => ({ ...await importOriginal<typeof sdk>(), state: { decodeRegistry: vi.fn(), decodeInstrument: () => ({ instrumentId: 0, oracleAddr: user }), decodeAccount: vi.fn() } }));
 vi.mock('@solana/wallet-adapter-react', () => ({
   useWallet: () => ({ publicKey: user, connected: mocks.connected, sendTransaction: mocks.send }),
   useConnection: () => ({ connection }),
@@ -67,5 +68,37 @@ it('blocks a manifest account with the wrong owner', async () => {
   mocks.accounts.mockResolvedValue(Array.from({length:7},()=>({owner:new PublicKey('11111111111111111111111111111112'),executable:true,data:Buffer.alloc(8)})));
   const { result } = renderHook(() => useSafeTransaction());
   await expect(result.current(transaction())).rejects.toThrow(/manifest mismatch/i);
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+it('retains a pending wallet request across readiness unmount and remount', async () => {
+  mocks.genesis.mockResolvedValue('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
+  let resolve!: (signature: string) => void;
+  mocks.send.mockResolvedValue('duplicate-signature').mockImplementationOnce(() => new Promise<string>(r => { resolve = r; }));
+  const first = renderHook(() => useSafeTransaction());
+  const pending = first.result.current(transaction());
+  await vi.waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+  first.unmount();
+  const second = renderHook(() => useSafeTransaction());
+  await expect(second.result.current(transaction())).rejects.toThrow(/already in progress/);
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  resolve('first-signature');
+  await expect(pending).resolves.toBe('first-signature');
+  mocks.send.mockResolvedValue('second-signature');
+  await expect(second.result.current(transaction())).resolves.toBe('second-signature');
+});
+
+it.each([
+  [400, "You don't have enough margin for this order.", 'retryable'],
+  [610, 'Unknown perps-core error (610).', 'unknown'],
+] as const)('humanizes structured simulation error %s with severity while retaining diagnostics and blocking the wallet', async (code, message, severity) => {
+  mocks.genesis.mockResolvedValue('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
+  const err = { InstructionError: [1, { Custom: code }] };
+  const logs = ['Program log: withdrawal risk rejected'];
+  mocks.simulate.mockResolvedValue({ value: { err, logs } });
+  const { result } = renderHook(() => useSafeTransaction());
+  await expect(result.current(transaction())).rejects.toMatchObject({
+    message: expect.stringContaining(message),
+    code, severity, simulationError: err, logs,
+  });
   expect(mocks.send).not.toHaveBeenCalled();
 });

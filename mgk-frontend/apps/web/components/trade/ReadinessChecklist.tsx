@@ -19,7 +19,7 @@ export function ReadinessChecklist({ portfolio, loading, error, children, onTxSu
   const funding = useReadiness();
   const hasSol = funding.walletLamports !== null && funding.walletLamports > 0n;
   const hasCollateral = portfolio !== null && portfolio.equity > 0n;
-  const ready = connected && hasSol && hasCollateral && !loading && !error && !funding.signingBlockedReason;
+  const ready = connected && hasSol && hasCollateral && !error && !funding.signingBlockedReason;
   if (ready) return <><p className="mb-2 text-xs text-text-muted">Wallet connected, ready</p>{children}</>;
   return (
     <section aria-label="Trading readiness" className="flex flex-col gap-3 p-3 text-sm text-text-muted">

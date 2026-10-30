@@ -1,11 +1,12 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import * as sdk from '@mgk/sdk';
+import type * as sdk from '@mgk/sdk';
 import { useAccountActions } from '@/lib/hooks/useAccountActions';
 import { useReadiness } from '@/lib/hooks/useReadiness';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { useBatchStore } from '@/lib/stores/useBatchStore';
+import { withdrawalEligibility } from '@/lib/withdrawalEligibility';
 import { formatSol, parseSol } from '@/lib/solAmount';
 
 type PortfolioState = sdk.state.PortfolioState;
@@ -30,11 +31,8 @@ export function AccountActions({ portfolio, portfolioLoading, className, onTxSuc
   const [message, setMessage] = useState<string | null>(null);
   const amount = parseSol(amountInput);
   const invalidAmount = amountInput !== '' && amount === null ? 'Enter a positive SOL amount with at most 9 decimals, within the u64 lamport limit.' : null;
-  const withdrawalReason = funding.signingBlockedReason ?? (portfolioLoading ? 'Refreshing collateral…' : null)
-    ?? (batchError || !registry || (registry.batchIdCounter > 0n && !batch) ? 'Current batch status unavailable. Retry when RPC has recovered.' : null)
-    ?? ((registry?.pauseFlags ?? 0) & 2 ? 'Withdrawals are paused. Wait for the operator to restore withdrawals.' : null)
-    ?? (batch?.status === sdk.state.BatchStatus.Cleared ? 'Withdrawals blocked: batch Cleared, awaiting settlement.' : null)
-    ?? (amount !== null && amount > (portfolio?.freeCollateral ?? 0n) ? 'Amount exceeds withdrawable collateral, net of initial margin and order reservations.' : null);
+  const eligibility = withdrawalEligibility({ portfolio, registry, batch, amount, batchError });
+  const withdrawalReason = funding.signingBlockedReason ?? (portfolioLoading ? 'Refreshing collateral…' : null) ?? eligibility.reason;
   async function run(action: () => Promise<{ sig: string }>) {
     if (pending.current) return;
     pending.current = true; setBusy(true); setMessage(null);
@@ -56,7 +54,9 @@ export function AccountActions({ portfolio, portfolioLoading, className, onTxSuc
       <button type="button" className={buttonClass} disabled={busy} onClick={() => void run(funding.getDevnetSol)}>Get devnet SOL</button>
       <a href="https://faucet.solana.com/" target="_blank" rel="noreferrer" className="underline">Faucet unavailable? Open the Solana devnet faucet</a>
       {funding.error && <p role="status">{funding.error}</p>}
-      {portfolio && <p className="font-mono tabular-nums">Withdrawable collateral: {formatSol(portfolio.freeCollateral > 0n ? portfolio.freeCollateral : 0n)} SOL (net of initial margin and order reservations)</p>}
+      {portfolio && <p className="font-mono tabular-nums">{eligibility.withdrawable === null
+        ? 'Withdrawable collateral: unavailable at the current conversion price. Simulation checks initial margin and order reservations before you sign.'
+        : `Withdrawable collateral: ${formatSol(eligibility.withdrawable)} SOL (net of initial margin and order reservations)`}</p>}
       <label htmlFor="collateral-amount">Collateral amount in SOL</label>
       <input id="collateral-amount" type="text" inputMode="decimal" value={amountInput} onChange={e => setAmountInput(e.target.value)} placeholder="0.1" disabled={busy} className="rounded border border-border bg-surface-2 px-2 py-2 font-mono tabular-nums text-text" data-testid="account-actions-amount" aria-describedby="collateral-reason" />
       <div className="flex gap-2">

@@ -1,12 +1,16 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, type PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
+import { withdrawalEligibility } from '@/lib/withdrawalEligibility';
 import { config } from '@/lib/config';
 import { usePortfolioStore } from '@/lib/stores/usePortfolioStore';
 import { useSafeTransaction } from './useSafeTransaction';
+
+// Keep collateral actions locked through confirmation and refresh, even if readiness remounts.
+const pendingAccountActions = new Set<string>();
 
 const SOL = 1_000_000_000n;
 export interface AccountActionResult { sig: string }
@@ -15,13 +19,13 @@ export function useAccountActions() {
   const { publicKey } = useWallet();
   const { connection } = useConnection();
   const safeSend = useSafeTransaction();
-  const busy = useRef(false);
 
   const execute = useCallback(async (kind: 'init' | 'deposit' | 'withdraw', amount = 0n): Promise<AccountActionResult> => {
     if (!publicKey) throw new Error('Wallet not connected');
-    if (busy.current) throw new Error('An account action is already in progress.');
+    const walletKey = publicKey.toBase58();
+    if (pendingAccountActions.has(walletKey)) throw new Error('An account action is already in progress.');
     if (kind !== 'init' && (amount <= 0n || amount > 18446744073709551615n)) throw new Error('Enter a positive SOL amount with at most 9 decimals, within the u64 lamport limit.');
-    busy.current = true;
+    pendingAccountActions.add(walletKey);
     try {
       const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId);
       const [account] = await connection.getMultipleAccountsInfo([portfolioPda], 'confirmed');
@@ -40,18 +44,19 @@ export function useAccountActions() {
         tx.add(instruction([key(portfolioPda, true), key(publicKey, true, true), key(SystemProgram.programId), key(vault, true)], sdk.programs.encodeDeposit(amount)));
       }
       if (kind === 'withdraw' && portfolio) {
-        if (amount > portfolio.freeCollateral) throw new Error('Amount exceeds withdrawable collateral, net of initial margin and order reservations.');
         const registryAddress = config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0];
         const registryAccount = await connection.getAccountInfo(registryAddress, 'confirmed');
-        if (!registryAccount || !registryAccount.owner.equals(config.coreProgramId)) throw new Error('Registry unavailable. Retry when RPC has recovered.');
-        const registry = sdk.state.decodeRegistry(new Uint8Array(registryAccount.data));
-        if ((registry.pauseFlags & 2) !== 0) throw new Error('Withdrawals are paused. Wait for the operator to restore withdrawals.');
-        if (registry.batchIdCounter > 0n) {
+        if (registryAccount && !registryAccount.owner.equals(config.coreProgramId)) throw new Error('Registry does not match the deployment manifest.');
+        const registry = registryAccount ? sdk.state.decodeRegistry(new Uint8Array(registryAccount.data)) : null;
+        let batch: sdk.state.BatchState | null = null;
+        if (registry && registry.batchIdCounter > 0n) {
           const batchAddress = sdk.deriveBatchPda(registry.batchIdCounter - 1n, config.coreProgramId)[0];
           const batchAccount = await connection.getAccountInfo(batchAddress, 'confirmed');
-          if (!batchAccount || !batchAccount.owner.equals(config.coreProgramId)) throw new Error('Current batch unavailable. Retry when RPC has recovered.');
-          if (sdk.state.decodeBatch(new Uint8Array(batchAccount.data)).status === sdk.state.BatchStatus.Cleared) throw new Error('Withdrawals are blocked while the current batch is Cleared, awaiting settlement.');
+          if (batchAccount && !batchAccount.owner.equals(config.coreProgramId)) throw new Error('Current batch does not match the deployment manifest.');
+          batch = batchAccount ? sdk.state.decodeBatch(new Uint8Array(batchAccount.data)) : null;
         }
+        const { reason } = withdrawalEligibility({ portfolio, registry, batch, amount });
+        if (reason) throw new Error(reason);
         const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
         const keys = [key(portfolioPda, true), key(publicKey, true, true), key(vault, true), key(registryAddress)];
         // Flat portfolios without reservations need no oracle, including during outages.
@@ -65,7 +70,7 @@ export function useAccountActions() {
       await sdk.confirmSignature(connection, sig);
       await usePortfolioStore.getState().refresh();
       return { sig };
-    } finally { busy.current = false; }
+    } finally { pendingAccountActions.delete(walletKey); }
   }, [publicKey, connection, safeSend]);
   const initPortfolio = useCallback(() => execute('init'), [execute]);
   const deposit = useCallback((amount: bigint) => execute('deposit', amount), [execute]);

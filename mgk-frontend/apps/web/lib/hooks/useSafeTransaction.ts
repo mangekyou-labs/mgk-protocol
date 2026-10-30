@@ -6,6 +6,10 @@ import { VersionedTransaction, type Connection, type Transaction } from '@solana
 import * as sdk from '@mgk/sdk';
 import { config, deployment } from '@/lib/config';
 
+// A readiness transition may unmount the caller while the wallet prompt is open.
+// Keep the wallet lock outside React so remounting cannot open another prompt.
+const pendingWalletRequests = new Set<string>();
+
 const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 
 /** Every signing path checks the actual RPC cluster and manifest accounts. */
@@ -48,14 +52,14 @@ export function useSafeTransaction() {
   const { publicKey, connected, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const identity = useRef({ publicKey, connected, connection });
-  const busy = useRef(false);
   useEffect(() => { identity.current = { publicKey, connected, connection }; }, [publicKey, connected, connection]);
   useEffect(() => () => { identity.current = { publicKey: null, connected: false, connection }; }, [connection]);
 
   return useCallback(async (tx: Transaction): Promise<string> => {
     if (!publicKey || connected === false) throw new Error('Connect your wallet before signing.');
-    if (busy.current) throw new Error('A wallet request is already in progress.');
-    busy.current = true;
+    const walletKey = publicKey.toBase58();
+    if (pendingWalletRequests.has(walletKey)) throw new Error('A wallet request is already in progress.');
+    pendingWalletRequests.add(walletKey);
     const unchanged = () => {
       const now = identity.current;
       if (!now.publicKey?.equals(publicKey) || now.connected === false || now.connection !== connection) {
@@ -69,9 +73,19 @@ export function useSafeTransaction() {
       tx.feePayer = publicKey;
       tx.recentBlockhash = latest.blockhash;
       const simulation = await connection.simulateTransaction(new VersionedTransaction(tx.compileMessage()), { sigVerify: false, commitment: 'confirmed' });
-      if (simulation.value.err) throw new Error(`Simulation failed; no signature requested: ${JSON.stringify(simulation.value.err)}`);
+      if (simulation.value.err) {
+        const err = simulation.value.err;
+        const instructionError = typeof err === 'object' && 'InstructionError' in err ? err.InstructionError : null;
+        const detail = Array.isArray(instructionError) ? instructionError[1] : null;
+        const custom = detail && typeof detail === 'object' && 'Custom' in detail ? detail.Custom : null;
+        const code = typeof custom === 'number' && Number.isInteger(custom) && custom >= 0 ? custom : null;
+        throw Object.assign(new Error(`Simulation failed; no signature requested: ${code === null ? JSON.stringify(err) : sdk.humanizeError(code)}`), {
+          code, severity: code === null ? 'unknown' : sdk.classifyError(code),
+          simulationError: err, logs: simulation.value.logs,
+        });
+      }
       unchanged();
       return await sendTransaction(tx, connection, { skipPreflight: false, preflightCommitment: 'confirmed' });
-    } finally { busy.current = false; }
+    } finally { pendingWalletRequests.delete(walletKey); }
   }, [publicKey, connected, sendTransaction, connection]);
 }
