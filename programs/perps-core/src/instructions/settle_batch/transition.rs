@@ -144,6 +144,28 @@ pub(super) fn settle(
             &mut effective,
         )?;
     }
+    // A successful transaction authenticates the effective settlement quantities.
+    // Results retain auction allocations; reduce-only clipping may trim both sides.
+    // This receipt changes no account or instruction layout. Failed tx logs are
+    // never receipts. Emit the complete vector so indexers detect truncation.
+    if dfba {
+        let mut receipt = [0u8; 10 + 8 * mgk_common::matcher::MAX_SETTLEMENT_ORDERS];
+        if n > effective.len() {
+            return Err(MgkError::InvalidOrder.into());
+        }
+        receipt[..8].copy_from_slice(&batch.batch_id.to_le_bytes());
+        receipt[8..10].copy_from_slice(&(n as u16).to_le_bytes());
+        for (i, accepted) in effective.iter().enumerate().take(n) {
+            let off = base + i * stride;
+            let qty = if reserved_path {
+                *accepted
+            } else {
+                u64::from_le_bytes(results[off + 40..off + 48].try_into().unwrap())
+            };
+            receipt[10 + i * 8..18 + i * 8].copy_from_slice(&qty.to_le_bytes());
+        }
+        pinocchio::log::sol_log_data(&[b"mgk-settlement-v1", &receipt[..10 + n * 8]]);
+    }
     let mut total_settled = 0u32;
     let mut total_volume = 0u64;
     let mut total_notional = 0u128;

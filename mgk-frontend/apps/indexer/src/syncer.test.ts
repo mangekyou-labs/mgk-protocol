@@ -67,19 +67,25 @@ describe('syncer - gap-aware slot synchronization', () => {
 
     // Pre-insert fill 1
     store.insertFill.run([
-      100, 1, 0, 0, 150_000_000, 1_000_000, takerPk, makerPk, Buffer.from(txSig, 'utf-8'), 0,
+      100, 1, 0, 0, 150_000_000, 1_000_000, takerPk, makerPk, Buffer.from(txSig, 'utf-8'), 0, 0,
     ]);
 
     // Construct mock block with 1 old fill and 1 new fill
     const batchPk = new PublicKey('11111111111111111111111111111112');
     const resultsPk = new PublicKey('11111111111111111111111111111113');
     const mockBlock = {
+      blockTime: 1700000000,
       transactions: [
         {
+          meta: {err: null, logMessages: [
+            `Program ${corePk} invoke [1]`,
+            `Program data: ${Buffer.from('mgk-settlement-v1').toString('base64')} ${(() => {const b = Buffer.alloc(26); b.writeBigUInt64LE(1n); b.writeUInt16LE(2, 8); b.writeBigUInt64LE(1_000_000n, 10); b.writeBigUInt64LE(2_000_000n, 18); return b.toString('base64');})()}`,
+            `Program ${corePk} success`,
+          ]},
           transaction: {
             signatures: [txSig],
             message: {
-              staticAccountKeys: [batchPk, corePk, matcherPk, resultsPk],
+              getAccountKeys: () => ({length: 4, get: (i: number) => [batchPk, corePk, matcherPk, resultsPk][i]}),
               compiledInstructions: [
                 {
                   programIdIndex: 1,
@@ -95,7 +101,7 @@ describe('syncer - gap-aware slot synchronization', () => {
 
     // DFBA results header (34 bytes: 8+8+8+8+2) + 2 fills (58 bytes each: 32+8+8+8+1+1)
     const resultsBuffer = new Uint8Array(51 + 58 * 2);
-    resultsBuffer[0]=8;resultsBuffer[1]=1;
+    resultsBuffer[0]=8;resultsBuffer[1]=1;resultsBuffer[16]=1;
     const view = new DataView(resultsBuffer.buffer);view.setBigUint64(8,1n,true);
     view.setUint16(49, 2, true); // num_fills = 2
 
@@ -166,6 +172,7 @@ describe('syncer - gap-aware slot synchronization', () => {
 
     const syncedChunks: Array<[number, number]> = [];
     const mockConnection = {
+      getFirstAvailableBlock: vi.fn().mockResolvedValue(0),
       getSlot: vi.fn().mockResolvedValue(550),
       getBlocks: vi.fn().mockImplementation((s: number, e: number) => {
         syncedChunks.push([s, e]);
@@ -192,28 +199,19 @@ describe('syncer - gap-aware slot synchronization', () => {
     expect(store.getSyncState().processedThroughSlot).toBe(550);
   });
 
-  it('SKIP_BACKFILL=1 seeds cursor at confirmed head and skips backfill', async () => {
+  it('replays from the inclusive deployment start slot on empty disk', async () => {
     const store = createStore(':memory:');
-    const mockConnection = {
-      getSlot: vi.fn().mockResolvedValue(10000),
-      onLogs: vi.fn().mockReturnValue(1),
-      removeOnLogsListener: vi.fn().mockResolvedValue(undefined),
+    const scanned: number[] = [];
+    const connection = {
+      getSlot: async () => 10000,
+      getFirstAvailableBlock: async () => 0,
+      getBlocks: async (start: number) => {scanned.push(start); return [];},
     } as never;
-
-    const syncer = createSyncer({
-      connection: mockConnection,
-      store,
-      coreProgramId: corePk.toBase58(),
-      matcherProgramId: matcherPk.toBase58(),
-      skipBackfill: true,
-      pollIntervalMs: 50,
-    });
-
-    await syncer.start();
-    const health = syncer.getRuntimeHealth();
-    expect(health.processedThroughSlot).toBe(10000);
+    const syncer = createSyncer({connection, store, coreProgramId: corePk.toBase58(), matcherProgramId: matcherPk.toBase58(), startSlot: 5});
+    await syncer.triggerSync();
+    expect(scanned[0]).toBe(5);
     expect(store.getSyncState().processedThroughSlot).toBe(10000);
-    await syncer.stop();
+    store.close();
   });
 
   it('truthful subscription health sets flags true only after onLogs and false on stop', async () => {
@@ -222,6 +220,7 @@ describe('syncer - gap-aware slot synchronization', () => {
     let matcherListenerId = 2;
 
     const mockConnection = {
+      getFirstAvailableBlock: vi.fn().mockResolvedValue(0),
       getSlot: vi.fn().mockResolvedValue(100),
       getBlocks: vi.fn().mockResolvedValue([]),
       onLogs: vi.fn().mockImplementation((pk: PublicKey) => {
@@ -236,7 +235,7 @@ describe('syncer - gap-aware slot synchronization', () => {
       store,
       coreProgramId: corePk.toBase58(),
       matcherProgramId: matcherPk.toBase58(),
-      skipBackfill: true,
+      startSlot: 100,
     });
 
     // Before start: false
@@ -264,6 +263,7 @@ describe('syncer - gap-aware slot synchronization', () => {
     });
 
     const mockConnection = {
+      getFirstAvailableBlock: vi.fn().mockResolvedValue(0),
       getSlot: vi.fn().mockResolvedValue(200),
       getBlocks: vi.fn().mockImplementation(() => {
         getBlocksCalls++;

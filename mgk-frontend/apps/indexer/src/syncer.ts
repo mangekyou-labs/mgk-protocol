@@ -2,9 +2,11 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import * as sdk from '@mgk/sdk';
 import type { Store } from './store.js';
-import { decodeBatchEvent, decodeDfbaFills, decodeFills } from './decoder.js';
+import { decodeBatchEvent, decodeDfbaFills } from './decoder.js';
 import { aggregateCandles } from './aggregator.js';
 import { splitSlotRanges } from './backfill.js';
+import { resultsLayout, decodeAccount } from '../../../packages/layout/index.js';
+import { settlementQuantities } from './settlementReceipt.js';
 import { createHealthTracker, type HealthTracker } from './healthTracker.js';
 
 export interface SyncChunkParams {
@@ -26,6 +28,7 @@ export interface SyncChunkResult {
 
 export interface DecodedFillItem {
   slot: number;
+  fillIndex: number;
   batchId: bigint;
   instrumentId: number;
   takerSide: number;
@@ -48,6 +51,7 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
   }
 
   const decodedFills: DecodedFillItem[] = [];
+  const blockTimes = new Map<number, number>();
 
   try {
     // Solana getBlocks returns only slots that actually produced confirmed blocks
@@ -61,23 +65,19 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
 
     for (const slot of blockSlots) {
       const block = await connection.getBlock(slot, {
-        maxSupportedTransactionVersion: 0,
+        maxSupportedTransactionVersion: 1,
         commitment: 'confirmed',
+        ...{encoding: 'json'},
       });
-      if (!block?.transactions) continue;
+      if (block?.blockTime != null) blockTimes.set(slot, block.blockTime * 1000);
+      if (!block?.transactions) throw new Error(`Block ${slot} unavailable; cursor held for retry`);
 
       for (const txResp of block.transactions) {
+        if (!txResp.meta) throw new Error('Transaction metadata unavailable');
+        if (txResp.meta.err) continue;
         const msg = txResp.transaction.message;
-        const staticKeys: PublicKey[] = 'staticAccountKeys' in msg && Array.isArray(msg.staticAccountKeys)
-          ? (msg.staticAccountKeys as PublicKey[])
-          : 'accountKeys' in msg && Array.isArray(msg.accountKeys)
-            ? (msg.accountKeys as PublicKey[])
-            : [];
-
-        const hasCore = staticKeys.some((k) => k.equals(corePk));
-        const hasMatcher = staticKeys.some((k) => k.equals(matcherPk));
-        if (!hasCore && !hasMatcher) continue;
-
+        const keys = msg.getAccountKeys({accountKeysFromLookups: txResp.meta.loadedAddresses});
+        const staticKeys = Array.from({length: keys.length}, (_, i) => keys.get(i)!);
         const compiledIxs = msg.compiledInstructions;
         for (const ix of compiledIxs) {
           const progKey = staticKeys[ix.programIdIndex];
@@ -97,31 +97,27 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
 
           const batchIdx = ix.accountKeyIndexes[0];
           const batchPk = batchIdx === undefined ? undefined : staticKeys[batchIdx];
-          let batchId = 0n;
-          let isDfba = false;
-          if (batchPk) {
-            const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
-            if (batchInfo) {
-              const batch = sdk.state.decodeBatch(new Uint8Array(batchInfo.data));
-              batchId = batch.batchId;
-              isDfba = batch.markValid || batch.matchedBidQty > 0n || batch.matchedAskQty > 0n;
-            }
-          }
-
+          if (!batchPk) throw new Error('Settlement missing batch address');
+          const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
+          if (!batchInfo || !batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
+          const batch = decodeAccount('Batch', batchInfo.data);
+          if (batch.status !== 3) throw new Error('Settlement batch not settled');
           const resultsIdx = ix.accountKeyIndexes[3];
-          if (resultsIdx === undefined || resultsIdx >= staticKeys.length) continue;
-          const resultsPk = staticKeys[resultsIdx];
-          if (!resultsPk) continue;
-
+          const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
+          if (!resultsPk) throw new Error('Settlement missing results address');
           const accInfo = await connection.getAccountInfo(resultsPk, 'confirmed');
-          if (!accInfo) continue;
-
-          const signature = txResp.transaction.signatures[0] ?? `unknown-${slot}`;
-          const resultsData = new Uint8Array(accInfo.data);
-          const fills = isDfba
-            ? decodeDfbaFills(resultsData, slot, batchId, 0, signature)
-            : decodeFills(resultsData, slot, batchId, 0, signature, 0);
-
+          if (!accInfo || !accInfo.owner.equals(matcherPk)) throw new Error('Settlement results unavailable or wrong owner');
+          const results = sdk.state.decodeResults(accInfo.data);
+          if (!results.spent || results.batchId !== batch.batchId) throw new Error('Settlement results not spent or batch mismatch');
+          const quantities = settlementQuantities(txResp.meta.logMessages, corePk.toBase58(), batch.batchId, results.fills.map(f => f.qty));
+          const adjusted = Uint8Array.from(accInfo.data);
+          // Wire offsets come from the frozen shared results contract.
+          const view = new DataView(adjusted.buffer);
+          for (let i = 0; i < quantities.length; i++) view.setBigUint64(resultsLayout.headerSize + i * resultsLayout.fillSize + 40, quantities[i]!, true);
+          const signature = txResp.transaction.signatures[0];
+          if (!signature) throw new Error('Settlement signature unavailable');
+          if (!blockTimes.has(slot)) throw new Error('Settlement block time unavailable');
+          const fills = decodeDfbaFills(adjusted, slot, batch.batchId, 0, signature);
           decodedFills.push(...fills);
         }
       }
@@ -153,6 +149,7 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
         Buffer.from(fill.makerPubkey),
         Buffer.from(fill.txSignature, 'utf-8'),
         fill.isMaker ? 1 : 0,
+        fill.fillIndex,
       ]);
 
       if (info.changes > 0) {
@@ -160,7 +157,7 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
         aggregateCandles(store, [
           {
             instrumentId: fill.instrumentId,
-            timestampMs: fill.slot * 400,
+            timestampMs: blockTimes.get(fill.slot)!,
             price: fill.price,
             qty: fill.qty,
           },
@@ -203,8 +200,7 @@ export interface SyncerConfig {
   store: Store;
   coreProgramId: string;
   matcherProgramId: string;
-  skipBackfill?: boolean;
-  bootSlots?: number;
+  startSlot?: number;
   maxChunkSlots?: number;
   pollIntervalMs?: number;
   onFill?: (fill: Record<string, unknown>) => void;
@@ -237,8 +233,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
     store,
     coreProgramId,
     matcherProgramId,
-    skipBackfill = false,
-    bootSlots = 1000,
+    startSlot = 0,
     maxChunkSlots = 256,
     pollIntervalMs = 2000,
     onFill,
@@ -279,8 +274,8 @@ export function createSyncer(config: SyncerConfig): Syncer {
       if (!regData) return;
 
       const registry = sdk.state.decodeRegistry(new Uint8Array(regData.data));
-      const batchId = registry.batchIdCounter;
-      if (batchId === 0n) return;
+      const batchId = registry.batchIdCounter - 1n;
+      if (batchId < 0n) return;
 
       const [batchPda] = sdk.deriveBatchPda(batchId, corePk);
       const batchAccounts = await connection.getMultipleAccountsInfo([batchPda]);
@@ -348,15 +343,13 @@ export function createSyncer(config: SyncerConfig): Syncer {
         let syncState = store.getSyncState();
         let cursor = syncState.processedThroughSlot;
 
-        if (cursor === null) {
-          // Uninitialized cursor (first boot)
-          if (skipBackfill) {
-            store.setSyncCursor(currentConfirmedSlot);
-            store.updateSyncSuccess(currentConfirmedSlot, Date.now());
-            cursor = currentConfirmedSlot;
-          } else {
-            cursor = Math.max(0, currentConfirmedSlot - bootSlots);
-          }
+        if (cursor === null) cursor = startSlot - 1;
+        // An archival gap must never masquerade as successfully replayed history.
+        const firstAvailable = await connection.getFirstAvailableBlock();
+        if (firstAvailable > cursor + 1) {
+          store.updateSyncError(Date.now());
+          healthTracker.recordPollFailure();
+          break;
         }
 
         // Process chunks until caught up
@@ -377,6 +370,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
           lastHeartbeat = Date.now();
 
           if (!result.success) {
+            console.error("History replay paused at slot", chunkStart, result.error);
             healthTracker.recordPollFailure();
             // Leave chunk uncommitted for next retry
             break;
@@ -386,6 +380,9 @@ export function createSyncer(config: SyncerConfig): Syncer {
           cursor = chunkEnd;
         }
       } while (pendingScan);
+    } catch {
+      store.updateSyncError(Date.now());
+      healthTracker.recordPollFailure();
     } finally {
       inFlight = false;
     }
@@ -393,23 +390,6 @@ export function createSyncer(config: SyncerConfig): Syncer {
 
   return {
     async start() {
-      // First boot / bootstrap check
-      const syncState = store.getSyncState();
-      if (syncState.processedThroughSlot === null) {
-        if (skipBackfill) {
-          try {
-            const head = await connection.getSlot('confirmed');
-            rpcSlot = head;
-            rpcReachable = true;
-            store.setSyncCursor(head);
-            store.updateSyncSuccess(head, Date.now());
-          } catch {
-            rpcReachable = false;
-            store.updateSyncError(Date.now());
-          }
-        }
-      }
-
       lastHeartbeat = Date.now();
 
       // Install truthful log subscriptions

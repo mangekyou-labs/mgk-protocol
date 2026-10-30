@@ -8,15 +8,14 @@ import { healthRoutes } from './rest/health.js';
 import { marketsRoutes, candlesRoutes, tradesRoutes, bookRoutes, batchRoutes, userFillsRoutes } from './rest/routes.js';
 import { portfolioRoutes } from './rest/portfolio.js';
 import { createSyncer } from './syncer.js';
+import { loadDeployment, loadMonitoring } from './config.js';
+import { statusRoutes } from './rest/status.js';
 import { createWsServer, broadcastFill, broadcastBatch } from './ws.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const RPC_URL = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
-// M9 DFBA deploy (2026-08-06) — matches programs/common/src/program_ids.rs
-const CORE_PROGRAM_ID = process.env.CORE_PROGRAM_ID ?? '9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT';
-const MATCHER_PROGRAM_ID = process.env.MATCHER_PROGRAM_ID ?? '68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK';
 const DB_PATH = process.env.DB_PATH ?? 'mgk-indexer.db';
 
 async function main(): Promise<void> {
@@ -27,23 +26,26 @@ async function main(): Promise<void> {
 
   await app.register(cors, { origin: true });
 
+  const manifest = loadDeployment();
   const store = createStore(DB_PATH);
-  const connection = new Connection(RPC_URL, 'confirmed');
-  const REGISTRY_ADDRESS = process.env.REGISTRY_ADDRESS;
-  const BATCH_ADDRESS = process.env.BATCH_ADDRESS;
-  const BOOK_ADDRESS = process.env.BOOK_ADDRESS;
-  const activeBatch = { address: BATCH_ADDRESS };
+  store.db.exec("CREATE TABLE IF NOT EXISTS deployment_identity (id INTEGER PRIMARY KEY CHECK(id=1), manifest TEXT NOT NULL)");
+  const identity = JSON.stringify(manifest);
+  const existing = store.db.prepare("SELECT manifest FROM deployment_identity WHERE id=1").get() as {manifest:string}|undefined;
+  if (existing && existing.manifest !== identity) throw new Error("History disk belongs to a different deployment; use a fresh DB_PATH");
+  store.db.prepare("INSERT OR IGNORE INTO deployment_identity VALUES (1, ?)").run(identity);
+  const monitoring = loadMonitoring();
+  const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)})});
+  const CORE_PROGRAM_ID = manifest.programs.perps_core;
+  const MATCHER_PROGRAM_ID = manifest.programs.perps_matcher;
 
   let wss: WebSocketServer | undefined;
 
-  const BACKFILL_SLOTS = Number(process.env.BACKFILL_SLOTS ?? 1000);
   const syncer = createSyncer({
     connection,
     store,
     coreProgramId: CORE_PROGRAM_ID,
     matcherProgramId: MATCHER_PROGRAM_ID,
-    skipBackfill: Boolean(process.env.SKIP_BACKFILL),
-    bootSlots: BACKFILL_SLOTS,
+    startSlot: manifest.startSlot!,
     maxChunkSlots: 256,
     pollIntervalMs: 2000,
     onFill: (fill) => {
@@ -63,19 +65,18 @@ async function main(): Promise<void> {
     getRuntimeHealth: () => syncer.getRuntimeHealth(),
     tracker: syncer.getHealthTracker(),
   });
+  await statusRoutes(app, {connection, store, manifest, monitoring});
   await marketsRoutes(app, store);
   await candlesRoutes(app, store);
   await tradesRoutes(app, store);
   await bookRoutes(app, store, {
     connection,
     matcherProgramId: MATCHER_PROGRAM_ID,
-    bookAddress: BOOK_ADDRESS,
   });
   await batchRoutes(app, store, {
     connection,
     coreProgramId: CORE_PROGRAM_ID,
-    registryAddress: REGISTRY_ADDRESS,
-    getCurrentBatchAddress: () => activeBatch.address,
+    registryAddress: manifest.accounts.registry!,
   });
   await userFillsRoutes(app, store);
   await portfolioRoutes(app, store);

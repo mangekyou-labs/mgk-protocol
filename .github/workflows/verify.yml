@@ -42,6 +42,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Build read-only indexer
+        run: |
+          pnpm --dir mgk-frontend install --frozen-lockfile --filter indexer...
+          pnpm --dir mgk-frontend -F @mgk/sdk build
+          pnpm --dir mgk-frontend -F indexer build
+          pnpm --dir mgk-frontend -F indexer test
       - name: Install existing tools SDK
         run: npm install --prefix tools --ignore-scripts --no-audit --no-fund
       - name: Install pinned local runtime and SBF builder
@@ -66,7 +75,7 @@ jobs:
       - name: Harness contract tests
         run: node --test tools/runtime/harness.test.js tools/runtime/invariants.test.js tools/runtime/audit.test.js tools/oracle-confidence.test.js
       - name: Signed runtime lifecycle and independent model assertions
-        run: node --test tools/runtime/smoke.test.js
+        run: node --test tools/runtime/smoke.test.js tools/runtime/indexer.test.js
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -191,6 +191,13 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
   for (let index = 0; index < capAddresses.length; index++) await runtime.setAccount(capAddresses[index], {
     owner: capSnapshot[index].owner, data: capSnapshot[index].data, lamports: Number(capSnapshot[index].lamports) });
   await runtime.advanceSlots(200);
+  const deadlineSlot = Number(decodeAccount('Batch', (await runtime.account(batch)).data).commitDeadlineSlot);
+  const deadlineBlocks = await runtime.rpc('getBlocks', [deadlineSlot, await runtime.rpc('getSlot'), {commitment: 'confirmed'}]);
+  assert.ok(deadlineBlocks.length, 'produced deadline block required');
+  await require('./indexer-phases.cjs').verifyIndexerPhase(runtime, {
+    programs: deployment.programs, accounts: {registry, instrument, oracle, insurance: vault, maker: maker.publicKey},
+    startSlot: await runtime.rpc('getFirstAvailableBlock'), phase: 0, anchorTime: await runtime.rpc('getBlockTime', [deadlineBlocks[0]]),
+  });
   await runtime.send('close collecting' , [ix(6, Buffer.alloc(0), [meta(batch), meta(registry)])], [payer]);
   const forgedResults = Keypair.generate().publicKey;
   await runtime.setAccount(forgedResults, { owner: MATCHER, data: Buffer.alloc(8 + 9 + 34 + 128 * 58) });
@@ -198,9 +205,14 @@ test('candidate runtime: oracle risk, order reservations, reduce-only clipping a
     [meta(batch), meta(book), meta(forgedResults), meta(MATCHER, false), meta(registry), meta(instrument, false),
       meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])],
     [payer], [batch, book, forgedResults, results, registry]);
-  await runtime.send('clear', [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]), [meta(batch), meta(book), meta(results),
+  const clearSignature = await runtime.send('clear', [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]), [meta(batch), meta(book), meta(results),
     meta(MATCHER, false), meta(registry), meta(instrument, false),
       meta(payer.publicKey, true, true), meta(SystemProgram.programId, false)])], [payer]);
+  const clearTx = await runtime.rpc('getTransaction', [clearSignature, {commitment: 'confirmed', maxSupportedTransactionVersion: 1}]);
+  await require('./indexer-phases.cjs').verifyIndexerPhase(runtime, {
+    programs: deployment.programs, accounts: {registry, instrument, oracle, insurance: vault, maker: maker.publicKey},
+    startSlot: await runtime.rpc('getFirstAvailableBlock'), phase: 4, anchorTime: clearTx.blockTime,
+  });
   await runtime.assertState([{ address: batch, fields: [field('Cleared', 'status', 4)] },
     { address: results, fields: [field('result batch', 'batchId', 0), field('unspent', 'spent', 0)] }]);
   await rejectUnchanged('re-clear rejected', [ix(7, Buffer.from([0, 0, 1, 0, 0, 0]),
@@ -737,6 +749,11 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   assert.ok(auditReport.accounts.portfolios > 0 && auditReport.accounts.results > 0, 'audit read protocol state');
   assert.ok(auditReport.invariants.every(i => i.status !== 'fail'), JSON.stringify(auditReport.invariants));
   const heldWorker = await runtime.launchWorker(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+  await require('./indexer-replay.cjs').verifyIndexerReplay(runtime, {
+    programs: deployment.programs,
+    accounts: { registry, instrument, oracle, insurance: vault, maker: maker.publicKey },
+    expectedFills: observedFills,
+  });
   await runtime.close();
   assert.ok(heldWorker.signalCode || heldWorker.exitCode !== null, 'cleanup reaps a running worker');
 });
