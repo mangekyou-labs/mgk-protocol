@@ -10,6 +10,7 @@ import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { BottomTabs } from '@/components/trade/BottomTabs';
 import { MarketHeader } from '@/components/trade/MarketHeader';
 import { OrderBook } from '@/components/trade/OrderBook';
+import { ReadinessChecklist } from '@/components/trade/ReadinessChecklist';
 import { OrderForm, type OrderFormParams } from '@/components/trade/OrderForm';
 import { usePostOrder } from '@/lib/hooks/useOrderSubmission';
 import { useOrderFormWalletGuard } from '@/lib/hooks/useOrderFormWalletGuard';
@@ -24,7 +25,7 @@ export default function TradePage() {
   const { connected } = useAutoConnect();
   const { bids, asks, data: bookData } = useBookTopN(INSTRUMENT_ID, 20);
   const { currentBatchId } = useBatchPolling(3000);
-  const { data: portfolio, loading: portfolioLoading } = usePortfolioPolling(3000);
+  const { data: portfolio, loading: portfolioLoading, error: portfolioError } = usePortfolioPolling(3000);
   const { post } = usePostOrder();
   const orderFormStatus = useOrderFormStore((s) => s.status);
   const submitting = orderFormStatus === 'submitting';
@@ -137,20 +138,22 @@ export default function TradePage() {
           data-testid="orderform-section"
           className="flex-[2] min-w-0 flex flex-col p-2"
         >
-          <OrderForm
-            bestBid={bestBid}
-            bestAsk={bestAsk}
-            onSubmit={connected ? handleSubmit : undefined}
-            freeCollateral={freeCollateral}
-            loading={portfolioLoading}
-            submitting={submitting}
-            portfolio={portfolio}
-            portfolioLoading={portfolioLoading}
-            onTxSuccess={handleAccountSuccess}
-            onTxError={handleAccountError}
-            positionQty={positionQty}
-            className="flex-1"
-          />
+          <ReadinessChecklist portfolio={portfolio} loading={portfolioLoading} error={portfolioError} onTxSuccess={handleAccountSuccess} onTxError={handleAccountError}>
+            <OrderForm
+              bestBid={bestBid}
+              bestAsk={bestAsk}
+              onSubmit={connected ? handleSubmit : undefined}
+              freeCollateral={freeCollateral}
+              loading={portfolioLoading}
+              submitting={submitting}
+              portfolio={portfolio}
+              portfolioLoading={portfolioLoading}
+              onTxSuccess={handleAccountSuccess}
+              onTxError={handleAccountError}
+              positionQty={positionQty}
+              className="flex-1"
+            />
+          </ReadinessChecklist>
         </div>
       </div>
       <BottomTabs />

@@ -9,6 +9,7 @@ import {
 } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
 
+import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
 import { resolveOpenBatch, resolveRegistryAddress } from '@/lib/onchainAccounts';
 import {
@@ -106,6 +107,7 @@ function applySeverity(
 export function usePostOrder() {
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
+  const safeSend = useSafeTransaction();
   const setOrder = useOrderFormStore((s) => s.setOrder);
   const setStatus = useOrderFormStore((s) => s.setStatus);
   const clear = useOrderFormStore((s) => s.clear);
@@ -128,10 +130,10 @@ export function usePostOrder() {
           config.bookAddress ??
           sdk.deriveBookPda(params.instrumentId, config.matcherProgramId)[0];
 
-        const [instrumentPda] = sdk.deriveInstrumentPda(
+        const instrumentPda = config.instrumentAddress ?? sdk.deriveInstrumentPda(
           params.instrumentId,
           config.coreProgramId,
-        );
+        )[0];
         const vaultPda =
           config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
 
@@ -220,9 +222,7 @@ export function usePostOrder() {
           ix,
         );
 
-        if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-
-        const sig = await sendTransaction(tx, connection);
+        const sig = await safeSend(tx);
         await sdk.confirmSignature(connection, sig);
 
         setStatus('done');
@@ -239,7 +239,7 @@ export function usePostOrder() {
         throw enriched;
       }
     },
-    [publicKey, sendTransaction, connection, setOrder, setStatus, clear],
+    [publicKey, sendTransaction, safeSend, connection, setOrder, setStatus, clear],
   );
 
   return { post };

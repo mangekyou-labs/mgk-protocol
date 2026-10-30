@@ -2,187 +2,78 @@
 
 import { useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import {
-  Transaction,
-  TransactionInstruction,
-  SystemProgram,
-  ComputeBudgetProgram,
-} from '@solana/web3.js';
+import { Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, type PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
-
+import { withdrawalEligibility } from '@/lib/withdrawalEligibility';
 import { config } from '@/lib/config';
 import { usePortfolioStore } from '@/lib/stores/usePortfolioStore';
+import { useSafeTransaction } from './useSafeTransaction';
 
-/** lamports in 1 SOL */
+// Keep collateral actions locked through confirmation and refresh, even if readiness remounts.
+const pendingAccountActions = new Set<string>();
+
 const SOL = 1_000_000_000n;
+export interface AccountActionResult { sig: string }
 
-const CU_LIMIT = 200_000;
-
-export interface AccountActionResult {
-  sig: string;
-}
-
-/**
- * Hook for portfolio lifecycle operations: create, deposit, withdraw.
- *
- * Portfolio creation flow (T9.10 / DFBA):
- * - The connected wallet sends InitPortfolioForUser (disc 19) directly,
- *   signing as both payer and user. The on-chain instruction verifies that
- *   `requested_portfolio_user == signer` (i.e. the user can only create
- *   their own portfolio).
- * - The derived Portfolio PDA is included as the target account; the
- *   instruction creates it via SystemProgram.createAccount + init.
- * - Browser wallets (Phantom) can sign this because the PDA is derived
- *   from the connected wallet's pubkey, not a random keypair.
- */
 export function useAccountActions() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey } = useWallet();
   const { connection } = useConnection();
+  const safeSend = useSafeTransaction();
 
-  /**
-   * Create and initialize the user's Portfolio PDA via InitPortfolioForUser
-   * (disc 19). The wallet signs as payer and the instruction verifies the
-   * requested user matches the signer — no indexer queue needed.
-   */
-  const initPortfolio = useCallback(async (): Promise<AccountActionResult> => {
-    if (!publicKey) {
-      throw new Error('Wallet not connected');
-    }
-
-    const [portfolioPda] = sdk.derivePortfolioPda(
-      publicKey,
-      config.coreProgramId,
-    );
-
-    // InitPortfolioForUser (disc 19): wallet sends tx directly.
-    // Wire: disc(1) + user_pubkey(32) = 33 bytes.
-    const ixData = sdk.programs.encodeInitPortfolioForUser(publicKey.toBuffer());
-
-    const ix = new TransactionInstruction({
-      keys: [
-        { pubkey: publicKey, isSigner: true, isWritable: true },  // payer / fee-payer
-        { pubkey: portfolioPda, isSigner: false, isWritable: true },  // Portfolio PDA (created by instruction)
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      ],
-      programId: config.coreProgramId,
-      data: Buffer.from(ixData),
-    });
-
-    const tx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
-      ix,
-    );
-
-    if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-
-    const sig = await sendTransaction(tx, connection, {
-      skipPreflight: true,
-    });
-    await sdk.confirmSignature(connection, sig);
-
-    // Refresh the portfolio store so the UI flips to Deposit/Withdraw.
-    await usePortfolioStore.getState().refresh();
-
-    return { sig };
-  }, [publicKey, sendTransaction, connection]);
-
-  const deposit = useCallback(
-    async (amount: bigint): Promise<AccountActionResult> => {
-      if (!publicKey || !sendTransaction) {
-        throw new Error('Wallet not connected');
+  const execute = useCallback(async (kind: 'init' | 'deposit' | 'withdraw', amount = 0n): Promise<AccountActionResult> => {
+    if (!publicKey) throw new Error('Wallet not connected');
+    const walletKey = publicKey.toBase58();
+    if (pendingAccountActions.has(walletKey)) throw new Error('An account action is already in progress.');
+    if (kind !== 'init' && (amount <= 0n || amount > 18446744073709551615n)) throw new Error('Enter a positive SOL amount with at most 9 decimals, within the u64 lamport limit.');
+    pendingAccountActions.add(walletKey);
+    try {
+      const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId);
+      const [account] = await connection.getMultipleAccountsInfo([portfolioPda], 'confirmed');
+      if (account && !account.owner.equals(config.coreProgramId)) throw new Error('Portfolio does not match the deployment manifest.');
+      const portfolio = account ? sdk.state.decodePortfolio(new Uint8Array(account.data)) : null;
+      if (portfolio && !portfolio.user.equals(publicKey)) throw new Error('Portfolio does not match the connected wallet.');
+      const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
+      const key = (pubkey: PublicKey, writable = false, signer = false) => ({ pubkey, isSigner: signer, isWritable: writable });
+      const instruction = (keys: ReturnType<typeof key>[], data: Uint8Array) => new TransactionInstruction({ keys, programId: config.coreProgramId, data: Buffer.from(data) });
+      if (!portfolio) {
+        if (kind === 'withdraw') throw new Error('No portfolio to withdraw from.');
+        tx.add(instruction([key(publicKey, true, true), key(portfolioPda, true), key(SystemProgram.programId)], sdk.programs.encodeInitPortfolioForUser(publicKey.toBuffer())));
+      } else if (kind === 'init') throw new Error('Portfolio already exists. Deposit SOL to add collateral.');
+      if (kind === 'deposit') {
+        const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+        tx.add(instruction([key(portfolioPda, true), key(publicKey, true, true), key(SystemProgram.programId), key(vault, true)], sdk.programs.encodeDeposit(amount)));
       }
-      if (amount <= 0n) {
-        throw new Error('Deposit amount must be greater than zero');
+      if (kind === 'withdraw' && portfolio) {
+        const registryAddress = config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0];
+        const registryAccount = await connection.getAccountInfo(registryAddress, 'confirmed');
+        if (registryAccount && !registryAccount.owner.equals(config.coreProgramId)) throw new Error('Registry does not match the deployment manifest.');
+        const registry = registryAccount ? sdk.state.decodeRegistry(new Uint8Array(registryAccount.data)) : null;
+        let batch: sdk.state.BatchState | null = null;
+        if (registry && registry.batchIdCounter > 0n) {
+          const batchAddress = sdk.deriveBatchPda(registry.batchIdCounter - 1n, config.coreProgramId)[0];
+          const batchAccount = await connection.getAccountInfo(batchAddress, 'confirmed');
+          if (batchAccount && !batchAccount.owner.equals(config.coreProgramId)) throw new Error('Current batch does not match the deployment manifest.');
+          batch = batchAccount ? sdk.state.decodeBatch(new Uint8Array(batchAccount.data)) : null;
+        }
+        const { reason } = withdrawalEligibility({ portfolio, registry, batch, amount });
+        if (reason) throw new Error(reason);
+        const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+        const keys = [key(portfolioPda, true), key(publicKey, true, true), key(vault, true), key(registryAddress)];
+        // Flat portfolios without reservations need no oracle, including during outages.
+        if (portfolio.positions.length || portfolio.reservedCollateral > 0n) {
+          if (!config.instrumentAddress || !config.oracleAddress) throw new Error('Risk accounts missing from the deployment manifest.');
+          keys.push(key(config.instrumentAddress), key(config.oracleAddress));
+        }
+        tx.add(instruction(keys, sdk.programs.encodeWithdraw(amount)));
       }
-
-      const [portfolioPda] = sdk.derivePortfolioPda(
-        publicKey,
-        config.coreProgramId,
-      );
-      // Vault is a keypair on devnet (Solana 4.x: PDA can't sign createAccount).
-      // Fall back to PDA derivation if no explicit address is configured.
-      const vaultPda =
-        config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
-
-      const ixData = sdk.programs.encodeDeposit(amount);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: portfolioPda, isSigner: false, isWritable: true },
-          { pubkey: publicKey, isSigner: true, isWritable: true },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: vaultPda, isSigner: false, isWritable: true },
-        ],
-        programId: config.coreProgramId,
-        data: Buffer.from(ixData),
-      });
-
-      const tx = new Transaction().add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
-        ix,
-      );
-
-      // Skip RPC preflight — Phantom does its own simulation internally.
-      // If Phantom's simulation fails (stale cache), user can confirm via
-      // "Confirm (unsafe)" checkbox.
-      if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true,
-      });
+      const sig = await safeSend(tx);
       await sdk.confirmSignature(connection, sig);
+      await usePortfolioStore.getState().refresh();
       return { sig };
-    },
-    [publicKey, sendTransaction, connection],
-  );
-
-  const withdraw = useCallback(
-    async (amount: bigint): Promise<AccountActionResult> => {
-      if (!publicKey || !sendTransaction) {
-        throw new Error('Wallet not connected');
-      }
-      if (amount <= 0n) {
-        throw new Error('Withdraw amount must be greater than zero');
-      }
-
-      const [portfolioPda] = sdk.derivePortfolioPda(
-        publicKey,
-        config.coreProgramId,
-      );
-      // Vault and registry are keypairs on devnet (Solana 4.x).
-      // Fall back to PDA derivation if no explicit addresses are configured.
-      const vaultPda =
-        config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
-      const registryPda =
-        config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0];
-
-      const ixData = sdk.programs.encodeWithdraw(amount);
-
-      const ix = new TransactionInstruction({
-        keys: [
-          { pubkey: portfolioPda, isSigner: false, isWritable: true },
-          { pubkey: publicKey, isSigner: true, isWritable: true },
-          { pubkey: vaultPda, isSigner: false, isWritable: true },
-          { pubkey: registryPda, isSigner: false, isWritable: false },
-        ],
-        programId: config.coreProgramId,
-        data: Buffer.from(ixData),
-      });
-
-      const tx = new Transaction().add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
-        ix,
-      );
-
-      // Skip RPC preflight — same rationale as deposit.
-      if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-      const sig = await sendTransaction(tx, connection, {
-        skipPreflight: true,
-      });
-      await sdk.confirmSignature(connection, sig);
-      return { sig };
-    },
-    [publicKey, sendTransaction, connection],
-  );
-
+    } finally { pendingAccountActions.delete(walletKey); }
+  }, [publicKey, connection, safeSend]);
+  const initPortfolio = useCallback(() => execute('init'), [execute]);
+  const deposit = useCallback((amount: bigint) => execute('deposit', amount), [execute]);
+  const withdraw = useCallback((amount: bigint) => execute('withdraw', amount), [execute]);
   return { initPortfolio, deposit, withdraw, SOL };
 }

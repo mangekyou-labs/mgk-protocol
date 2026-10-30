@@ -5,6 +5,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { Transaction, TransactionInstruction, ComputeBudgetProgram, PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
 
+import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
 import { NumberDisplay } from '@/components/common/NumberDisplay';
 import { Pill } from '@/components/common/Pill';
@@ -50,7 +51,7 @@ function buildCancelOrModifyIx(
       { pubkey: publicKey, isSigner: true, isWritable: true },
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: config.matcherProgramId, isSigner: false, isWritable: false },
-      { pubkey: sdk.deriveRegistryPda(config.coreProgramId)[0], isSigner: false, isWritable: false },
+      { pubkey: config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0], isSigner: false, isWritable: false },
       ...extraKeys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })),
     ],
     programId: config.coreProgramId,
@@ -61,6 +62,7 @@ function buildCancelOrModifyIx(
 export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrdersProps) {
   const { publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
+  const safeSend = useSafeTransaction();
   const [orders, setOrders] = useState<RestingOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,8 +120,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
           ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
           ix,
         );
-        if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-        const sig = await sendTransaction(tx, connection);
+        const sig = await safeSend(tx);
         await sdk.confirmSignature(connection, sig);
         await fetchOrders();
       } catch (e) {
@@ -128,7 +129,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
         setBusyOrderId(null);
       }
     },
-    [publicKey, sendTransaction, connection, fetchOrders, instrumentId],
+    [publicKey, sendTransaction, safeSend, connection, fetchOrders, instrumentId],
   );
 
   const handleModify = useCallback(
@@ -138,7 +139,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
       setBusyOrderId(orderId);
       try {
         const ixData = sdk.programs.encodeModifyRestingOrder(orderId, newQty);
-        const [instrumentPda] = sdk.deriveInstrumentPda(instrumentId, config.coreProgramId);
+        const instrumentPda = config.instrumentAddress ?? sdk.deriveInstrumentPda(instrumentId, config.coreProgramId)[0];
         const instrumentAcc = await connection.getAccountInfo(instrumentPda);
         if (!instrumentAcc) throw new Error('Instrument not found on-chain.');
         const oraclePda = sdk.state.readInstrumentOracle(new Uint8Array(instrumentAcc.data));
@@ -152,8 +153,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
           ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
           ix,
         );
-        if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
-        const sig = await sendTransaction(tx, connection);
+        const sig = await safeSend(tx);
         await sdk.confirmSignature(connection, sig);
         await fetchOrders();
       } catch (e) {
@@ -162,7 +162,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
         setBusyOrderId(null);
       }
     },
-    [publicKey, sendTransaction, connection, fetchOrders, instrumentId],
+    [publicKey, sendTransaction, safeSend, connection, fetchOrders, instrumentId],
   );
 
   const isEmpty = orders.length === 0 && !loading;
