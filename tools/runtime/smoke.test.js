@@ -1,7 +1,9 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { readFileSync } = require('node:fs');
+const { readFileSync, writeFileSync, mkdtempSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
 const { once } = require('node:events');
 const { setTimeout: sleep } = require('node:timers/promises');
 const { execFileSync } = require('node:child_process');
@@ -409,6 +411,32 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   const before = await Promise.all(protectedAccounts.map(key => runtime.account(key)));
   await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
     price: 1_000_000, publishTime: now - 61, confidence: 12 });
+  // The real oracle process loses quorum: it must leave the stale oracle untouched.
+  const workerDirectory = mkdtempSync(join(tmpdir(), 'mgk-oracle-worker-'));
+  t.after(() => rmSync(workerDirectory, { recursive: true, force: true }));
+  const authorityPath = join(workerDirectory, 'ephemeral-oracle.json');
+  writeFileSync(authorityPath, JSON.stringify([...payer.secretKey]), { mode: 0o600 });
+  const fixturePath = join(workerDirectory, 'sources.json');
+  const manifestPath = join(workerDirectory, 'deployment.json');
+  writeFileSync(manifestPath, JSON.stringify({ ...deployment, cluster: 'localnet',
+    accounts: Object.fromEntries(Object.entries({ registry, instrument, oracle, insurance: vault, maker: maker.publicKey })
+      .map(([name, key]) => [name, { status: 'deployed', address: String(key) }])),
+    start_slot: { status: 'set', slot: 0 } }));
+  const runOracle = async mode => {
+    writeFileSync(fixturePath, JSON.stringify({ mode }));
+    const child = await runtime.launchWorker(process.execPath, ['--require', resolve(__dirname, 'oracle-fixture.cjs'),
+      resolve(__dirname, '../ops-oracle.js'), '--once'], { env: {
+      DEPLOYMENT_MANIFEST: manifestPath, ORACLE_AUTHORITY_KEYPAIR: authorityPath, MGK_ORACLE_FIXTURE: fixturePath } });
+    let output = '', errors = '';
+    child.stdout.on('data', chunk => output += chunk);
+    child.stderr.on('data', chunk => errors += chunk);
+    const [code] = await once(child, 'exit');
+    assert.equal(code, 0, `oracle worker process: ${errors}`);
+    return JSON.parse(output.trim());
+  };
+  const staleOracle = await runtime.account(oracle);
+  assert.equal((await runOracle('no_quorum')).status, 'no_quorum');
+  assert.deepEqual((await runtime.account(oracle)).data, staleOracle.data, 'no quorum must not refresh oracle');
   const latest = await runtime.connection.getLatestBlockhash('confirmed');
   const rejected = new Transaction({ feePayer: payer.publicKey, ...latest }).add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), settle(oracle));
@@ -432,9 +460,14 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
   }
   runtime.report.rejectedSettlement = { signature: rejectedSignature, error: rejectedStatus.err };
   runtime.flushReport();
-  const freshClock = await runtime.account(new PublicKey('SysvarC1ock11111111111111111111111111111111'));
-  await runtime.setOracle(oracle, { owner: ORACLE, authority: payer.publicKey, instrument,
-    price: 1_000_000, publishTime: Number(freshClock.data.readBigInt64LE(32)), confidence: 12 });
+  const recovered = await runOracle('healthy');
+  assert.equal(recovered.status, 'published');
+  assert.equal(recovered.price, '1000000');
+  assert.equal(recovered.confidence, '12');
+  await runtime.assertState([{ address: oracle, fields: [field('worker recovery confidence', 'confidence', 12)] }]);
+  runtime.report.oracleWorkerRecovery = {
+    noQuorum: 'no_quorum', rejectedSettlement: rejectedSignature, recovery: recovered };
+  runtime.flushReport();
   await runtime.send('settle', [settle(oracle)], [payer]);
   await assertModel('dual-auction roundtrip and oracle retry');
   await runtime.assertState([{ address: results, fields: [field('spent after settlement', 'spent', 1)] }]);
