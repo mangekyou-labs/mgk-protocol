@@ -60,3 +60,22 @@ test('the audit CLI reports unreachable RPC without a stack trace', async () => 
   assert.equal(code, 2);
   assert.match(stderr, /^audit failed: /);
 });
+
+test('scenario drivers can import the audit and fail a scenario by name', async () => {
+  const { auditScenario } = require('./audit');
+  const ok = market();
+  const report = await auditScenario('fixture scenario', { rpc: (method, params) => ok.chain.rpc(method, params), programs: ok.programs });
+  assert.deepEqual(report.violations, []);
+  const bad = market(); bad.store({ vaultLamports: -1 });
+  await assert.rejects(auditScenario('fixture scenario', { rpc: (method, params) => bad.chain.rpc(method, params), programs: bad.programs }),
+    error => error.name === 'InvariantViolation' && /invariant "vault balance" violated after scenario "fixture scenario"/.test(error.message));
+});
+
+test('the audit CLI accepts a candidate manifest as the program source', async () => {
+  const { programsFrom } = require('./invariants');
+  const { CORE, MATCHER } = require('./invariant-fixtures');
+  assert.deepEqual(programsFrom({ programs: [{ name: 'mgk_oracle', programId: 'x' },
+    { name: 'mgk_perps_core', programId: CORE }, { name: 'mgk_perps_matcher', programId: MATCHER }] }), { core: CORE, matcher: MATCHER });
+  assert.deepEqual(programsFrom({ programs: { perps_core: CORE, perps_matcher: MATCHER } }), { core: CORE, matcher: MATCHER });
+  assert.throws(() => programsFrom({ programs: [] }), /perps core/);
+});

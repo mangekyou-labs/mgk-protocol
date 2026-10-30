@@ -104,7 +104,7 @@ exposure and withdrawals); top-ups repay debt before the fund; Unpause (28)
 is refused with debt outstanding (612), resumes withdrawals first, and only
 then trading; finally a one-lamport donation straight to the vault breaks the
 invariant so that a top-up and a withdrawal both revert with 607. The cached
-risk fields (IM, MM, free collateral, health) are compared only for portfolios
+risk fields (IM, MM, withdrawable collateral, health) are compared only for portfolios
 that settled or withdrew at the current price, because other portfolios keep
 the value cached at their last refresh.
 
@@ -196,32 +196,51 @@ executes the candidate instructions directly.
 ## Invariant checker (issue #26)
 
 `tools/runtime/invariants.js` checks six protocol invariants from decoded RPC
-state (SDK layout decoders, canonical PDAs only; zeroed or forged non-PDA
-accounts are ignored):
+state (SDK layout decoders, canonical PDAs only; forged non-PDA accounts are
+ignored):
 
 1. **vault balance**: vault lamports + uncovered bad debt cover rent + recorded
-   collateral + fund (surplus tolerated), recorded collateral equals the sum of
-   portfolio equity, and open interest equals the summed long/short positions.
-2. **per-auction signed base quantity sums to 0**, for every results account
-   and per instrument across settled positions.
-3. **fills never exceed eligible submitted size**: each pending (cleared,
-   unspent) fill matches one live reservation of the same user and side, at
-   most once, with quantity no larger than its remaining quantity.
+   collateral + insurance fund. A single snapshot tolerates surplus because
+   anyone can donate lamports to the vault. Per transaction the check is
+   exact: when every instruction belongs to perps core or the matcher (compute
+   budget aside), vault lamports move by exactly the change in collateral +
+   insurance fund - uncovered bad debt. A transaction with any other
+   instruction (e.g. a system transfer) may only add lamports beyond that.
+   Once the protocol is initialized (registry initialized, or any portfolio
+   or batch exists), a missing, foreign-owned or uninitialized vault fails.
+2. **per-auction signed base quantity sums to 0**, for every results account.
+3. **fills never exceed eligible submitted size**: each fill in a cleared,
+   unspent batch matches one live accepted order of the same user and side,
+   at most once, with quantity no larger than its remaining size.
 4. **each receipt applied exactly once**: cleared batches have unspent results,
    settled batches have spent results with the same batch ID, and neither
    settled status nor the spent flag ever reverts.
-5. **a valid reduce never increases exposure**: when results are applied, a
-   user whose fills were all reduce-only never grows or flips a position.
-6. **no withdrawable balance is negative**: equity is never negative; a
-   transaction that lowers principal or raises reservations, or a flat
-   portfolio without orders, never leaves negative free collateral. Negative
-   free collateral after an adverse mark alone is liquidation territory.
+5. **a valid reduce never increases exposure**: when results are applied, for
+   each user and instrument with a reduce-only fill, the settled position lies
+   within `[min(q0, 0) + plain sells, max(q0, 0) + plain buys]`: plain fills
+   move the position exactly and reduce-only fills move it toward zero without
+   crossing, in any order. This also covers users with mixed fills.
+6. **no withdrawable balance is negative**: a transaction that lowers
+   principal or raises reservations, or a flat portfolio without orders, never
+   leaves negative withdrawable collateral. Withdrawable collateral is a cached
+   signed value. It legitimately goes negative after an adverse mark, an
+   initial-margin change at settlement, or while a portfolio awaits
+   liquidation, so it is not required to be non-negative everywhere.
+
+Supplementary checks report under their own names, not a gate invariant's:
+**portfolio equity is never negative**, **vault collateral equals total
+portfolio equity**, **open interest equals settled positions** and **settled
+positions net to zero per instrument**.
 
 `LocalRuntime.send` snapshots state immediately before each transaction and
 checks it after confirmation, so test-only `setAccount` patches between sends
-are not attributed to a transaction. A failure throws `InvariantViolation`
-with the message `invariant "<name>" violated after transaction "<label>"
-(<signature>): ...` and records the violations in the runtime report entry.
+are not attributed to a transaction. It passes the transaction's instruction
+program IDs so the vault check can tell protocol instructions from donations.
+The checked programs come from the verified candidate artifacts loaded into
+the runtime, or from the `programs` constructor argument. A failure throws
+`InvariantViolation` with the message `invariant "<name>" violated after
+transaction "<label>" (<signature>): ...` and records the violations in the
+runtime report entry.
 
 The standalone end-of-run audit is read-only: its RPC client accepts only
 `getProgramAccounts`, `getMultipleAccounts`, `getAccountInfo`,
@@ -230,10 +249,31 @@ The standalone end-of-run audit is read-only: its RPC client accepts only
 ```sh
 node tools/runtime/audit.js                       # devnet, deployments/devnet.json
 node tools/runtime/audit.js --rpc URL --deployment path/to/deployment.json
+node tools/runtime/audit.js --rpc URL --deployment "$MGK_CANDIDATE_MANIFEST"
 ```
 
-It prints a JSON report (invariant statuses, account counts, violations) and
-exits 1 on any violation, 2 on RPC or usage errors. The transition-only
-invariant (5) is reported as not evaluable from one snapshot. The smoke runs
-the same CLI against the local runtime at the end of the run; tests use local
-fixtures and never contact devnet.
+`--deployment` accepts a deployment file (`programs.perps_core`,
+`programs.perps_matcher`) or a candidate manifest (`mgk_perps_core`,
+`mgk_perps_matcher` entries). The CLI prints a JSON report (invariant and
+supplementary check statuses, account counts, violations) and exits 1 on any
+violation, 2 on RPC or usage errors. A check with nothing to evaluate in the
+snapshot is reported as `not evaluable` with a reason, never as a vacuous
+`pass`. Invariant 5 always needs the state before and after a settling
+transaction, so the audit cannot evaluate it. The smoke runs the same CLI
+against the local runtime and the candidate manifest at the end of the run.
+Tests use local fixtures and never contact devnet.
+
+Scenario drivers (#35, #39, #40) import the audit instead of spawning the CLI:
+
+```js
+const { auditScenario } = require('./tools/runtime/audit');
+await auditScenario('liquidation cascade', { rpcUrl, deployment: manifestPath });
+// or { rpc, programs: { core, matcher } }
+```
+
+It resolves to the report, or throws `InvariantViolation` with the message
+`invariant "<name>" violated after scenario "<scenario>": ...`.
+
+Results fixtures in `invariant-fixtures.js` start from the matcher serializer
+bytes (`resultsLayout.fixture`). Field offsets are found by probing the SDK
+decoder, so there is no second encoder to drift from the wire contract.

@@ -7,8 +7,8 @@ const { layouts, resultsLayout, decodeResults } = require('../../mgk-frontend/pa
 const deployment = require('../../deployments/devnet.json');
 
 const CORE = deployment.programs.perps_core, MATCHER = deployment.programs.perps_matcher;
-const u64 = value => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(value)); return b; };
-const pda = (seeds, program = CORE) => PublicKey.findProgramAddressSync(seeds, new PublicKey(program))[0].toBase58();
+const { u64, pda: derive } = require('./invariants');
+const pda = (seeds, program = CORE) => derive(seeds, program);
 
 function size(type) {
   const array = /^\[(.+); (\d+)\]$/.exec(type);
@@ -46,24 +46,75 @@ function encodeAccount(name, values) {
   return data;
 }
 
-// The results payload is not in the layout table. These offsets are the
-// documented wire contract (README); the round trip pins them to the decoder.
+// The results payload is not in the layout table. Encoded fixtures start from
+// the matcher serializer's own bytes (resultsLayout.fixture, see
+// docs/layout-freeze.md) and locate each field by probing the SDK decoder:
+// a byte belongs to a field when changing it changes that decoded field.
+// No offsets are written down here, so the fixtures cannot drift from the decoder.
+const MAX_FILLS = 12;
+const template = () => {
+  const data = Buffer.alloc(resultsLayout.headerSize + MAX_FILLS * resultsLayout.fillSize);
+  Buffer.from(resultsLayout.fixture).copy(data);
+  return data;
+};
+const show = value => Buffer.isBuffer(value) || value instanceof Uint8Array ? Buffer.from(value).toString('hex') : String(value);
+
+function locate(read, from, to) {
+  const base = template(), expected = show(read(decodeResults(base)));
+  const changes = new Map(); // offset -> true (field changed) | 'invalid' (decoder rejected the bytes)
+  for (let i = from; i < to; i++) {
+    const probe = Buffer.from(base); probe[i] ^= 1;
+    try { if (show(read(decodeResults(probe))) !== expected) changes.set(i, true); } catch { changes.set(i, 'invalid'); }
+  }
+  const bytes = [...changes].filter(([, kind]) => kind === true).map(([i]) => i);
+  assert.ok(bytes.length && bytes.at(-1) - bytes[0] + 1 === bytes.length, 'results field must be contiguous bytes');
+  // A byte the decoder rejects outright (e.g. a fill count's high byte) extends an adjacent field.
+  let end = bytes.at(-1);
+  while (changes.get(end + 1) === 'invalid') end++;
+  return { offset: bytes[0], width: end - bytes[0] + 1 };
+}
+
+const RESULTS = {
+  batchId: locate(r => r.batchId, 2, resultsLayout.headerSize),
+  spent: locate(r => r.spent, 2, resultsLayout.headerSize),
+  numFills: locate(r => r.numFills, 2, resultsLayout.headerSize),
+};
+const fillRange = [resultsLayout.headerSize, resultsLayout.headerSize + resultsLayout.fillSize];
+const FILL = Object.fromEntries(['user', 'orderId', 'qty', 'price', 'isMaker', 'auction'].map(field => {
+  const { offset, width } = locate(r => r.fills[0][field], ...fillRange);
+  return [field, { offset: offset - resultsLayout.headerSize, width }];
+}));
+
+function writeLE(data, { offset, width }, value) {
+  let raw = BigInt.asUintN(width * 8, BigInt(value));
+  for (let i = 0; i < width; i++) { data[offset + i] = Number(raw & 0xffn); raw >>= 8n; }
+}
+
 function encodeResults({ batchId, spent = false, fills = [] }) {
-  const data = Buffer.alloc(resultsLayout.headerSize + 12 * resultsLayout.fillSize);
-  data[0] = 8; data[1] = 1;
-  data.writeBigUInt64LE(BigInt(batchId), 8); data[16] = Number(spent);
-  data.writeUInt16LE(fills.length, 49);
+  assert.ok(fills.length <= MAX_FILLS);
+  const data = template();
+  data.fill(0, resultsLayout.headerSize);
+  writeLE(data, RESULTS.batchId, batchId);
+  writeLE(data, RESULTS.spent, Number(spent));
+  writeLE(data, RESULTS.numFills, fills.length);
   fills.forEach((fill, i) => {
-    const o = resultsLayout.headerSize + i * resultsLayout.fillSize;
-    new PublicKey(fill.user).toBuffer().copy(data, o);
-    data.writeBigUInt64LE(BigInt(fill.orderId), o + 32);
-    data.writeBigUInt64LE(BigInt(fill.qty), o + 40);
-    data.writeBigInt64LE(BigInt(fill.price ?? 1_000_000), o + 48);
-    data[o + 56] = Number(fill.isMaker); data[o + 57] = fill.auction;
+    const at = field => ({ ...FILL[field], offset: resultsLayout.headerSize + i * resultsLayout.fillSize + FILL[field].offset });
+    new PublicKey(fill.user).toBuffer().copy(data, at('user').offset);
+    writeLE(data, at('orderId'), fill.orderId);
+    writeLE(data, at('qty'), fill.qty);
+    writeLE(data, at('price'), fill.price ?? 1_000_000);
+    writeLE(data, at('isMaker'), Number(fill.isMaker));
+    writeLE(data, at('auction'), fill.auction);
   });
   const decoded = decodeResults(data);
+  assert.equal(decoded.batchId, BigInt(batchId));
+  assert.equal(decoded.spent, Boolean(spent));
   assert.equal(decoded.fills.length, fills.length);
-  fills.forEach((fill, i) => assert.equal(decoded.fills[i].qty, BigInt(fill.qty)));
+  fills.forEach((fill, i) => {
+    assert.equal(decoded.fills[i].qty, BigInt(fill.qty));
+    assert.equal(decoded.fills[i].auction, fill.auction);
+    assert.equal(decoded.fills[i].isMaker, Boolean(fill.isMaker));
+  });
   return data;
 }
 
@@ -121,12 +172,18 @@ function market() {
         { user: taker, orderId: 8, qty: 3, isMaker: false, auction: 1 }] },
     },
   };
-  const addresses = { vault: pda([Buffer.from('vault')]), maker, taker,
+  const addresses = { vault: pda([Buffer.from('vault')]), registry: pda([Buffer.from('registry')]), maker, taker,
     makerPortfolio: portfolio(maker), takerPortfolio: portfolio(taker) };
+  // A null registry or vault is stored as zeroed (uninitialized) storage, as before `initialize`.
+  state.registry = {};
+  // Every store rewrites the whole chain from `state`.
   const store = (overrides = {}) => {
-    const vaultBytes = encodeAccount('Vault', state.vault);
+    chain.accounts.clear();
+    chain.set(addresses.registry, { data: state.registry ? encodeAccount('Registry', state.registry) : Buffer.alloc(layouts.Registry.size) });
+    const vaultBytes = state.vault ? encodeAccount('Vault', state.vault) : Buffer.alloc(layouts.Vault.size);
+    const backing = state.vault ? state.vault.balance + state.vault.insuranceFund - state.vault.uncoveredBadDebt : 0n;
     chain.set(addresses.vault, { data: vaultBytes,
-      lamports: rent(80) + Number(state.vault.balance + state.vault.insuranceFund) + (overrides.vaultLamports ?? 0) });
+      lamports: rent(layouts.Vault.size) + Number(backing) + (overrides.vaultLamports ?? 0) });
     for (const [user, values] of Object.entries(state.portfolios)) chain.set(portfolio(user), { data: encodeAccount('Portfolio', values) });
     for (const [id, values] of Object.entries(state.batches)) {
       chain.set(pda([Buffer.from('batch'), u64(id)]), { data: encodeAccount('Batch', { batchId: BigInt(id), ...values }) });

@@ -91,7 +91,7 @@ async function sendAgainst(breakState) {
   const { Keypair, SystemProgram } = require('@solana/web3.js');
   const { market } = require('./invariant-fixtures');
   const m = market();
-  const runtime = new LocalRuntime(18997);
+  const runtime = new LocalRuntime(18997, undefined, m.programs);
   runtime.connection.getLatestBlockhash = async () => ({ blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 9 });
   runtime.rpc = async (method, params) => {
     if (method === 'simulateTransaction') return { value: { err: null } };
@@ -113,4 +113,10 @@ test('an invariant violation names the invariant and the transaction', async () 
   const { runtime, sent } = await sendAgainst(m => m.store({ vaultLamports: -1 }));
   await assert.rejects(sent, /invariant "vault balance" violated after transaction "stub deposit" \(StubSignature1\)/);
   assert.equal(runtime.report.transactions[0].invariants[0].invariant, 'vault balance');
+});
+
+test('a harness transaction without protocol instructions may donate lamports to the vault', async () => {
+  const { runtime, sent } = await sendAgainst(m => m.store({ vaultLamports: 777 }));
+  assert.equal(await sent, 'StubSignature1');
+  assert.equal(runtime.report.transactions[0].invariants, 'pass');
 });

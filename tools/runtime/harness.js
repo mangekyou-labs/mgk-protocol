@@ -1,7 +1,7 @@
 'use strict';
 const {layouts, decodeAccount, decodeResults} = require('../../mgk-frontend/packages/layout');
-const { InvariantChecker } = require('./invariants');
-const deployment = require('../../deployments/devnet.json');
+const { InvariantChecker, programsFrom } = require('./invariants');
+const { jsonRpc } = require('./rpc');
 
 function protocolState(data) {
   if (data[0] === 8) return decodeResults(data);
@@ -62,7 +62,9 @@ class LocalRuntime {
   static async start({ candidates, port = 18899, wsPort = port + 1, surfpool = 'surfpool', reportPath }) {
     const artifacts = verifyArtifacts(candidates);
     assert.ok(Number.isInteger(port) && port > 1024 && port < 65535);
-    const runtime = new LocalRuntime(port, reportPath);
+    // The invariants watch the programs actually loaded, not a fixed deployment file.
+    const protocol = ['mgk_perps_core', 'mgk_perps_matcher'].every(name => artifacts.some(a => a.name === name));
+    const runtime = new LocalRuntime(port, reportPath, protocol ? programsFrom(artifacts) : undefined);
     runtime.directory = mkdtempSync(join(tmpdir(), 'mgk-runtime-'));
     try {
       // Do not connect to an existing validator, or accidentally reuse another run's ledger.
@@ -103,29 +105,23 @@ class LocalRuntime {
     } catch (error) { await runtime.close(); throw error; }
   }
 
-  constructor(port, reportPath) {
+  // `programs` ({ core, matcher }) enables the six gate invariants around every
+  // confirmed harness transaction; without it no invariants are checked.
+  constructor(port, reportPath, programs) {
     this.url = `http://127.0.0.1:${port}`;
     this.connection = new Connection(this.url, 'confirmed');
+    this.transport = jsonRpc(this.url, { timeout: 5000 });
     this.reportPath = reportPath;
     this.report = { cluster: 'localnet', rpcUrl: this.url, programs: [], transactions: [], controls: [] };
     this.workers = new Set();
-    // The six gate invariants run around every confirmed harness transaction.
-    this.invariants = new InvariantChecker({ rpc: (method, params) => this.rpc(method, params),
-      core: deployment.programs.perps_core, matcher: deployment.programs.perps_matcher });
+    this.invariants = programs ? new InvariantChecker({ rpc: (method, params) => this.rpc(method, params), ...programs }) : null;
   }
 
   flushReport() {
     if (this.reportPath) writeFileSync(this.reportPath, JSON.stringify(this.report, null, 2) + '\n');
   }
 
-  async rpc(method, params = []) {
-    const response = await fetch(this.url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(5000) });
-    assert.ok(response.ok, `RPC HTTP ${response.status}`);
-    const result = await response.json();
-    if (result.error) throw new Error(`${method}: ${JSON.stringify(result.error)}`);
-    return result.result;
-  }
+  rpc(method, params = []) { return this.transport(method, params); }
 
   async account(address) {
     const result = await this.rpc('getAccountInfo', [String(address), { encoding: 'base64', commitment: 'confirmed' }]);
@@ -194,7 +190,9 @@ class LocalRuntime {
     const entry = { label, signature, slot: status.slot, err: null };
     this.report.transactions.push(entry);
     if (this.invariants) {
-      try { await this.invariants.after(before, { label, signature }); entry.invariants = 'pass'; }
+      // Instruction programs let the vault check tell protocol instructions from donations.
+      const programIds = instructions.map(instruction => instruction.programId.toBase58());
+      try { await this.invariants.after(before, { label, signature, programIds }); entry.invariants = 'pass'; }
       catch (error) {
         entry.invariants = error.violations ?? [{ invariant: 'unreadable protocol state', message: error.message }];
         this.flushReport();

@@ -3,17 +3,24 @@
 // End-of-run invariant audit. Read-only: every RPC call goes through the
 // invariant reader's allowlist of get* methods, and no keypair is ever loaded.
 //
-//   node tools/runtime/audit.js [--rpc URL] [--deployment deployments/devnet.json]
+//   node tools/runtime/audit.js [--rpc URL] [--deployment deployments/devnet.json | candidate-manifest.json]
 //
 // Prints a JSON report and exits 1 when any invariant fails, 2 on usage or RPC errors.
+//
+// Scenario drivers import it instead of spawning the CLI:
+//   const { auditScenario } = require('tools/runtime/audit');
+//   await auditScenario('liquidation cascade', { rpcUrl, deployment: manifestPath });
+// which throws InvariantViolation ('invariant "X" violated after scenario "..."').
 const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
-const { audit, readOnly } = require('./invariants');
+const { audit, readOnly, programsFrom, InvariantViolation } = require('./invariants');
+const { jsonRpc } = require('./rpc');
 
 const DEVNET = 'https://api.devnet.solana.com';
+const DEFAULT_DEPLOYMENT = resolve(__dirname, '../../deployments/devnet.json');
 
 function parseArgs(argv) {
-  const options = { rpc: process.env.RPC_URL || DEVNET, deployment: resolve(__dirname, '../../deployments/devnet.json') };
+  const options = { rpc: process.env.RPC_URL || DEVNET, deployment: DEFAULT_DEPLOYMENT };
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1]];
     if (value === undefined) throw new Error(`${flag}: missing value`);
@@ -24,21 +31,23 @@ function parseArgs(argv) {
   return options;
 }
 
-function httpRpc(url) {
-  return async (method, params = []) => {
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(30000) });
-    if (!response.ok) throw new Error(`${method}: RPC HTTP ${response.status}`);
-    const result = await response.json();
-    if (result.error) throw new Error(`${method}: ${JSON.stringify(result.error)}`);
-    return result.result;
-  };
+// Audit one deployment. Give `rpc` (a JSON-RPC function) or `rpcUrl`, and
+// `programs` ({ core, matcher }) or `deployment` (a deployment file or candidate manifest path).
+async function auditDeployment({ rpc, rpcUrl, programs, deployment = DEFAULT_DEPLOYMENT }) {
+  const transport = rpc ?? jsonRpc(rpcUrl);
+  const resolved = programs ?? programsFrom(JSON.parse(readFileSync(deployment, 'utf8')));
+  return audit(readOnly(transport), resolved);
+}
+
+async function auditScenario(scenario, options) {
+  const report = await auditDeployment(options);
+  if (report.violations.length) throw new InvariantViolation(report.violations, { scenario });
+  return report;
 }
 
 async function main(argv) {
   const options = parseArgs(argv);
-  const { programs } = JSON.parse(readFileSync(options.deployment, 'utf8'));
-  const report = await audit(readOnly(httpRpc(options.rpc)), { core: programs.perps_core, matcher: programs.perps_matcher });
+  const report = await auditDeployment({ rpcUrl: options.rpc, deployment: options.deployment });
   return { rpcUrl: options.rpc, deployment: options.deployment, ...report };
 }
 
@@ -49,4 +58,4 @@ if (require.main === module) {
   }, error => { process.stderr.write(`audit failed: ${error.message}\n`); process.exitCode = 2; });
 }
 
-module.exports = { main, parseArgs };
+module.exports = { main, parseArgs, auditDeployment, auditScenario };
