@@ -64,7 +64,7 @@ jobs:
       - name: Perps-core lifecycle tests on the built SBF programs
         run: BPF_OUT_DIR="$PWD/target/deploy" cargo test -p mgk-perps-core --test lifecycle --features host-hash
       - name: Harness contract tests
-        run: node --test tools/runtime/harness.test.js tools/oracle-confidence.test.js
+        run: node --test tools/runtime/harness.test.js tools/runtime/invariants.test.js tools/runtime/audit.test.js tools/oracle-confidence.test.js
       - name: Signed runtime lifecycle and independent model assertions
         run: node --test tools/runtime/smoke.test.js
       - uses: actions/upload-artifact@v4

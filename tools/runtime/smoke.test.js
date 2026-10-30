@@ -723,6 +723,19 @@ print(json.dumps({'collateral': {a: str(v) for a, v in ledger.collateral.items()
     'fetch(process.env.RPC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getSlot",params:[]})}).then(r=>r.json()).then(r=>{if(!Number.isInteger(r.result))process.exit(1)})']);
   const [exitCode] = await once(worker, 'exit');
   assert.equal(exitCode, 0, 'real worker process can read the validator');
+  // End-of-run audit: the same read-only CLI that audits devnet, pointed at the local runtime
+  // and at the candidate programs actually loaded.
+  const auditor = await runtime.launchWorker(process.execPath, [resolve(__dirname, 'audit.js'),
+    '--deployment', process.env.MGK_CANDIDATE_MANIFEST]);
+  let auditOutput = '', auditErrors = '';
+  auditor.stdout.on('data', chunk => { auditOutput += chunk; });
+  auditor.stderr.on('data', chunk => { auditErrors += chunk; });
+  const [auditExit] = await once(auditor, 'close'); // 'close' waits for stdout to drain
+  assert.equal(auditExit, 0, `end-of-run audit: ${auditErrors}${auditOutput}`);
+  const auditReport = JSON.parse(auditOutput);
+  assert.deepEqual(auditReport.violations, []);
+  assert.ok(auditReport.accounts.portfolios > 0 && auditReport.accounts.results > 0, 'audit read protocol state');
+  assert.ok(auditReport.invariants.every(i => i.status !== 'fail'), JSON.stringify(auditReport.invariants));
   const heldWorker = await runtime.launchWorker(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
   await runtime.close();
   assert.ok(heldWorker.signalCode || heldWorker.exitCode !== null, 'cleanup reaps a running worker');
