@@ -3,6 +3,7 @@ import * as sdk from "@mgk/sdk";
 export interface DecodedFill {
   /** The slot this fill was included in */
   slot: number;
+  fillIndex: number;
   /** The batch ID */
   batchId: bigint;
   /** Instrument ID */
@@ -35,8 +36,8 @@ export function decodeDfbaFills(
   if (result.batchId !== batchId)
     throw new Error("BatchResults: batch ID mismatch");
   return result.fills
-    .filter((f) => f.qty > 0n)
-    .map((f) => ({
+    .map((f, fillIndex) => ({
+      fillIndex,
       slot,
       batchId,
       instrumentId,
@@ -47,7 +48,7 @@ export function decodeDfbaFills(
       takerPubkey: f.user,
       makerPubkey: Uint8Array.from(f.user),
       isMaker: f.isMaker,
-    }));
+    })).filter(f => f.qty > 0n);
 }
 /** @deprecated Unversioned CLOB results are unsupported. */
 export function decodeFills(

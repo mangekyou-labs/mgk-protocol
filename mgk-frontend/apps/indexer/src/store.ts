@@ -28,6 +28,7 @@ export interface Store {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS fills (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fill_index INTEGER NOT NULL DEFAULT 0,
   slot INTEGER NOT NULL,
   batch_id INTEGER NOT NULL,
   instrument_id INTEGER NOT NULL,
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS fills (
   maker_pubkey BLOB NOT NULL,
   tx_signature BLOB NOT NULL,
   is_maker INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (tx_signature, instrument_id, slot, taker_pubkey, is_maker, taker_side, price, qty)
+  UNIQUE (tx_signature, slot, batch_id, fill_index)
 );
 CREATE INDEX IF NOT EXISTS idx_fills_instrument_slot
   ON fills(instrument_id, slot DESC);
@@ -119,6 +120,15 @@ export function createStore(dbPath = ':memory:'): Store {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);
+  // Older identities collapse equal fills or settlements from different batches.
+  // Derived history is replayable: invalidate those caches and replay from start.
+  const fillSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'fills'").get() as {sql: string};
+  if (!/UNIQUE\s*\(tx_signature,\s*slot,\s*batch_id,\s*fill_index\)/.test(fillSchema.sql)) {
+    db.transaction(() => {
+      db.exec('DROP TABLE fills; DELETE FROM candles_1m; DELETE FROM candles_5m; DELETE FROM candles_1h; DELETE FROM batch_events; DELETE FROM sync_state;');
+      db.exec(SCHEMA.replace('PRAGMA journal_mode = WAL;', ''));
+    })();
+  }
 
   // Keep the configured SOL market queryable before the first fill. The
   // frontend treats this route as a live market-state contract, so an empty
@@ -136,8 +146,8 @@ export function createStore(dbPath = ':memory:'): Store {
   `).run();
 
   const insertFill = db.prepare(`
-    INSERT OR IGNORE INTO fills (slot, batch_id, instrument_id, taker_side, price, qty, taker_pubkey, maker_pubkey, tx_signature, is_maker)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO fills (slot, batch_id, instrument_id, taker_side, price, qty, taker_pubkey, maker_pubkey, tx_signature, is_maker, fill_index)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const upsertCandle: Record<string, ReturnType<DB['prepare']>> = {};

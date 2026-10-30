@@ -105,7 +105,7 @@ describe('indexer integration', () => {
   it('GET /api/healthz reports sqlite, slot lag, and last batch transition', async () => {
     const healthStore = createStore(':memory:');
     healthStore.insertFill.run([
-      150, 2, 0, 0, 88_000_000, 10_000, TAKER, MAKER, TX_SIG, 0,
+      150, 2, 0, 0, 88_000_000, 10_000, TAKER, MAKER, TX_SIG, 0, 0,
     ]);
     healthStore.insertBatchEvent.run([2, 1_700_000_180, 3, 0, 123_500, 0]);
     healthStore.setSyncCursor(150);
@@ -354,7 +354,7 @@ describe('indexer integration', () => {
 
     // Insert two fills at the same timestamp
     store.insertFill.run([
-      1000, 1, 0, 0, Number(price), Number(qty), TAKER, MAKER, TX_SIG, 0,
+      1000, 1, 0, 0, Number(price), Number(qty), TAKER, MAKER, TX_SIG, 0, 0,
     ]);
 
     aggregateCandles(store, [
@@ -586,14 +586,14 @@ describe('indexer integration', () => {
 
       // Two fills where MAKER is the user, two where TAKER is the user, plus
       // one fill between two unrelated pubkeys (should not appear).
-      setup.insertFill.run([1001, 1, 0, 0, 150_400_000, 5_000_000, TAKER, MAKER, TX_SIG, 0]);
-      setup.insertFill.run([1002, 1, 0, 1, 151_000_000, 3_000_000, TAKER, MAKER, TX_SIG, 1]);
-      setup.insertFill.run([1003, 1, 0, 0, 150_500_000, 2_000_000, MAKER, TAKER, TX_SIG, 0]);
-      setup.insertFill.run([1004, 1, 0, 1, 150_600_000, 1_000_000, MAKER, TAKER, TX_SIG, 1]);
+      setup.insertFill.run([1001, 1, 0, 0, 150_400_000, 5_000_000, TAKER, MAKER, TX_SIG, 0, 0]);
+      setup.insertFill.run([1002, 1, 0, 1, 151_000_000, 3_000_000, TAKER, MAKER, TX_SIG, 1, 0]);
+      setup.insertFill.run([1003, 1, 0, 0, 150_500_000, 2_000_000, MAKER, TAKER, TX_SIG, 0, 0]);
+      setup.insertFill.run([1004, 1, 0, 1, 150_600_000, 1_000_000, MAKER, TAKER, TX_SIG, 1, 0]);
 
       const OTHER_A = new Uint8Array(32).fill(0x11);
       const OTHER_B = new Uint8Array(32).fill(0x22);
-      setup.insertFill.run([1005, 1, 0, 0, 150_700_000, 9_000_000, OTHER_A, OTHER_B, TX_SIG, 0]);
+      setup.insertFill.run([1005, 1, 0, 0, 150_700_000, 9_000_000, OTHER_A, OTHER_B, TX_SIG, 0, 0]);
     });
 
     afterAll(async () => {
@@ -672,7 +672,7 @@ describe('indexer integration', () => {
       // Insert a fill on instrument 1; should not show up under instrument 0
       const OTHER_A = new Uint8Array(32).fill(0x11);
       const OTHER_B = new Uint8Array(32).fill(0x22);
-      setup.insertFill.run([2000, 2, 1, 0, 200_000_000, 4_000_000, OTHER_A, OTHER_B, TX_SIG, 0]);
+      setup.insertFill.run([2000, 2, 1, 0, 200_000_000, 4_000_000, OTHER_A, OTHER_B, TX_SIG, 0, 0]);
 
       const res = await setupApp.inject({
         method: 'GET',

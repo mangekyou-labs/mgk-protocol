@@ -387,7 +387,7 @@ export async function userFillsRoutes(
       const fills = rows.map((r) => {
         const takerBuf = r.taker_pubkey as Buffer;
         const makerBuf = r.maker_pubkey as Buffer;
-        const role: 'taker' | 'maker' = takerBuf.equals(takerKey)
+        const role: 'taker' | 'maker' = takerBuf.equals(makerBuf) ? (r.is_maker ? 'maker' : 'taker') : takerBuf.equals(takerKey)
           ? 'taker'
           : makerBuf.equals(makerKey)
             ? 'maker'

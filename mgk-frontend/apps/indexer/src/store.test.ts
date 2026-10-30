@@ -1,3 +1,7 @@
+import Database from 'better-sqlite3';
+import {mkdtempSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createStore } from './store.js';
 
@@ -24,6 +28,7 @@ describe('store - multiple fills per transaction', () => {
       makerPk,
       Buffer.from(txSig, 'utf-8'),
       1, // isMaker
+      0, // fill index
     ]);
 
     // Fill 2: Taker in Bid auction (same txSig, instrumentId, slot)
@@ -38,6 +43,7 @@ describe('store - multiple fills per transaction', () => {
       takerPk,
       Buffer.from(txSig, 'utf-8'),
       0, // isMaker
+      1, // fill index
     ]);
 
     const totalFills = store.db.prepare('SELECT COUNT(*) as count FROM fills WHERE tx_signature = ?').get(Buffer.from(txSig, 'utf-8')) as { count: number };
@@ -94,3 +100,30 @@ describe('store - multiple fills per transaction', () => {
   });
 });
 
+
+it('preserves identical orders by ordinal and makes replay idempotent', () => {
+  const store = createStore(':memory:');
+  const row = [10, 1, 0, 1, 100, 4, Buffer.alloc(32), Buffer.alloc(32), Buffer.from('signature'), 1];
+  for (const ordinal of [0, 1, 0, 1]) store.insertFill.run([...row, ordinal]);
+  expect(store.db.prepare('SELECT count(*) AS n FROM fills').get()).toEqual({n: 2});
+  store.close();
+});
+it('invalidates legacy collapsed history and its durable cursor for complete replay', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mgk-store-'));
+  const path = join(directory, 'history.db');
+  try {
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE fills (slot INTEGER, batch_id INTEGER, instrument_id INTEGER,
+      taker_side INTEGER, price INTEGER, qty INTEGER, taker_pubkey BLOB,
+      maker_pubkey BLOB, tx_signature BLOB, is_maker INTEGER);
+      INSERT INTO fills VALUES (99,1,0,1,100,2,X'00',X'00',X'00',1);
+      CREATE TABLE sync_state (id INTEGER PRIMARY KEY, processed_through_slot INTEGER,
+        last_successful_sync_at INTEGER, last_sync_error_at INTEGER);
+      INSERT INTO sync_state VALUES (1,99,1000,NULL);`);
+    legacy.close();
+    const store = createStore(path);
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+    expect(store.db.prepare('SELECT count(*) AS n FROM fills').get()).toEqual({n: 0});
+    store.close();
+  } finally {rmSync(directory, {recursive:true, force:true});}
+});

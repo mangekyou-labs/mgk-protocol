@@ -1,0 +1,5 @@
+{
+  "feePayers": {"keeper": null, "oracle": null, "maker": null},
+  "feeFloorLamports": "10000000",
+  "insuranceFloorLamports": "1000000000"
+}
