@@ -14,7 +14,8 @@ function makePortfolio(overrides: Partial<PortfolioState> = {}): PortfolioState 
     user: USER_PK,
     equity: 1_500_000_000n,
     principal: 1_000_000_000n,
-    pnl: 500_000_000n,
+    realizedLamports:0n,feesPaid:0n,fundingPaid:0n,reservedCollateral:0n,riskPnl:0n,
+    realizedUsd: 500_000_000n,
     im: 300_000_000n,
     mm: 200_000_000n,
     freeCollateral: 1_200_000_000n,
@@ -84,14 +85,14 @@ describe('Balances', () => {
   });
 
   it('shows a positive PnL with the bull color + up arrow', () => {
-    render(<Balances data={makePortfolio({ pnl: 500_000_000n })} />);
+    render(<Balances data={makePortfolio({ realizedUsd: 500_000_000n })} />);
     const pnl = screen.getByTestId('balances-pnl').querySelector('[data-testid="pnl-display"]');
     expect(pnl).toHaveAttribute('data-direction', 'bull');
     expect(pnl?.textContent).toMatch(/▲/);
   });
 
   it('shows a negative PnL with the bear color + down arrow', () => {
-    render(<Balances data={makePortfolio({ pnl: -500_000_000n })} />);
+    render(<Balances data={makePortfolio({ realizedUsd: -500_000_000n })} />);
     const pnl = screen.getByTestId('balances-pnl').querySelector('[data-testid="pnl-display"]');
     expect(pnl).toHaveAttribute('data-direction', 'bear');
     expect(pnl?.textContent).toMatch(/▼/);

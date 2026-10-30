@@ -43,12 +43,13 @@ function makeBookBuffer(
   bestAsk = 0n,
 ): Uint8Array {
   const buf = new Uint8Array(sdk.state.BOOK_HEADER_SIZE);
+  buf[0]=7;buf[1]=1;
   const view = new DataView(buf.buffer);
-  view.setBigInt64(8, bestBid, true);
-  view.setBigInt64(16, bestAsk, true);
-  view.setUint32(24, bids.length, true);
-  view.setUint32(28, asks.length, true);
-  const BIDS_OFFSET = 48;
+  view.setBigInt64(16, bestBid, true);
+  view.setBigInt64(24, bestAsk, true);
+  view.setUint32(32, bids.length, true);
+  view.setUint32(36, asks.length, true);
+  const BIDS_OFFSET = 56;
   const ASKS_OFFSET = BIDS_OFFSET + 64 * 24;
   for (let i = 0; i < 64; i++) {
     const b = bids[i];

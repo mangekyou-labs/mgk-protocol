@@ -127,18 +127,18 @@ test('encodeSetFundingParams rejects non-integer interval_slots', () => {
 // ---------------------------------------------------------------------------
 
 test('decodeCumFunding reads i128 LE from offset 96', () => {
-  const buf = Buffer.alloc(336);
-  buf.writeBigInt64LE(42n, 96);
-  buf.writeBigInt64LE(0n, 104);
+  const buf = (() => {const b=Buffer.alloc(352);b[0]=6;b[1]=1;return b;})();
+  buf.writeBigInt64LE(42n, 112);
+  buf.writeBigInt64LE(0n, 120);
   const val = decodeCumFunding(buf);
   assert.equal(val, 42n);
 });
 
 test('decodeCumFunding handles negative values', () => {
-  const buf = Buffer.alloc(336);
+  const buf = (() => {const b=Buffer.alloc(352);b[0]=6;b[1]=1;return b;})();
   // Write -42 as i128 LE: lo = -42 as i64, hi = -1 as i64 (sign extension)
-  buf.writeBigInt64LE(-42n, 96);
-  buf.writeBigInt64LE(-1n, 104);
+  buf.writeBigInt64LE(-42n, 112);
+  buf.writeBigInt64LE(-1n, 120);
   const val = decodeCumFunding(buf);
   assert.equal(val, -42n);
 });
@@ -148,13 +148,13 @@ test('decodeCumFunding handles negative values', () => {
 // ---------------------------------------------------------------------------
 
 test('decodeInstrumentFunding reads all three fields correctly', () => {
-  const buf = Buffer.alloc(336);
+  const buf = (() => {const b=Buffer.alloc(352);b[0]=6;b[1]=1;return b;})();
   // funding_interval_slots at struct offset 120 (u64)
-  buf.writeBigUInt64LE(100n, 120);
+  buf.writeBigUInt64LE(100n, 136);
   // funding_coefficient_bps at offset 160 (i64)
-  buf.writeBigInt64LE(10_000n, 160);
+  buf.writeBigInt64LE(10_000n, 176);
   // max_funding_rate_bps at offset 176 (i64)
-  buf.writeBigInt64LE(50n, 176);
+  buf.writeBigInt64LE(50n, 192);
 
   const f = decodeInstrumentFunding(buf);
   assert.equal(f.fundingCoefficientBps, 10_000n);
@@ -163,10 +163,10 @@ test('decodeInstrumentFunding reads all three fields correctly', () => {
 });
 
 test('decodeInstrumentFunding reads pre-D7 defaults (1/50/100)', () => {
-  const buf = Buffer.alloc(336);
-  buf.writeBigUInt64LE(100n, 120);
-  buf.writeBigInt64LE(1n, 160);
-  buf.writeBigInt64LE(50n, 176);
+  const buf = (() => {const b=Buffer.alloc(352);b[0]=6;b[1]=1;return b;})();
+  buf.writeBigUInt64LE(100n, 136);
+  buf.writeBigInt64LE(1n, 176);
+  buf.writeBigInt64LE(50n, 192);
 
   const f = decodeInstrumentFunding(buf);
   assert.equal(f.fundingCoefficientBps, 1n);
@@ -175,10 +175,10 @@ test('decodeInstrumentFunding reads pre-D7 defaults (1/50/100)', () => {
 });
 
 test('decodeInstrumentFunding reads D7 target (10000/50/100)', () => {
-  const buf = Buffer.alloc(336);
-  buf.writeBigUInt64LE(100n, 120);
-  buf.writeBigInt64LE(10_000n, 160);
-  buf.writeBigInt64LE(50n, 176);
+  const buf = (() => {const b=Buffer.alloc(352);b[0]=6;b[1]=1;return b;})();
+  buf.writeBigUInt64LE(100n, 136);
+  buf.writeBigInt64LE(10_000n, 176);
+  buf.writeBigInt64LE(50n, 192);
 
   const f = decodeInstrumentFunding(buf);
   assert.equal(f.fundingCoefficientBps, 10_000n);
@@ -191,11 +191,11 @@ test('decodeInstrumentFunding reads D7 target (10000/50/100)', () => {
 // ---------------------------------------------------------------------------
 
 test('decodeInstrumentFunding reads last_funding_slot at offset 112', () => {
-  const buf = Buffer.alloc(336);
-  buf.writeBigUInt64LE(12345n, 112);
-  buf.writeBigUInt64LE(100n, 120);
-  buf.writeBigInt64LE(10_000n, 160);
-  buf.writeBigInt64LE(50n, 176);
+  const buf = (() => {const b=Buffer.alloc(352);b[0]=6;b[1]=1;return b;})();
+  buf.writeBigUInt64LE(12345n, 128);
+  buf.writeBigUInt64LE(100n, 136);
+  buf.writeBigInt64LE(10_000n, 176);
+  buf.writeBigInt64LE(50n, 192);
 
   const f = decodeInstrumentFunding(buf);
   assert.equal(f.lastFundingSlot, 12345n);

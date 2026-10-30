@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount} = require('../mgk-frontend/packages/layout/index.js');
 /**
  * Fund + InitPortfolio (disc 19) + Deposit for maker and taker personas.
  * Reuses tools/trade-e2e.js helpers. Does not post orders or crank.
@@ -48,7 +50,7 @@ async function main() {
     await ensureFunded(conn, keeper, user, 0.5 * LAMPORTS_PER_SOL);
     const port = await ensurePortfolio(conn, keeper, user);
     const info = await conn.getAccountInfo(port);
-    const prin = info ? info.data.readBigInt64LE(32) : 0n;
+    const prin = info ? decodeAccount('Portfolio',info.data).principal : 0n;
     if (prin > 0n) {
       console.log('  ' + name + ' already deposited (principal low64=' + prin + ')');
     } else {

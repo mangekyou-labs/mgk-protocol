@@ -22,29 +22,31 @@ const MAKER_B58 = 'CVDFLCAjXhVWiPXH9nTCTpCgVzmDVoiPzNJYuccr1dqB';
 
 function makeRegistryBuffer(batchIdCounter: bigint): Uint8Array {
   const buf = new Uint8Array(sdk.state.REGISTRY_SIZE);
+  buf[0]=1;buf[1]=1;
   const view = new DataView(buf.buffer);
-  view.setUint16(32, 1, true);
-  view.setUint16(34, 10_000, true);
-  view.setBigUint64(36, batchIdCounter, true);
-  view.setBigUint64(44, 10_000_000n, true);
-  view.setUint32(52, 1, true);
-  view.setBigUint64(56, 4n, true);
-  view.setBigUint64(64, 400n, true);
-  view.setBigUint64(72, 50n, true);
-  view.setUint8(80, 0);
+  view.setUint16(40, 1, true);
+  view.setUint16(42, 10_000, true);
+  view.setBigUint64(44, batchIdCounter, true);
+  view.setBigUint64(52, 10_000_000n, true);
+  view.setUint32(60, 1, true);
+  view.setBigUint64(64, 4n, true);
+  view.setBigUint64(72, 400n, true);
+  view.setBigUint64(80, 50n, true);
+  view.setUint8(88, 0);
   return buf;
 }
 
 function makeBatchBuffer(batchId: bigint): Uint8Array {
   const buf = new Uint8Array(sdk.state.BATCH_SIZE);
+  buf[0]=2;buf[1]=1;
   const view = new DataView(buf.buffer);
-  view.setBigUint64(0, batchId, true);
-  view.setUint8(8, sdk.state.BatchStatus.Committing);
-  view.setBigUint64(16, 100n, true);
-  view.setBigUint64(24, 200n, true);
-  view.setBigUint64(32, 250n, true);
-  view.setBigUint64(40, 300n, true);
-  view.setBigInt64(48, 150_000_000n, true);
+  view.setBigUint64(8, batchId, true);
+  view.setUint8(16, sdk.state.BatchStatus.Committing);
+  view.setBigUint64(24, 100n, true);
+  view.setBigUint64(32, 200n, true);
+  view.setBigUint64(40, 250n, true);
+  view.setBigUint64(48, 300n, true);
+  view.setBigInt64(56, 150_000_000n, true);
   return buf;
 }
 

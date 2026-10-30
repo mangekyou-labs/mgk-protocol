@@ -11,13 +11,14 @@ const USER_PK = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const CORE_PK = new PublicKey('J5fVjwm96cQxcSqUz4QAmRBT75x7aN9NgG4xcnMmcfSv');
 
 function makePortfolioBuffer(user: PublicKey, freeCollateral: bigint): Uint8Array {
-    const buf = new Uint8Array(1456);
-  buf.set(user.toBytes(), 0);
+    const buf = new Uint8Array(2848);
+  buf[0]=4;buf[1]=3;
+  buf.set(user.toBytes(), 8);
   const view = new DataView(buf.buffer);
   const lo = freeCollateral & 0xffffffffffffffffn;
   const hi = freeCollateral >> 64n;
-  view.setBigUint64(112, lo, true);
-  view.setBigInt64(120, hi, true);
+  view.setBigUint64(176, lo, true);
+  view.setBigInt64(184, hi, true);
   return buf;
 }
 

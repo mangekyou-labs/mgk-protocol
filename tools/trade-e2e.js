@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount,layouts} = require('../mgk-frontend/packages/layout/index.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * mgk DFBA dual-fill e2e on devnet.
  *
@@ -26,9 +29,9 @@ const { join } = require('path');
 
 const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 const MATCHER_ID = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
-const PORTFOLIO_SIZE = 1456; // BPF layout
-const RESULTS_SIZE = 34 + 128 * 58;
-const BOOK_ACCOUNT_SIZE = 27_704;
+const PORTFOLIO_SIZE = layouts.Portfolio.size; // BPF layout
+const RESULTS_SIZE = 51 + 12 * 58;
+const BOOK_ACCOUNT_SIZE = layouts.OrderBook.size + 256 * layouts.RestingOrder.size + 8;
 const CLEAR_CU_LIMIT = 1_400_000;
 const SIDE_BUY = 0;
 const SIDE_SELL = 1;
@@ -55,7 +58,7 @@ async function send(conn, ixs, signers, label) {
   tx.sign(...signers);
   try {
     const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-    await conn.confirmTransaction(sig, 'confirmed');
+    await confirmSignature(conn, sig);
     console.log('  [' + label + '] ' + sig);
     return sig;
   } catch (e) {
@@ -97,16 +100,14 @@ async function ensurePortfolio(conn, keeper, user) {
   const info = await conn.getAccountInfo(portPda);
   if (info && info.data.length >= PORTFOLIO_SIZE && info.owner.equals(CORE_ID)) {
     // Check user field matches
-    const owner = new PublicKey(info.data.slice(0, 32));
+    const owner = new PublicKey(decodeAccount('Portfolio',info.data).user);
     if (owner.equals(user.publicKey)) {
       console.log('  Portfolio OK', portPda.toBase58().slice(0, 8) + '…');
       return portPda;
     }
   }
   console.log('  InitPortfolioForUser', user.publicKey.toBase58().slice(0, 8) + '…');
-  const data = Buffer.alloc(33);
-  data[0] = 19; // disc
-  user.publicKey.toBuffer().copy(data, 1);
+  const data = Buffer.from(encodeInstruction('core','InitPortfolioForUser',{user:user.publicKey.toBytes()}));
   // System program must be present for CreateAccount CPI (even if unused by validation).
   await send(conn, [new TransactionInstruction({
     keys: [
@@ -121,9 +122,7 @@ async function ensurePortfolio(conn, keeper, user) {
 }
 
 async function deposit(conn, user, portPda, vaultPda, amount) {
-  const data = Buffer.alloc(9);
-  data[0] = 2; // Deposit
-  le64(amount).copy(data, 1);
+  const data = Buffer.from(encodeInstruction('core','Deposit',{amount}));
   await send(conn, [new TransactionInstruction({
     keys: [
       { pubkey: portPda, isSigner: false, isWritable: true },
@@ -137,14 +136,7 @@ async function deposit(conn, user, portPda, vaultPda, amount) {
 }
 
 function buildPostOrderIx(portPda, user, batchPda, regPda, bookPda, instPda, oraclePda, vaultPda, side, isMaker, price, qty) {
-  const data = Buffer.alloc(22);
-  data[0] = 20;
-  data[1] = side;
-  data[2] = isMaker ? 1 : 0;
-  lei64(price).copy(data, 3);
-  le64(qty).copy(data, 11);
-  le16(0).copy(data, 19); // instrument_id
-  data[21] = 0; // reduce_only
+  const data = Buffer.from(encodeInstruction('core','PostOrder',{side,isMaker,price,qty,instrumentId:0,reduceOnly:false}));
   return new TransactionInstruction({
     keys: [
       { pubkey: portPda, isSigner: false, isWritable: true },
@@ -164,26 +156,13 @@ function buildPostOrderIx(portPda, user, batchPda, regPda, bookPda, instPda, ora
 }
 
 function decodeBatch(data) {
-  // Offsets match @mgk/sdk decodeBatch / Batch #[repr(C)] (BATCH_SIZE=160)
-  return {
-    batchId: Number(data.readBigUInt64LE(0)),
-    status: data[8],
-    commitDeadlineSlot: Number(data.readBigUInt64LE(16)),
-    clearingPrice: Number(data.readBigInt64LE(48)),
-    totalCommitments: data.readUInt32LE(56),
-    markValid: data[152],
-    liqPaused: data[153],
-    bidClear: Number(data.readBigInt64LE(120)),
-    askClear: Number(data.readBigInt64LE(128)),
-    matchedBid: Number(data.readBigUInt64LE(136)),
-    matchedAsk: Number(data.readBigUInt64LE(144)),
-  };
+ const b=decodeAccount('Batch',data);return {...b,batchId:Number(b.batchId),commitDeadlineSlot:Number(b.commitDeadlineSlot),clearingPrice:Number(b.clearingPrice),bidClear:Number(b.bidClearingPrice),askClear:Number(b.askClearingPrice),matchedBid:Number(b.matchedBidQty),matchedAsk:Number(b.matchedAskQty)};
 }
 
 async function findOpenBatch(conn) {
   const [regPda] = pda([Buffer.from('registry')], CORE_ID);
   const reg = await conn.getAccountInfo(regPda);
-  const counter = Number(Buffer.from(reg.data).readBigUInt64LE(36));
+  const counter = Number(decodeAccount('Registry',reg.data).batchIdCounter);
   let best = null;
   for (let id = 0; id <= counter + 2; id++) {
     const [batchPda] = pda([Buffer.from('batch'), le64(id)], CORE_ID);
@@ -208,7 +187,7 @@ async function crankWithPortfolios(conn, keeper, batchPda, batch, regPda, vaultP
         { pubkey: regPda, isSigner: false, isWritable: false },
       ],
       programId: CORE_ID,
-      data: Buffer.from([6]),
+      data: Buffer.from(encodeInstruction('core','CloseCommitting')),
     })], [keeper], 'Close');
   }
 
@@ -216,11 +195,7 @@ async function crankWithPortfolios(conn, keeper, batchPda, batch, regPda, vaultP
   console.log('  ClearBatch...');
   const resultsKP = Keypair.generate();
   const resultsLamports = await conn.getMinimumBalanceForRentExemption(RESULTS_SIZE);
-  const clearData = Buffer.alloc(7);
-  clearData[0] = 7;
-  clearData.writeUInt16LE(0, 1);
-  clearData.writeUInt16LE(1, 3);
-  clearData.writeUInt16LE(0, 5);
+  const clearData = Buffer.from(encodeInstruction('core','ClearBatch',{numCommitments:0,numInstruments:1,numPortfolios:0}));
   await send(conn, [
     ComputeBudgetProgram.setComputeUnitLimit({ units: CLEAR_CU_LIMIT }),
     SystemProgram.createAccount({
@@ -255,11 +230,7 @@ async function crankWithPortfolios(conn, keeper, batchPda, batch, regPda, vaultP
   const nextId = batch.batchId + 1;
   const [nextBatchPda, nextBump] = pda([Buffer.from('batch'), le64(nextId)], CORE_ID);
   console.log('  SettleBatch (next ' + nextId + ')...');
-  const settleData = Buffer.alloc(6);
-  settleData[0] = 8;
-  settleData.writeUInt16LE(0, 1); // commitments
-  settleData.writeUInt16LE(portfolios.length, 3); // portfolios
-  settleData[5] = nextBump;
+  const settleData = Buffer.from(encodeInstruction('core','SettleBatch',{numCommitments:0,numPortfolios:portfolios.length,nextBatchBump:nextBump})); // portfolios
   const settleKeys = [
     { pubkey: batchPda, isSigner: false, isWritable: true },
     { pubkey: regPda, isSigner: false, isWritable: true },
@@ -329,7 +300,7 @@ async function main() {
   for (const [label, user, port] of [['maker', maker, makerPort], ['taker', taker, takerPort]]) {
     const info = await conn.getAccountInfo(port);
     // principal at offset 32 as i128 LE — rough check: non-zero means funded
-    const prin = info.data.readBigInt64LE(32); // low 8 of i128
+    const prin = decodeAccount('Portfolio',info.data).principal; // low 8 of i128
     if (prin > 0n) {
       console.log('  ' + label + ' already deposited (principal low64=' + prin + ')');
     } else {
@@ -354,7 +325,7 @@ async function main() {
   //   Bid auction: maker-buy × taker-sell @ PRICE
   //   Ask auction: maker-sell × taker-buy @ PRICE
   const instInfo = await conn.getAccountInfo(instPda);
-  const oraclePda = new PublicKey(instInfo.data.slice(68, 100));
+  const oraclePda = new PublicKey(decodeAccount('Instrument',instInfo.data).oracleAddr);
   const posts = [
     [maker, makerPort, SIDE_BUY, true, 'maker-buy'],
     [taker, takerPort, SIDE_SELL, false, 'taker-sell'],

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount,layouts} = require('../mgk-frontend/packages/layout/index.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * Standalone MGK Oracle Worker.
  *
@@ -34,9 +37,9 @@ const { homedir } = require('os');
 const { join } = require('path');
 
 /** Mirror of `programs/oracle/src/state.rs` (PriceOracle, header layout). */
-const PRICE_ORACLE_SIZE = 128;
-const PRICE_ORACLE_DISCRIMINATOR = 9;
-const PRICE_ORACLE_LAYOUT_VERSION = 1;
+const PRICE_ORACLE_SIZE = layouts.PriceOracle.size;
+const PRICE_ORACLE_DISCRIMINATOR = layouts.PriceOracle.discriminator;
+const PRICE_ORACLE_LAYOUT_VERSION = layouts.PriceOracle.version;
 
 const SECRET_KEYS = [
   'rpcUrl',
@@ -168,10 +171,7 @@ async function fetchQuorumPrice(venues, maxFreshnessSec, maxDeviationBps) {
 // ---------------------------------------------------------------------------
 async function postPrice(conn, oracleAuthority, priceOraclePda, price, confidence) {
   // UpdatePrice: disc(1) + price(i64) + confidence(i64) = 17 bytes
-  const data = Buffer.alloc(17);
-  data.writeUInt8(1, 0); // disc UpdatePrice
-  data.writeBigInt64LE(price, 1);
-  data.writeBigInt64LE(confidence, 9);
+  const data=Buffer.from(encodeInstruction('oracle','UpdatePrice',{price,confidence}));
 
   const tx = new Transaction();
   tx.add(new TransactionInstruction({
@@ -191,7 +191,7 @@ async function postPrice(conn, oracleAuthority, priceOraclePda, price, confidenc
   for (let i = 0; i < 6; i++) {
     try {
       const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-      await conn.confirmTransaction(sig, 'confirmed');
+      await confirmSignature(conn, sig);
       console.log(`[oracle] Posted price ${price} (${Number(price) / 1e6} USD): TX ${sig}`);
       return sig;
     } catch (e) {
@@ -259,37 +259,7 @@ async function main() {
 }
 
 function decodePriceOracleAccount(buf) {
-  if (!buf || buf.length < PRICE_ORACLE_SIZE) {
-    const len = buf ? buf.length : 0;
-    throw new Error(
-      `decodePriceOracleAccount: buffer too small (${len} < ${PRICE_ORACLE_SIZE})`,
-    );
-  }
-
-  const discriminator = buf.readUInt8(0);
-  const layoutVersion = buf.readUInt8(1);
-  if (discriminator !== PRICE_ORACLE_DISCRIMINATOR) {
-    throw new Error(
-      `decodePriceOracleAccount: wrong discriminator ${discriminator}, expected ${PRICE_ORACLE_DISCRIMINATOR}`,
-    );
-  }
-  if (layoutVersion !== PRICE_ORACLE_LAYOUT_VERSION) {
-    throw new Error(
-      `decodePriceOracleAccount: unsupported layout version ${layoutVersion}, expected ${PRICE_ORACLE_LAYOUT_VERSION}`,
-    );
-  }
-
-  return {
-    discriminator,
-    layoutVersion,
-    bump: buf.readUInt8(9),
-    isActive: buf.readUInt8(10) !== 0,
-    authority: new PublicKey(buf.subarray(16, 48)),
-    instrument: new PublicKey(buf.subarray(48, 80)),
-    price: buf.readBigInt64LE(80),
-    timestamp: buf.readBigInt64LE(88),
-    confidence: buf.readBigInt64LE(96),
-  };
+const v=decodeAccount('PriceOracle',buf);return {...v,discriminator:layouts.PriceOracle.discriminator,layoutVersion:layouts.PriceOracle.version,authority:new PublicKey(v.authority),instrument:new PublicKey(v.instrument)};
 }
 
 /** Warn at 3 consecutive post failures or 60s on-chain age; critical (and stop) at 10 / 600s. */

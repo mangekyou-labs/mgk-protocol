@@ -73,10 +73,12 @@ export function useAccountActions() {
       ix,
     );
 
+    if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
+
     const sig = await sendTransaction(tx, connection, {
       skipPreflight: true,
     });
-    await connection.confirmTransaction(sig, 'confirmed');
+    await sdk.confirmSignature(connection, sig);
 
     // Refresh the portfolio store so the UI flips to Deposit/Withdraw.
     await usePortfolioStore.getState().refresh();
@@ -123,10 +125,11 @@ export function useAccountActions() {
       // Skip RPC preflight — Phantom does its own simulation internally.
       // If Phantom's simulation fails (stale cache), user can confirm via
       // "Confirm (unsafe)" checkbox.
+      if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
       const sig = await sendTransaction(tx, connection, {
         skipPreflight: true,
       });
-      await connection.confirmTransaction(sig, 'confirmed');
+      await sdk.confirmSignature(connection, sig);
       return { sig };
     },
     [publicKey, sendTransaction, connection],
@@ -171,10 +174,11 @@ export function useAccountActions() {
       );
 
       // Skip RPC preflight — same rationale as deposit.
+      if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
       const sig = await sendTransaction(tx, connection, {
         skipPreflight: true,
       });
-      await connection.confirmTransaction(sig, 'confirmed');
+      await sdk.confirmSignature(connection, sig);
       return { sig };
     },
     [publicKey, sendTransaction, connection],

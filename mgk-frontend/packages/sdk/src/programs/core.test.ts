@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CORE_INSTRUCTION,
+  encodeAddInstrument,
+  encodeInitialize,
   buildLiquidateUser,
   encodeLiquidateUser,
   MATCHER_INSTRUCTION,
@@ -335,4 +337,19 @@ describe('liquidation takeover instruction', () => {
     ]);
     expect([...ix.data]).toEqual([9,1,0]);
   });
+});
+
+it('preserves all 32 oracle bytes in AddInstrument program wire format', () => {
+ const data = encodeAddInstrument({instrumentId:0,tickSize:1n,lotSize:1n,imrBps:2000,mmrBps:1000,takerFeeBps:5,makerFeeBps:0,oracleAddr:new Uint8Array(32).fill(99),bump:7});
+ expect(data.length).toBe(60);
+ expect([...data.slice(27,59)]).toEqual(Array(32).fill(99));
+ expect(data[59]).toBe(7);
+});
+
+it('Initialize preserves registry fields and bumps at the Rust parser offsets',()=>{
+ const bytes=encodeInitialize({governance:new Uint8Array(32).fill(7),instrumentCount:3,volatilityMultiplier:1234,baseDeposit:9n,nMin:5,tMinSlots:2n,tMaxSlots:8n,tRevealSlots:4n,instrumentId:2,tickSize:10n,lotSize:20n,imrBps:1000,mmrBps:500,takerFeeBps:5,makerFeeBps:-2,oracleAddr:new Uint8Array(32).fill(9),registryBump:101,instrumentBump:102,vaultBump:103});
+ expect(bytes.length).toBe(142);const view=new DataView(bytes.buffer);
+ expect(view.getUint16(33,true)).toBe(3);expect(view.getUint16(35,true)).toBe(1234);
+ expect(view.getBigUint64(45,true)).toBe(9n);expect(view.getUint16(81,true)).toBe(2);
+ expect([...bytes.slice(107,139)]).toEqual(Array(32).fill(9));expect([...bytes.slice(139)]).toEqual([101,102,103]);
 });

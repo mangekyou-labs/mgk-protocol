@@ -295,7 +295,7 @@ test('decodePriceOracleAccount rejects a wrong discriminator, version and short 
 
   const wrongDisc = Buffer.from(good);
   wrongDisc.writeUInt8(PRICE_ORACLE_DISCRIMINATOR + 1, 0);
-  assert.throws(() => decodePriceOracleAccount(wrongDisc), /wrong discriminator/);
+  assert.throws(() => decodePriceOracleAccount(wrongDisc), /invalid discriminator/);
 
   const wrongVersion = Buffer.from(good);
   wrongVersion.writeUInt8(PRICE_ORACLE_LAYOUT_VERSION + 1, 1);

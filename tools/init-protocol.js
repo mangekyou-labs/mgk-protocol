@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount,layouts} = require('../mgk-frontend/packages/layout/index.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * mgk Protocol Devnet Init
  *
@@ -20,8 +23,8 @@ const { join } = require('path');
 const CORE_ID = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 const MATCHER_ID = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
 const ORACLE_ID = new PublicKey('GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm');
-const BOOK_ACCOUNT_SIZE = 27_704;
-const VAULT_SIZE = 80;
+const BOOK_ACCOUNT_SIZE = layouts.OrderBook.size + 256 * layouts.RestingOrder.size + 8;
+const VAULT_SIZE = layouts.Vault.size;
 
 const PARAMS = {
   baseDeposit: 10_000_000n, nMin: 1, tMinSlots: 2n, tMaxSlots: 25n,
@@ -43,7 +46,7 @@ async function send(conn, ix, signers, label) {
   tx.feePayer = signers[0].publicKey;
   tx.sign(...signers);
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await conn.confirmTransaction(sig, 'confirmed');
+  await confirmSignature(conn, sig);
   console.log('  [' + label + '] TX:', sig);
   return sig;
 }
@@ -84,25 +87,7 @@ async function main() {
     console.log(regOk
       ? '\n[1/4] Registry exists but Vault missing/undersized — re-run Initialize to create Vault...'
       : '\n[1/4] Initialize (registry + instrument + vault)...');
-    const d = Buffer.alloc(142); d[0] = 0;
-    d.set(gov.publicKey.toBuffer(), 1);
-    le16(1).copy(d, 33);
-    le16(PARAMS.volatilityMultiplier).copy(d, 35);
-    le64(0).copy(d, 37);
-    le64(PARAMS.baseDeposit).copy(d, 45);
-    le32(PARAMS.nMin).copy(d, 53);
-    le64(PARAMS.tMinSlots).copy(d, 57);
-    le64(PARAMS.tMaxSlots).copy(d, 65);
-    le64(PARAMS.tRevealSlots).copy(d, 73);
-    le16(PARAMS.instrumentId).copy(d, 81);
-    le64(PARAMS.tickSize).copy(d, 83);
-    le64(PARAMS.lotSize).copy(d, 91);
-    le16(PARAMS.imrBps).copy(d, 99);
-    le16(PARAMS.mmrBps).copy(d, 101);
-    le16(PARAMS.takerFeeBps).copy(d, 103);
-    lei16(PARAMS.makerFeeBps).copy(d, 105);
-    d.set(ORACLE_ID.toBuffer(), 107);
-    d[139] = regBump; d[140] = instBump; d[141] = vaultBump;
+    const d=Buffer.from(encodeInstruction('core','Initialize',{...PARAMS,governance:gov.publicKey.toBytes(),instrumentCount:1,batchIdCounter:0n,oracleAddr:ORACLE_ID.toBytes(),registryBump:regBump,instrumentBump:instBump,vaultBump}));
 
     await send(conn, new TransactionInstruction({
       keys: [
@@ -183,7 +168,7 @@ async function main() {
         tx.feePayer = gov.publicKey;
         tx.sign(gov, bookKP);
         const sig = await conn.sendRawTransaction(tx.serialize());
-        await conn.confirmTransaction(sig, 'confirmed');
+        await confirmSignature(conn, sig);
         console.log('  [CreateBook] TX:', sig);
       } else {
         console.log('  Creating matcher-owned book account (' + BOOK_ACCOUNT_SIZE + ' bytes)...');
@@ -199,7 +184,7 @@ async function main() {
         tx.feePayer = gov.publicKey;
         tx.sign(gov, bookKP);
         const sig = await conn.sendRawTransaction(tx.serialize());
-        await conn.confirmTransaction(sig, 'confirmed');
+        await confirmSignature(conn, sig);
         console.log('  [CreateBook] TX:', sig);
       }
     }
@@ -207,11 +192,7 @@ async function main() {
 
   // 3. SetBatchParams (disc 21)
   console.log('\n[3/4] SetBatchParams...');
-  const pd = Buffer.alloc(23); pd[0] = 21;
-  pd[1] = PARAMS.maxOrdersPerBatch; pd[2] = PARAMS.marginalSizeCap;
-  le64(PARAMS.tMinSlots).copy(pd, 3);
-  le64(PARAMS.tMaxSlots).copy(pd, 11);
-  le32(PARAMS.nMin).copy(pd, 19);
+  const pd=Buffer.from(encodeInstruction('core','SetBatchParams',PARAMS));
   try {
     await send(conn, new TransactionInstruction({
       keys: [
@@ -230,11 +211,11 @@ async function main() {
   const batchInfo = await conn.getAccountInfo(batch0PDA);
   if (batchInfo && batchInfo.data.length >= 160) {
     console.log('\n[4/4] Batch 0 already present — skip CreateBatch.');
-    console.log('  status=', batchInfo.data[8],
-      'batchId=', Number(batchInfo.data.readBigUInt64LE(0)));
+    console.log('  status=', decodeAccount('Batch',batchInfo.data).status,
+      'batchId=', Number(decodeAccount('Batch',batchInfo.data).batchId));
   } else {
     console.log('\n[4/4] CreateBatch 0...');
-    const cbd = Buffer.alloc(2); cbd[0] = 16; cbd[1] = batch0Bump;
+    const cbd = Buffer.from(encodeInstruction('core','CreateBatch',{bump:batch0Bump}));
     await send(conn, new TransactionInstruction({
       keys: [
         { pubkey: batch0PDA, isSigner: false, isWritable: true },

@@ -22,17 +22,18 @@ function makeRegistryBuffer(
   }> = {},
 ): Uint8Array {
   const buf = new Uint8Array(96);
+  buf[0]=1;buf[1]=1;
   const view = new DataView(buf.buffer);
   // governance: 0..32 (filled zero)
-  view.setUint16(32, overrides.instrumentCount ?? 0, true);
-  view.setUint16(34, overrides.volatilityMultiplier ?? 10_000, true);
+  view.setUint16(40, overrides.instrumentCount ?? 0, true);
+  view.setUint16(42, overrides.volatilityMultiplier ?? 10_000, true);
   // #[repr(C)]: governance(32)+instrument_count(2)+volatility(2)+batch_id_counter(8)+base_deposit(8)+n_min(4)+t_min_slots(8)+t_max_slots(8)+t_reveal_slots(8)+bump(1)+pause_flags(1)+padding(4)
-  view.setBigUint64(36, batchIdCounter, true);
-  view.setBigUint64(44, overrides.baseDeposit ?? 10_000_000n, true);
-  view.setUint32(52, overrides.nMin ?? 5, true);
-  view.setBigUint64(60, overrides.tMinSlots ?? 10n, true);
-  view.setBigUint64(68, overrides.tMaxSlots ?? 150n, true);
-  view.setBigUint64(76, overrides.tRevealSlots ?? 25n, true);
+  view.setBigUint64(44, batchIdCounter, true);
+  view.setBigUint64(52, overrides.baseDeposit ?? 10_000_000n, true);
+  view.setUint32(60, overrides.nMin ?? 5, true);
+  view.setBigUint64(64, overrides.tMinSlots ?? 10n, true);
+  view.setBigUint64(72, overrides.tMaxSlots ?? 150n, true);
+  view.setBigUint64(80, overrides.tRevealSlots ?? 25n, true);
   view.setUint8(88, overrides.bump ?? 255);
   return buf;
 }
@@ -43,18 +44,19 @@ function makeBatchBuffer(
 ): Uint8Array {
   // Full BATCH_SIZE (160) so resolveOpenBatch decode succeeds
   const buf = new Uint8Array(sdk.state.BATCH_SIZE);
+  buf[0]=2;buf[1]=1;
   const view = new DataView(buf.buffer);
-  view.setBigUint64(0, batchId, true);
-  view.setUint8(8, status);
-  view.setBigUint64(16, 100_000n, true);
-  view.setBigUint64(24, 100_100n, true);
-  view.setBigUint64(32, 100_200n, true);
-  view.setBigUint64(40, 100_300n, true);
-  view.setBigInt64(48, 150_000_000n, true);
-  view.setUint32(56, 7, true);
-  view.setUint32(60, 6, true);
-  view.setUint32(64, 5, true);
-  view.setBigUint64(72, 9_876_543_210n, true);
+  view.setBigUint64(8, batchId, true);
+  view.setUint8(16, status);
+  view.setBigUint64(24, 100_000n, true);
+  view.setBigUint64(32, 100_100n, true);
+  view.setBigUint64(40, 100_200n, true);
+  view.setBigUint64(48, 100_300n, true);
+  view.setBigInt64(56, 150_000_000n, true);
+  view.setUint32(64, 7, true);
+  view.setUint32(68, 6, true);
+  view.setUint32(72, 5, true);
+  view.setBigUint64(80, 9_876_543_210n, true);
   return buf;
 }
 
@@ -122,7 +124,6 @@ function buildParams(
   return {
     connection: conn,
     programId: CORE_PK,
-    indexerUrl: '',
     intervalMs: 3000,
     ...overrides,
   };

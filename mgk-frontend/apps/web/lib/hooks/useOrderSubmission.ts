@@ -167,7 +167,6 @@ export function usePostOrder() {
           connection,
           programId: config.coreProgramId,
           batchIdCounter: registry.batchIdCounter,
-          batchAddress: config.batchAddress,
         });
         // Committing == open collection window for DFBA posts (checked in resolveOpenBatch).
 
@@ -221,8 +220,10 @@ export function usePostOrder() {
           ix,
         );
 
+        if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
+
         const sig = await sendTransaction(tx, connection);
-        await connection.confirmTransaction(sig, 'confirmed');
+        await sdk.confirmSignature(connection, sig);
 
         setStatus('done');
         clear();

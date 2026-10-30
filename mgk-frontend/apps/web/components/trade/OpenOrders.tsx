@@ -118,8 +118,9 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
           ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
           ix,
         );
+        if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
         const sig = await sendTransaction(tx, connection);
-        await connection.confirmTransaction(sig, 'confirmed');
+        await sdk.confirmSignature(connection, sig);
         await fetchOrders();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -151,8 +152,9 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
           ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
           ix,
         );
+        if (!config.deploymentReady) throw new Error('Demo deployment is pending; signing is unavailable.');
         const sig = await sendTransaction(tx, connection);
-        await connection.confirmTransaction(sig, 'confirmed');
+        await sdk.confirmSignature(connection, sig);
         await fetchOrders();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

@@ -129,3 +129,15 @@ _Avoid_: Test suite, QA checklist
 **Evidence tier**:
 Where a gate scenario was proved: unit, local runtime (identical bytecode on a local validator) or devnet; a pass at one tier never stands in for another.
 _Avoid_: Test level, environment
+
+### Layout freeze
+
+The approved protocol checkpoint whose account and instruction formats stay fixed until the user explicitly approves a change.
+
+### Risk-off admission
+
+An admission rule that requires an order to be reduce-only, including when the order would otherwise close a position.
+
+### Exposure admission limit
+
+A limit checked against current open interest when an order is posted or modified. It does not reserve projected open interest for all resting orders.

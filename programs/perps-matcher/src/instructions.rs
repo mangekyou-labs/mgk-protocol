@@ -1588,6 +1588,32 @@ mod results_header_tests {
     use super::*;
     use mgk_common::layout::{discriminator, ACCOUNT_HEADER_LEN, LAYOUT_VERSION_1};
 
+    /// Export bytes through the production envelope and fill serializers.
+    #[test]
+    #[ignore = "fixture generation; run scripts/check-layouts.sh"]
+    fn export_results_fixture() {
+        let mut raw = vec![
+            0u8;
+            ACCOUNT_HEADER_LEN
+                + RESULTS_ENVELOPE_LEN
+                + DFBA_RESULT_HEADER_BYTES
+                + 2 * DFBA_FILL_WIRE_BYTES
+        ];
+        begin_results(&mut raw, 42).unwrap();
+        let body = dfba_results_body(&mut raw).unwrap();
+        body[0..8].copy_from_slice(&(-100i64).to_le_bytes());
+        body[8..16].copy_from_slice(&(101i64).to_le_bytes());
+        body[16..24].copy_from_slice(&(11u64).to_le_bytes());
+        body[24..32].copy_from_slice(&(12u64).to_le_bytes());
+        body[32..34].copy_from_slice(&(2u16).to_le_bytes());
+        encode_dfba_fill(body, 0, &[7; 32], 5, 11, -100, true, 0);
+        encode_dfba_fill(body, 1, &[9; 32], 6, 12, 101, false, 1);
+        let output =
+            std::env::var("MGK_RESULTS_FIXTURE").expect("MGK_RESULTS_FIXTURE path required");
+        let header = ACCOUNT_HEADER_LEN + RESULTS_ENVELOPE_LEN + DFBA_RESULT_HEADER_BYTES;
+        std::fs::write(output, format!("{{\"headerSize\":{header},\"fillSize\":{DFBA_FILL_WIRE_BYTES},\"fixture\":{raw:?}}}\n")).unwrap();
+    }
+
     #[test]
     fn results_can_only_be_written_once_even_after_consumption() {
         let mut raw = [0u8; 128];

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
+const {decodeAccount,layouts} = require('../mgk-frontend/packages/layout/index.js');
+const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
 /**
  * Hardened standalone MGK Keeper Worker.
  *
@@ -45,11 +48,11 @@ const BATCH_CLEARING = 2;
 const BATCH_SETTLED = 3;
 
 // Account sizes
-const RESULTS_SIZE = 2 + 64 * 49;  // header(2) + max_fills(64) * 49
-const INSTRUMENT_SIZE = 336;
-const PORTFOLIO_SIZE = 1456;
+const RESULTS_SIZE = 51 + 12 * 58;  // header(2) + max_fills(64) * 49
+const INSTRUMENT_SIZE = layouts.Instrument.size;
+const PORTFOLIO_SIZE = layouts.Portfolio.size;
 const BATCH_SIZE_BYTES = 160;
-const BOOK_ACCOUNT_SIZE = 27_704;
+const BOOK_ACCOUNT_SIZE = layouts.OrderBook.size + 256 * layouts.RestingOrder.size + 8;
 const CLEAR_CU_LIMIT = 1_400_000;
 
 // ---------------------------------------------------------------------------
@@ -76,24 +79,11 @@ function le64(v) {
 }
 
 function decodeBatch(data) {
-  return {
-    batchId: Number(data.readBigUInt64LE(0)),
-    status: data[8],
-    totalCommitments: data.readUInt16LE(9),
-    totalRevealed: data.readUInt16LE(11),
-    commitDeadlineSlot: Number(data.readBigUInt64LE(16)),
-    markValid: data[152],
-    liqPaused: data[153],
-  };
+ const b=decodeAccount('Batch',data);return {...b,batchId:Number(b.batchId),commitDeadlineSlot:Number(b.commitDeadlineSlot),clearingPrice:Number(b.clearingPrice),bidClear:Number(b.bidClearingPrice),askClear:Number(b.askClearingPrice),matchedBid:Number(b.matchedBidQty),matchedAsk:Number(b.matchedAskQty)};
 }
 
 function decodeRegistry(data) {
-  return {
-    governance: new PublicKey(data.slice(0, 32)),
-    instrumentCount: data.readUInt16LE(32),
-    nMin: data.readUInt32LE(36),
-    batchIdCounter: Number(data.readBigUInt64LE(40)),
-  };
+const r=decodeAccount('Registry',data);return {...r,governance:new PublicKey(r.governance),batchIdCounter:Number(r.batchIdCounter)};
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -103,7 +93,7 @@ async function sendRawWithRetry(conn, raw, label, maxRetries = 6) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const sig = await conn.sendRawTransaction(raw, { skipPreflight: false });
-      await conn.confirmTransaction(sig, 'confirmed');
+      await confirmSignature(conn, sig);
       console.log(`  [${label}] TX: ${sig}`);
       return sig;
     } catch (e) {
@@ -242,7 +232,7 @@ async function crankOnce(conn, keeper, bookPDA, regPDA, vaultPDA) {
     console.log('  Instrument not found — skipping');
     return;
   }
-  const oraclePda = new PublicKey(instInfo.data.slice(68, 100));
+  const oraclePda = new PublicKey(decodeAccount('Instrument',instInfo.data).oracleAddr);
 
   console.log(`  Batch #${currentBatchId}: status=${batch.status} markValid=${batch.markValid} deadline=${batch.commitDeadlineSlot}`);
 
@@ -311,9 +301,7 @@ async function createBatch(conn, keeper, registry, regPDA) {
     fromPubkey: keeper.publicKey, newAccountPubkey: batchKP.publicKey,
     lamports, space: BATCH_SIZE_BYTES, programId: CORE_ID,
   }));
-  const createData = Buffer.alloc(2);
-  createData[0] = 16; // disc CreateBatch
-  createData[1] = 0;  // bump
+  const createData = Buffer.from(encodeInstruction('core','CreateBatch',{bump:0}));
   tx.add(new TransactionInstruction({
     keys: [
       { pubkey: batchKP.publicKey, isWritable: true, isSigner: true },
@@ -336,16 +324,12 @@ function buildCloseCollectingIx(batchPda, registryPda) {
       { pubkey: registryPda, isSigner: false, isWritable: false },
     ],
     programId: CORE_ID,
-    data: Buffer.from([6]), // disc CloseCommitting
+    data: Buffer.from(encodeInstruction('core','CloseCommitting')), // disc CloseCommitting
   });
 }
 
 function buildClearBatchIx(batchPda, bookPda, resultsPda, matcherId, registryPda, instrumentPda, payer) {
-  const data = Buffer.alloc(7);
-  data[0] = 7;  // disc ClearBatch
-  data.writeUInt16LE(0, 1); // num_commitments
-  data.writeUInt16LE(1, 3); // num_instruments
-  data.writeUInt16LE(0, 5); // num_portfolios
+  const data = Buffer.from(encodeInstruction('core','ClearBatch',{numCommitments:0,numInstruments:1,numPortfolios:0})); // num_portfolios
   return new TransactionInstruction({
     keys: [
       { pubkey: batchPda, isSigner: false, isWritable: true },
@@ -364,11 +348,7 @@ function buildClearBatchIx(batchPda, bookPda, resultsPda, matcherId, registryPda
 
 function buildSettleBatchIx(batchPda, registryPda, vaultPda, resultsPda, instrumentPda, bookPda, oraclePda, matcherId, nextBatchPda, payer, nextBatchBump, portfolioPdas) {
   const portfolios = portfolioPdas || [];
-  const data = Buffer.alloc(6);
-  data[0] = 8; // disc SettleBatch
-  data.writeUInt16LE(0, 1); // num_commitments
-  data.writeUInt16LE(portfolios.length, 3);
-  data[5] = nextBatchBump;
+  const data = Buffer.from(encodeInstruction('core','SettleBatch',{numCommitments:0,numPortfolios:portfolios.length,nextBatchBump}));
   const keys = [
     { pubkey: batchPda, isSigner: false, isWritable: true },
     { pubkey: registryPda, isSigner: false, isWritable: true },
