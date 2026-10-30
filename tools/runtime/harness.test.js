@@ -23,10 +23,10 @@ test('candidate artifact bytes must match the externally supplied SHA-256', () =
 test('exact assertions reject rounded JavaScript numeric model outputs', async () => {
   const { LocalRuntime } = require('./harness');
   const runtime = new LocalRuntime(18997);
-  runtime.account = async () => ({ lamports: 9007199254740992n, data: Buffer.alloc(16) });
+  runtime.account = async () => ({ lamports: 9007199254740992n, data: Buffer.from(require('../../mgk-frontend/packages/layout').layouts.Portfolio.fixture) });
   await assert.rejects(runtime.assertState([{ address: 'fixture', lamports: 9007199254740992 }]), /safe integer/);
   await assert.rejects(runtime.assertState([{ address: 'fixture', fields: [
-    { name: 'equity', offset: 0, bytes: 16, value: 9007199254740992 },
+    { name: 'equity', path: 'equity', value: 9007199254740992 },
   ] }]), /safe integer/);
 });
 
@@ -64,4 +64,22 @@ test('twelve distinct filled portfolios settle within one legacy transaction pac
   const wire = transaction.serialize();
   t.diagnostic(`worst-case settlement transaction: ${wire.length}/1232 bytes`);
   assert.ok(wire.length <= 1232, `${wire.length} bytes exceeds Solana's 1232-byte packet`);
+});
+
+test('runtime state assertions decode versioned protocol accounts by field path', async () => {
+  const { LocalRuntime } = require('./harness');
+  const { layouts } = require('../../mgk-frontend/packages/layout');
+  const runtime = new LocalRuntime(18997);
+  runtime.account = async () => ({data: Buffer.from(layouts.Portfolio.fixture)});
+  await runtime.assertState([{address:'fixture', fields:[
+    {name:'economic equity', path:'equity', value:-((1n<<100n)+20n)},
+  ]}]);
+  await assert.rejects(runtime.assertState([{address:'fixture', fields:[
+    {name:'wrong equity', path:'equity', value:0n},
+  ]}]), /wrong equity/);
+  const stale = Buffer.from(layouts.Portfolio.fixture); stale[1] = 99;
+  runtime.account = async () => ({data:stale});
+  await assert.rejects(runtime.assertState([{address:'fixture', fields:[
+    {name:'stale', path:'equity', value:0n},
+  ]}]), /unsupported layout version/);
 });

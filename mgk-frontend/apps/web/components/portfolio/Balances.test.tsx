@@ -85,14 +85,17 @@ describe('Balances', () => {
   });
 
   it('shows a positive PnL with the bull color + up arrow', () => {
-    render(<Balances data={makePortfolio({ realizedUsd: 500_000_000n })} />);
+    render(<Balances data={makePortfolio({ realizedLamports: 375_000_000n, realizedUsd: -91_000_000n })} />);
     const pnl = screen.getByTestId('balances-pnl').querySelector('[data-testid="pnl-display"]');
     expect(pnl).toHaveAttribute('data-direction', 'bull');
     expect(pnl?.textContent).toMatch(/▲/);
+    expect(screen.getByText('Realized PnL')).toBeInTheDocument();
+    expect(pnl?.textContent).toContain('0.38');
+    expect(screen.getByTestId('balances-pnl').textContent).toContain('SOL');
   });
 
   it('shows a negative PnL with the bear color + down arrow', () => {
-    render(<Balances data={makePortfolio({ realizedUsd: -500_000_000n })} />);
+    render(<Balances data={makePortfolio({ realizedLamports: -375_000_000n, realizedUsd: 91_000_000n })} />);
     const pnl = screen.getByTestId('balances-pnl').querySelector('[data-testid="pnl-display"]');
     expect(pnl).toHaveAttribute('data-direction', 'bear');
     expect(pnl?.textContent).toMatch(/▼/);

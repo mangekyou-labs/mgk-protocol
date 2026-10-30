@@ -14,7 +14,7 @@ const instructions = {
     [
       "Initialize",
       0,
-      "governance:pubkey instrumentCount:u16 volatilityMultiplier:u16 batchIdCounter:u64 baseDeposit:u64 nMin:u32 tMinSlots:u64 tMaxSlots:u64 tRevealSlots:u64 instrumentId:u16 tickSize:u64 lotSize:u64 imrBps:u16 mmrBps:u16 takerFeeBps:u16 makerFeeBps:i16 oracleAddr:pubkey registryBump:u8 instrumentBump:u8 vaultBump:u8",
+      "governance:pubkey instrumentCount:u16 volatilityMultiplier:u16 batchIdCounter:u64 baseDeposit:u64 nMin:u32 tMinSlots:u64 tMaxSlots:u64 tRevealSlots:u64 instrumentId:u16 tickSize:u64 lotSize:u64 imrBps:u16 mmrBps:u16 takerFeeBps:u16 makerFeeBps:i16 oracleAddr:pubkey registryBump:u8 instrumentBump:u8 vaultBump:u8?",
     ],
     ["InitPortfolio", 1, "user:pubkey bump:u8"],
     ["Deposit", 2, "amount:u64"],

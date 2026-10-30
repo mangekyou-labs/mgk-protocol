@@ -354,11 +354,12 @@ async function main() {
     'bid:', settled.bidClear, 'ask:', settled.askClear);
   console.log('Matched bid/ask:', settled.matchedBid, settled.matchedAsk);
 
-  // Portfolio positions peek: positions start after header — skip deep decode, just report equity
+  // Report the versioned portfolio ledger through the shared decoder.
   for (const [label, port] of [['maker', makerPort], ['taker', takerPort]]) {
     const d = Buffer.from((await conn.getAccountInfo(port)).data);
-    // BPF portfolio: user@0, equity is somewhere — print first 80 bytes hex for debug
-    console.log(label, 'port bytes[32..64]:', d.slice(32, 64).toString('hex'));
+    const portfolio = decodeAccount('Portfolio', d);
+    console.log(label, 'equity:', String(portfolio.equity),
+      'realized lamports:', String(portfolio.realizedLamports), 'positions:', portfolio.positionsLen);
   }
 
   const ok = settled.status === 3 && settled.markValid === 1

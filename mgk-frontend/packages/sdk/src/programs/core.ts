@@ -315,7 +315,7 @@ export interface InitializeParams {
   oracleAddr: Uint8Array;
   registryBump: number;
   instrumentBump: number;
-  vaultBump: number;
+  vaultBump?: number;
   /** @deprecated Initialize no longer accepts a batch bump. */
   batchBump?: number;
   instrumentCount?: number;

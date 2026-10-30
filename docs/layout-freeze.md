@@ -23,7 +23,7 @@ BatchResults is packed: account header 8, envelope 9, DFBA header 34, then fill 
 
 ## Instruction formats and consumers
 
-`mgk-frontend/packages/layout/instructions.js` is the shared format table and encoder for all core (0–28), matcher (0–9), and oracle (0–4) instructions, including disabled legacy dispatches. Fields are packed little-endian; account alignment must never be applied to instruction bodies. SettleBatch optionally appends the next-batch bump. Initialize includes registry parameters and all three bumps; AddInstrument is 60 bytes including discriminator. SDK, indexer and tools use this table; SDK typed wrappers preserve their public interfaces.
+`mgk-frontend/packages/layout/instructions.js` is the shared format table and encoder for all core (0–28), matcher (0–9), and oracle (0–4) instructions, including disabled legacy dispatches. Fields are packed little-endian; account alignment must never be applied to instruction bodies. SettleBatch optionally appends the next-batch bump. Initialize includes registry parameters, registry/instrument bumps, and an optional vault bump (omission preserves the program default of 255); AddInstrument is 60 bytes including discriminator. SDK, indexer and tools use this table; SDK typed wrappers preserve their public interfaces.
 
 All off-chain account readers use `@mgk/layout`; SDK wrappers add PublicKey and domain types. `scripts/check-layouts.sh` regenerates fixtures in a temporary directory and compares them byte-for-byte. CI also runs portable, SDK, indexer, dashboard and operational tests. A fixture mismatch requires investigation and user approval for an actual layout change.
 
@@ -36,3 +36,5 @@ Transaction success requires an error-free confirmed or finalized signature stat
 ## Approved behavior checkpoint
 
 The #53 decision preserves all current behavior: exposure admission checks use current open interest at post/modify; risk-off requires reduce-only even for closes; no separate loser-shortfall counter exists; SetPauseFlags cannot clear trading/withdrawal pauses and slashed legacy deposits do not credit the fund. See [ADR 0003](adr/0003-insurance-fund-is-the-cash-backed-counterparty-to-realized-pnl.md). No on-chain behavior or account layout changes are part of this freeze.
+
+Instruction vectors in `mgk-frontend/packages/layout/instruction-fixtures.json` are emitted by the Rust `export_instruction_fixtures` example. It checks the actual dispatch arms, length guards, parsing expressions, and optional defaults against program source, then executes those checked expressions on asymmetric bytes. Shared encoder tests round-trip every frozen dispatch against the resulting bytes and Rust-decoded parameters. `scripts/check-layouts.sh` regenerates and compares these vectors before running the encoder tests. Legacy matcher user bytes remain compatibility padding; signer authentication supplies identity.

@@ -446,14 +446,8 @@ interface CommitmentAccount {
   status: number; // 0=Pending, 1=Revealed, 2=Slashed, 3=Settled
 }
 
-/**
- * Find all commitment accounts for a given batch_id by scanning
- * program accounts with a memcmp filter on batch_id (offset 0, 8 bytes LE).
- * Commitment layout: batch_id(8) @0, user(32) @8, order_hash(32) @40,
- *   deposit(8) @72, status(1) @80, nonce(8) @88, revealed(72) @96.
- * instrument_id within revealed is at offset 152 (96 + 56).
- */
-async function findCommitmentsForBatch(
+/** Find commitments using the frozen account layout and validated public decoder. */
+export async function findCommitmentsForBatch(
   connection: Connection,
   programId: PublicKey,
   batchId: bigint,
@@ -463,7 +457,7 @@ async function findCommitmentsForBatch(
 
   const accounts = await connection.getProgramAccounts(programId, {
     filters: [
-      { memcmp: { offset: 0, bytes: encodeBase58(batchIdBuf) } },
+      { memcmp: { offset: state.layouts.Commitment.fields.batchId![0], bytes: encodeBase58(batchIdBuf) } },
       { dataSize: COMMITMENT_SIZE },
     ],
     encoding: 'base64',
@@ -472,11 +466,8 @@ async function findCommitmentsForBatch(
   const commitments: CommitmentAccount[] = [];
   for (const { pubkey, account } of accounts) {
     const data = Buffer.from(account.data);
-    if (data.length < 81) continue;
-    const bid = sdk.state.decodeBatch(data).batchId;
+    const { batchId: bid, user, status } = state.decodeCommitment(data);
     if (bid !== batchId) continue;
-    const user = new PublicKey(data.subarray(8, 40));
-    const status = sdk.state.decodeBatch(data).status;
     commitments.push({ pubkey, batchId: bid, user, status });
   }
   return commitments;

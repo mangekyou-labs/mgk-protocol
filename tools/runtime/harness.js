@@ -1,4 +1,12 @@
 'use strict';
+const {layouts, decodeAccount, decodeResults} = require('../../mgk-frontend/packages/layout');
+
+function protocolState(data) {
+  if (data[0] === 8) return decodeResults(data);
+  const name = Object.keys(layouts).find(name => layouts[name].discriminator === data[0]);
+  if (!name) throw new Error('Unknown protocol account discriminator');
+  return decodeAccount(name, data);
+}
 
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
@@ -188,13 +196,11 @@ class LocalRuntime {
       if (expected.owner !== undefined) assert.equal(actual.owner, String(expected.owner), `${expected.address}: owner`);
       if (expected.lamports !== undefined) assert.equal(actual.lamports, exactInteger(expected.lamports), `${expected.address}: lamports`);
       for (const field of expected.fields ?? []) {
-        const { offset, bytes, signed = false, name, value } = field;
-        assert.ok(Number.isInteger(offset) && offset >= 0 && Number.isInteger(bytes) && bytes > 0 && offset + bytes <= actual.data.length,
-          `${name}: field outside account`);
-        let decoded = 0n;
-        for (let i = bytes - 1; i >= 0; i--) decoded = (decoded << 8n) + BigInt(actual.data[offset + i]);
-        if (signed && (actual.data[offset + bytes - 1] & 0x80)) decoded -= 1n << BigInt(8 * bytes);
-        assert.equal(decoded, exactInteger(value), `${expected.address}: ${name}`);
+        const { path, name, value } = field;
+        const state = protocolState(actual.data);
+        const decoded = path.split('.').reduce((v, key) => v?.[key], state);
+        assert.notEqual(decoded, undefined, `${name}: unknown protocol field ${path}`);
+        assert.equal(BigInt(decoded), exactInteger(value), `${expected.address}: ${name}`);
       }
     }
   }

@@ -3,9 +3,6 @@ const {decodeAccount} = require('../mgk-frontend/packages/layout/index.js');
 'use strict';
 
 const LIQUIDATE_DISC = 9;
-function readI128LE(buf, offset) {
-  return (buf.readBigInt64LE(offset + 8) << 64n) + buf.readBigUInt64LE(offset);
-}
 function floorDiv(n, d) {return n / d - (n < 0n && n % d !== 0n ? 1n : 0n);}
 
 /** Reprice maintenance health from the v3 ledger at a validated oracle price.
@@ -37,4 +34,4 @@ function decideLiquidation(p) {
   if (p.liquidationsPaused) return {action:'skip', reason:'liquidations_paused'};
   return {action:'liquidate', reason:'underwater'};
 }
-module.exports = {LIQUIDATE_DISC, decodePortfolioHealth, encodeLiquidateUser, decideLiquidation, readI128LE};
+module.exports = {LIQUIDATE_DISC, decodePortfolioHealth, encodeLiquidateUser, decideLiquidation};
