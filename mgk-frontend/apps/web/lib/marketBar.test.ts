@@ -3,8 +3,9 @@ import { state } from '@mgk/sdk';
 
 import { batchGate, bookStatus, lastClearOf, marketExposure, readOracle } from './marketBar';
 
-const oracle = (over: Partial<{ isActive: boolean; price: bigint; timestamp: bigint }> = {}) => ({
+const oracle = (over: Partial<{ isActive: boolean; price: bigint; timestamp: bigint; confidence: bigint }> = {}) => ({
   isActive: true,
+  confidence: 0n,
   price: 150_250_000n,
   timestamp: 1_000n,
   ...over,
@@ -33,8 +34,9 @@ describe('readOracle', () => {
     expect(readOracle(oracle(), 1_074)).toEqual({ state: 'stale', price: 150_250_000n, ageSeconds: 74 });
   });
 
-  it('clamps a timestamp ahead of the local clock to age 0', () => {
-    expect(readOracle(oracle({ timestamp: 1_005n }), 1_000).ageSeconds).toBe(0);
+  it('rejects future timestamps and confidence above one percent', () => {
+    expect(readOracle(oracle({ timestamp: 1_005n }), 1_000).state).toBe('unavailable');
+    expect(readOracle(oracle({ confidence: 2_000_000n }), 1_000).state).toBe('unavailable');
   });
 });
 

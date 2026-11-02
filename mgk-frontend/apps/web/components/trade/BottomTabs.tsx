@@ -1,245 +1,142 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-
+import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { Balances } from '@/components/portfolio/Balances';
 import { Positions } from '@/components/portfolio/Positions';
+import {
+  indexerState,
+  type ProtocolStatusReading,
+} from '@/lib/hooks/useProtocolStatus';
+import type { ClearPrice, OracleReading } from '@/lib/marketBar';
 import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 import { usePortfolioPolling } from '@/lib/stores/usePortfolioStore';
 import { OpenOrders } from './OpenOrders';
 import { TradeHistory } from './history/TradeHistory';
-import { OrderHistory } from './history/OrderHistory';
-import { FundingHistory } from './history/FundingHistory';
-import { PositionHistory } from './history/PositionHistory';
-import { AccountHistory } from './history/AccountHistory';
 
-export type TabId =
-  | 'positions'
-  | 'open-orders'
-  | 'balances'
-  | 'order-history'
-  | 'trade-history'
-  | 'funding-history'
-  | 'position-history'
-  | 'account-history';
+// Allow multiple 3-second refresh attempts before treating the portfolio as unavailable.
+const PORTFOLIO_MAX_AGE_MS = 10_000;
 
-interface Tab {
-  id: TabId;
-  label: string;
-  count?: number;
-}
-
-const TABS: Omit<Tab, 'count'>[] = [
+const TABS = [
   { id: 'positions', label: 'Positions' },
-  { id: 'open-orders', label: 'Open Orders' },
-  { id: 'balances', label: 'Balances' },
-  { id: 'order-history', label: 'Order History' },
-  { id: 'trade-history', label: 'Trade History' },
-  { id: 'funding-history', label: 'Funding History' },
-  { id: 'position-history', label: 'Position History' },
-  { id: 'account-history', label: 'Account History' },
-];
-
+  { id: 'open-orders', label: 'Open orders' },
+  { id: 'fills', label: 'Fills' },
+  { id: 'collateral', label: 'Collateral' },
+] as const;
+export type TabId = (typeof TABS)[number]['id'];
 export interface BottomTabsProps {
-  /** instrument id used for OpenOrders (matcher Book PDA). */
   instrumentId?: number;
+  mark?: ClearPrice | null;
+  oracle?: OracleReading;
+  status?: ProtocolStatusReading;
   className?: string;
 }
 
-export function BottomTabs({ instrumentId = 0, className }: BottomTabsProps) {
+export function BottomTabs({
+  instrumentId = 0,
+  mark,
+  oracle,
+  status,
+  className,
+}: BottomTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('positions');
-  const [openOrderCount, setOpenOrderCount] = useState<number | null>(null);
+  const { connected } = useWallet();
   const portfolio = usePortfolioPolling(TRADE_POLL_INTERVAL_MS);
-  const tabs = useMemo<Tab[]>(
-    () =>
-      TABS.map((tab) => {
-        if (tab.id === 'positions') {
-          return { ...tab, count: portfolio.data?.positionsLen ?? 0 };
-        }
-        if (tab.id === 'open-orders' && openOrderCount !== null) {
-          return { ...tab, count: openOrderCount };
-        }
-        return tab;
-      }),
-    [openOrderCount, portfolio.data?.positionsLen],
-  );
-
-  const firstRow = tabs.slice(0, 5);
-  const secondRow = tabs.slice(5);
-
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const stale =
+    portfolio.lastFetchedAt != null &&
+    now - portfolio.lastFetchedAt >= PORTFOLIO_MAX_AGE_MS;
+  function navigate(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number;
+    if (event.key === 'ArrowRight') next = (index + 1) % TABS.length;
+    else if (event.key === 'ArrowLeft')
+      next = (index + TABS.length - 1) % TABS.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = TABS.length - 1;
+    else return;
+    event.preventDefault();
+    setActiveTab(TABS[next].id);
+    event.currentTarget.parentElement
+      ?.querySelectorAll<HTMLButtonElement>('[role=tab]')
+      [next]?.focus();
+  }
+  const portfolioMessage = !connected
+    ? 'Connect a wallet to view your portfolio.'
+    : stale
+      ? 'Portfolio unavailable. The last chain refresh is stale; waiting for a fresh RPC read.'
+      : portfolio.error
+        ? 'Portfolio unavailable. Retry when RPC connectivity recovers.'
+        : portfolio.loading && !portfolio.data
+          ? 'Loading portfolio…'
+          : !portfolio.data
+            ? portfolio.lastFetchedAt == null
+              ? 'Portfolio unavailable.'
+              : 'No portfolio yet — deposit SOL to start trading.'
+            : null;
   return (
     <div
       data-testid="bottom-tabs"
       className={`flex flex-col ${className ?? ''}`}
     >
       <div
+        role="tablist"
+        aria-label="Portfolio"
         data-testid="bottom-tabs-strip"
-        className="border-b border-border bg-surface-1"
+        className="flex overflow-x-auto border-b border-border bg-surface-1"
       >
-        <div className="flex justify-between items-end">
-          <div className="flex flex-col">
-            <TabRow
-              tabs={firstRow}
-              activeTab={activeTab}
-              onSelect={setActiveTab}
-              data-testid="bottom-tabs-row1"
-            />
-            <div className="flex">
-              <TabRow
-                tabs={secondRow}
-                activeTab={activeTab}
-                onSelect={setActiveTab}
-                data-testid="bottom-tabs-row2"
-              />
-              <CurrentMarketFilter />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div
-        data-testid="bottom-tabs-content"
-        data-active-tab={activeTab}
-        className="text-text-faint font-mono text-xs"
-      >
-        <TabContent
-          activeTab={activeTab}
-          instrumentId={instrumentId}
-          portfolioData={portfolio.data}
-          portfolioLoading={portfolio.loading}
-          onOpenOrderCountChange={setOpenOrderCount}
-        />
-      </div>
-    </div>
-  );
-}
-
-function TabContent({
-  activeTab,
-  instrumentId,
-  portfolioData,
-  portfolioLoading,
-  onOpenOrderCountChange,
-}: {
-  activeTab: TabId;
-  instrumentId: number;
-  portfolioData: Parameters<typeof Positions>[0]['data'];
-  portfolioLoading: boolean;
-  onOpenOrderCountChange: (count: number) => void;
-}) {
-  switch (activeTab) {
-    case 'positions':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-positions">
-          <Positions data={portfolioData} loading={portfolioLoading} />
-        </div>
-      );
-    case 'balances':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-balances">
-          <Balances data={portfolioData} loading={portfolioLoading} />
-        </div>
-      );
-    case 'open-orders':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-open-orders">
-          <OpenOrders
-            instrumentId={instrumentId}
-            onCountChange={onOpenOrderCountChange}
-          />
-        </div>
-      );
-    case 'trade-history':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-trade-history">
-          <TradeHistory instrumentId={instrumentId} />
-        </div>
-      );
-    case 'order-history':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-order-history">
-          <OrderHistory instrumentId={instrumentId} />
-        </div>
-      );
-    case 'funding-history':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-funding-history">
-          <FundingHistory />
-        </div>
-      );
-    case 'position-history':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-position-history">
-          <PositionHistory />
-        </div>
-      );
-    case 'account-history':
-      return (
-        <div className="p-2" data-testid="bottom-tabs-account-history">
-          <AccountHistory />
-        </div>
-      );
-  }
-}
-
-function TabRow({
-  tabs,
-  activeTab,
-  onSelect,
-  'data-testid': dataTestId,
-}: {
-  tabs: Tab[];
-  activeTab: TabId;
-  onSelect: (id: TabId) => void;
-  'data-testid'?: string;
-}) {
-  return (
-    <div data-testid={dataTestId} className="flex">
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeTab;
-        return (
+        {TABS.map((tab, index) => (
           <button
             key={tab.id}
+            id={`tab-${tab.id}`}
+            role="tab"
+            aria-controls={`panel-${tab.id}`}
+            aria-selected={activeTab === tab.id}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            onKeyDown={(e) => navigate(e, index)}
+            onClick={() => setActiveTab(tab.id)}
             data-testid="bottom-tab"
             data-tab-id={tab.id}
-            data-active={isActive ? 'true' : 'false'}
-            onClick={() => onSelect(tab.id)}
-            className={[
-              'px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider whitespace-nowrap',
-              'border-b-2 transition-colors',
-              isActive
-                ? 'text-text border-accent'
-                : 'text-text-muted border-transparent hover:text-text hover:border-border',
-            ].join(' ')}
+            data-active={activeTab === tab.id ? 'true' : 'false'}
+            className={`whitespace-nowrap border-b-2 px-3 py-2 text-xs transition-colors ${activeTab === tab.id ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text'}`}
           >
             {tab.label}
-            {tab.count !== undefined && (
-              <span
-                data-testid="bottom-tab-count"
-                className="ml-1 text-text-faint"
-              >
-                ({tab.count})
-              </span>
-            )}
           </button>
-        );
-      })}
+        ))}
+      </div>
+      <div
+        id={`panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${activeTab}`}
+        data-testid="bottom-tabs-content"
+        data-active-tab={activeTab}
+        className="p-2 text-xs text-text-muted"
+      >
+        {activeTab === 'positions' || activeTab === 'collateral' ? (
+          portfolioMessage ? (
+            <p className="p-3">{portfolioMessage}</p>
+          ) : activeTab === 'positions' ? (
+            <Positions
+              data={portfolio.data}
+              loading={portfolio.loading}
+              mark={mark}
+              oracle={oracle}
+            />
+          ) : (
+            <Balances data={portfolio.data} loading={portfolio.loading} />
+          )
+        ) : activeTab === 'open-orders' ? (
+          <OpenOrders instrumentId={instrumentId} />
+        ) : (
+          <TradeHistory
+            instrumentId={instrumentId}
+            indexerState={status ? indexerState(status) : 'unavailable'}
+          />
+        )}
+      </div>
     </div>
-  );
-}
-
-function CurrentMarketFilter() {
-  return (
-    <label
-      data-testid="current-market-filter"
-      className="flex items-center gap-1.5 ml-auto px-3 py-1.5 text-[10px] uppercase tracking-wider text-text-muted cursor-pointer select-none"
-    >
-      <input
-        type="checkbox"
-        data-testid="current-market-checkbox"
-        className="h-3 w-3 rounded border-border bg-surface-2 accent-accent"
-        defaultChecked
-      />
-      Current Market
-    </label>
   );
 }

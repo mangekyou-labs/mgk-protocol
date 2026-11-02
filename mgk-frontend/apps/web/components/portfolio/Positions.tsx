@@ -1,202 +1,176 @@
 'use client';
 
-import * as sdk from '@mgk/sdk';
+import type { state } from '@mgk/sdk';
 import { NumberDisplay } from '@/components/common/NumberDisplay';
-import { Pill, type PillTone } from '@/components/common/Pill';
-
-type PortfolioState = sdk.state.PortfolioState;
-type Position = sdk.state.Position;
+import { Pill } from '@/components/common/Pill';
+import type { ClearPrice, OracleReading } from '@/lib/marketBar';
+import { valuePosition } from '@/lib/positionValuation';
+import { PortfolioAmount } from './PortfolioAmount';
 
 export interface PositionsProps {
-  data: PortfolioState | null;
-  /** Per-instrument mark price (raw, scaled 1e6). When omitted, PnL is hidden. */
-  markPrices?: Record<number, bigint>;
+  data: state.PortfolioState | null;
+  mark?: ClearPrice | null;
+  oracle?: OracleReading;
   loading?: boolean;
   className?: string;
 }
-
-/**
- * Compute the liquidation price for a single position from the global mm
- * + principal. V1 approximation: assumes the global mm is attributable to
- * this position (in reality mm is a sum across positions; a per-position
- * liq price needs a per-position margin breakdown the on-chain state
- * doesn't expose today).
- *
- * Unit math (from on-chain: `notional = qty * price`, with notional in
- * lamports and `equity`/`principal`/`mm` in lamports):
- *   collateral_lamports = qty * price  (raw, in lamports)
- *   At liq: equity = mm  →  principal + qty * (liq - entry) = mm
- *   ⇒ liq = entry + (mm - principal) / qty
- */
-export function computeLiqPrice(
-  qty: bigint,
-  entryVwap: bigint,
-  principal: bigint,
-  mm: bigint,
-): bigint | null {
-  if (qty === 0n) return null;
-  const delta = mm - principal;
-  return entryVwap + delta / qty;
-}
-
-function sideOf(qty: bigint): 'long' | 'short' | 'flat' {
-  if (qty > 0n) return 'long';
-  if (qty < 0n) return 'short';
-  return 'flat';
-}
-
-const SIDE_TONE: Record<'long' | 'short' | 'flat', PillTone> = {
-  long: 'bull',
-  short: 'bear',
-  flat: 'neutral',
-};
-
-const SIDE_LABEL: Record<'long' | 'short' | 'flat', string> = {
-  long: 'Long',
-  short: 'Short',
-  flat: 'Flat',
+const UNAVAILABLE: OracleReading = {
+  state: 'unavailable',
+  price: null,
+  ageSeconds: null,
 };
 
 export function Positions({
   data,
-  markPrices,
+  mark = null,
+  oracle = UNAVAILABLE,
   loading,
   className,
 }: PositionsProps) {
-  if (loading && !data) {
-    return (
-      <section
-        data-testid="positions"
-        data-state="loading"
-        className={['rounded-md border border-border bg-surface-1 p-4', className ?? '']
-          .filter(Boolean)
-          .join(' ')}
-      >
-        <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-          Positions
-        </h3>
-        <p className="mt-2 text-text-faint">Loading…</p>
-      </section>
-    );
-  }
-
-  if (!data || data.positionsLen === 0) {
-    return (
-      <section
-        data-testid="positions"
-        data-state="empty"
-        className={['rounded-md border border-border bg-surface-1 p-4', className ?? '']
-          .filter(Boolean)
-          .join(' ')}
-      >
-        <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-          Positions
-        </h3>
-        <p className="mt-2 text-text-faint">You have no open positions yet.</p>
-      </section>
-    );
-  }
-
-  const rows: Position[] = data.positions.slice(0, data.positionsLen);
-
+  const rows = data?.positions.slice(0, data.positionsLen) ?? [];
+  const message = !data
+    ? loading
+      ? 'Loading positions…'
+      : 'Portfolio unavailable.'
+    : rows.length === 0
+      ? 'You have no open positions yet.'
+      : null;
   return (
     <section
       data-testid="positions"
-      data-state="ready"
-      data-refreshing={loading ? 'true' : 'false'}
-      className={['rounded-md border border-border bg-surface-1', className ?? '']
-        .filter(Boolean)
-        .join(' ')}
+      data-state={
+        !data
+          ? loading
+            ? 'loading'
+            : 'unavailable'
+          : rows.length
+            ? 'ready'
+            : 'empty'
+      }
+      className={`rounded-md border border-border bg-surface-1 p-3 ${className ?? ''}`}
     >
-      <header className="flex items-center justify-between border-b border-border px-4 py-2">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-          Positions
-        </h3>
-        <span
-          data-testid="positions-count"
-          className="text-text-faint text-[11px] tabular-nums"
-        >
-          {data.positionsLen}
-        </span>
-      </header>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-text-faint uppercase tracking-wider text-[10px]">
-            <th className="px-4 py-2 text-left font-normal">Side</th>
-            <th className="px-2 py-2 text-right font-normal">Size</th>
-            <th className="px-2 py-2 text-right font-normal">Entry</th>
-            <th className="px-2 py-2 text-right font-normal">PnL</th>
-            <th className="px-4 py-2 text-right font-normal">Liq. Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p, i) => (
-            <PositionRow
-              key={`${p.instrumentId}-${i}`}
-              position={p}
-              principal={data.principal}
-              mm={data.mm}
-              markPrice={markPrices?.[p.instrumentId] ?? null}
+      <h3 className="text-xs uppercase tracking-wider text-text-muted">
+        Positions
+      </h3>
+      {message ? (
+        <p className="mt-2 text-text-faint">{message}</p>
+      ) : (
+        <>
+          <p className="my-2 text-text-muted">
+            Unrealized PnL ·{' '}
+            {mark && mark.price > 0n && mark.batchId >= 0n
+              ? `DFBA mark, batch ${mark.batchId}`
+              : 'DFBA mark unavailable'}{' '}
+            · unpaid
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-text-faint">
+                <tr>
+                  {[
+                    'Side',
+                    'Size (SOL)',
+                    'Entry (USD)',
+                    'Unrealized PnL (USD)',
+                    'SOL PnL estimate',
+                    'Health (oracle, SOL)',
+                    'Liquidation price (oracle, USD)',
+                  ].map((label) => (
+                    <th key={label} className="p-2 text-right font-normal">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((position, i) => {
+                  // The restricted demo has one SOL-PERP position. Other layouts fail closed.
+                  const value =
+                    rows.length === 1 && position.instrumentId === 0
+                      ? valuePosition(position, data!.equity, mark, oracle)
+                      : null;
+                  return (
+                    <tr
+                      key={`${position.instrumentId}-${i}`}
+                      data-testid="position-row"
+                      className="border-t border-border"
+                    >
+                      <td className="p-2">
+                        <Pill tone={position.qty > 0n ? 'bull' : 'bear'}>
+                          {position.qty > 0n ? 'Long' : 'Short'}
+                        </Pill>
+                      </td>
+                      <td className="p-2 text-right">
+                        <NumberDisplay value={position.qty} kind="lots" />
+                      </td>
+                      <td className="p-2 text-right">
+                        <PortfolioAmount
+                          value={
+                            position.entryVwap > 0n ? position.entryVwap : null
+                          }
+                          decimals={6}
+                          unit="USD"
+                        />
+                      </td>
+                      <td className="p-2 text-right" data-testid="position-pnl">
+                        <PortfolioAmount
+                          value={value?.unrealizedUsd ?? null}
+                          decimals={6}
+                          unit="USD"
+                        />
+                      </td>
+                      <td
+                        className="p-2 text-right"
+                        data-testid="position-sol-pnl"
+                      >
+                        <PortfolioAmount
+                          value={value?.estimatedLamports ?? null}
+                          decimals={9}
+                          unit="SOL estimate"
+                        />
+                      </td>
+                      <td
+                        className="p-2 text-right"
+                        data-testid="position-health"
+                      >
+                        <PortfolioAmount
+                          value={value?.health ?? null}
+                          decimals={9}
+                          unit="SOL"
+                        />
+                      </td>
+                      <td className="p-2 text-right" data-testid="position-liq">
+                        {value?.liquidationPrice == null ? (
+                          'Unavailable'
+                        ) : (
+                          <PortfolioAmount
+                            value={value.liquidationPrice}
+                            decimals={6}
+                            unit="USD"
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-text-faint">
+            Risk priced at the validated oracle ·{' '}
+            <PortfolioAmount
+              value={
+                oracle.state === 'valid' && oracle.price > 0n
+                  ? oracle.price
+                  : null
+              }
+              decimals={6}
+              unit="USD"
             />
-          ))}
-        </tbody>
-      </table>
+            . Liquidation price is an estimate for this single position.
+          </p>
+        </>
+      )}
     </section>
-  );
-}
-
-function PositionRow({
-  position,
-  principal,
-  mm,
-  markPrice,
-}: {
-  position: Position;
-  principal: bigint;
-  mm: bigint;
-  markPrice: bigint | null;
-}) {
-  const side = sideOf(position.qty);
-  const liq = computeLiqPrice(position.qty, position.entryVwap, principal, mm);
-  const pnlLamports =
-    markPrice !== null ? position.qty * (markPrice - position.entryVwap) : null;
-
-  return (
-    <tr
-      data-testid="position-row"
-      data-instrument={position.instrumentId}
-      data-side={side}
-      className="border-t border-border"
-    >
-      <td className="px-4 py-2">
-        <Pill tone={SIDE_TONE[side]}>{SIDE_LABEL[side]}</Pill>
-      </td>
-      <td className="px-2 py-2 text-right font-mono tabular-nums">
-        <NumberDisplay value={position.qty} kind="lots" />
-      </td>
-      <td className="px-2 py-2 text-right font-mono tabular-nums">
-        <NumberDisplay value={position.entryVwap} kind="scaled-usd" />
-      </td>
-      <td className="px-2 py-2 text-right" data-testid="position-pnl">
-        {pnlLamports === null ? (
-          <span className="text-text-faint">—</span>
-        ) : (
-          <NumberDisplay
-            value={Number(pnlLamports) / 1_000_000_000}
-            kind="plain"
-            decimals={4}
-          />
-        )}
-      </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums" data-testid="position-liq">
-        {liq === null ? (
-          <span className="text-text-faint">—</span>
-        ) : liq < 0n ? (
-          <span className="text-text-faint">n/a</span>
-        ) : (
-          <NumberDisplay value={liq} kind="scaled-usd" />
-        )}
-      </td>
-    </tr>
   );
 }
