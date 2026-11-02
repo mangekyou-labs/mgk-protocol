@@ -293,8 +293,7 @@ async function createMakerWorker({
     const { state: v } = await account(vault, "Vault");
     const positions = p.positions.slice(0, p.positionsLen),
       held = positions.reduce((n, pos) => n + abs(pos.qty), 0n);
-    const maintenance = decodePortfolioHealth(pRaw.data, price).health;
-    const pnl = maintenance - p.equity + held * 100000n;
+    const { unrealizedPnl: pnl } = decodePortfolioHealth(pRaw.data, price);
     const available = p.equity + (pnl < 0n ? pnl : 0n) - held * 200000n;
     const reserve = desired.reduce((sum, d) => {
       const notional = d.qty * (d.price > price ? d.price : price) * 1000000n;
