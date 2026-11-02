@@ -287,3 +287,23 @@ It resolves to the report, or throws `InvariantViolation` with the message
 Results fixtures in `invariant-fixtures.js` start from the matcher serializer
 bytes (`resultsLayout.fixture`). Field offsets are found by probing the SDK
 decoder, so there is no second encoder to drift from the wire contract.
+
+The protocol-maker process harness runs the actual maker CLI against the same
+verified candidate programs:
+
+```sh
+MGK_CANDIDATE_MANIFEST=/path/to/candidate.json \
+MGK_MAKER_REPORT=/path/to/maker-runtime-report.json \
+NO_DNA=1 node --test tools/runtime/maker.test.js
+```
+
+It uses isolated ports 20019/20020 (`MGK_MAKER_PORT` overrides RPC), posts six
+100-lot maker GTC quotes at 10, 20 and 30 bps on each side of the oracle,
+restarts without duplicate orders, and settles a real taker fill through the
+keeper CLI. Account assertions check positions, collateral and exact fees.
+Invalidating the oracle cancels the surviving GTC orders and releases their
+reservations; restoring it recovers the ladder. A collateral withdrawal and
+adverse oracle move make the short taker unhealthy; the maker cancels its
+quotes and takes over the entire short against its opposite position. Both
+portfolios finish flat, conserving signed base quantity. Worker transitions
+and harness transactions run the invariant checker. This is local evidence only.

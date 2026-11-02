@@ -12,14 +12,16 @@ function decodePortfolioHealth(data, conversionPrice) {
  const p=decodeAccount('Portfolio',data);const price=BigInt(conversionPrice);
  if(price<=0n)throw new Error('conversion price must be positive');
  if(p.positionsLen>p.positions.length)throw new Error('invalid positions length');
- let health=p.equity;
+ let health=p.equity,unrealizedPnl=0n;
  for(const pos of p.positions.slice(0,p.positionsLen)) {
   if(pos.instrumentId!==0)throw new Error('only SOL-PERP is supported');
   const {qty,entryVwap:entry,entryRemainder:rem}=pos; const den=pos.entryDenominator||1n;
-  health+=floorDiv(qty*1_000_000n*((price-entry)*den-rem),price*den);
+  const pnl=floorDiv(qty*1_000_000n*((price-entry)*den-rem),price*den);
+  unrealizedPnl+=pnl;
+  health+=pnl;
   health-=(qty<0n?-qty:qty)*100_000n;
  }
- return {health,positionsLen:p.positionsLen};
+ return {health,positionsLen:p.positionsLen,unrealizedPnl};
 }
 function encodeLiquidateUser(numInstruments = 1) {
   if (numInstruments !== 1) throw new Error('only one SOL-PERP instrument is supported');
