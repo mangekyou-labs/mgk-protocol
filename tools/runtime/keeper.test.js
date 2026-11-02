@@ -340,6 +340,29 @@ test(
         ),
       [second, third],
     );
+    // Both processes must finish a cycle before either is killed. This also
+    // observes the losing keeper's reconciliation rather than merely its spawn.
+    await wait(
+      () =>
+        [second, third].every((w) =>
+          w.records.some((r) =>
+            ["settled", "advanced", "collecting", "retry", "backoff"].includes(
+              r.status,
+            ),
+          ),
+        ),
+      [second, third],
+    );
+    assert.ok(
+      [second, third].every(
+        (w) =>
+          !w.records.some((r) =>
+            ["halted", "startup_validation_failed", "cycle_failed"].includes(
+              r.status,
+            ),
+          ),
+      ),
+    );
     const settled = [second, third]
       .flatMap((w) => w.records)
       .find((r) => r.status === "settled" && r.batchId === "0" && r.signature);
@@ -375,6 +398,9 @@ test(
     runtime.report.keeper = {
       crashRecovered: true,
       concurrent: true,
+      concurrentOutcomes: [second, third].map((w) =>
+        w.records.filter((r) => r.status).map((r) => r.status),
+      ),
       invariants: "pass",
       settlementSignature: settled.signature,
     };
