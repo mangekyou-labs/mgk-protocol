@@ -63,7 +63,8 @@ services:
   # Keeper — batch lifecycle background worker (no HTTP server)
   # -----------------------------------------------------------------------
   - name: mgk-keeper
-    type: worker
+    type: web  # free plan has no background workers; worker binds /healthz via PORT
+    healthCheckPath: /healthz
     runtime: node
     plan: free
     region: oregon
@@ -92,7 +93,8 @@ services:
   # Oracle — price oracle background worker (no HTTP server)
   # -----------------------------------------------------------------------
   - name: mgk-oracle
-    type: worker
+    type: web  # free plan has no background workers; worker binds /healthz via PORT
+    healthCheckPath: /healthz
     runtime: node
     plan: free
     region: oregon

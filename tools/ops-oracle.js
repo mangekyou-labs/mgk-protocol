@@ -32,6 +32,17 @@ const { readFileSync, existsSync } = require('fs');
 const { homedir } = require('os');
 const { join } = require('path');
 
+// Health endpoint so the worker can run as a free-tier Render web
+// service (which requires a bound port). No-op unless PORT is set.
+function startHealthServer(service, getState) {
+  const port = parseInt(process.env.PORT || '');
+  if (!port) return;
+  require('http').createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, service, ...getState() }));
+  }).listen(port, () => console.log(`Health server :${port}`));
+}
+
 // ---------------------------------------------------------------------------
 // Canonical program ID
 // ---------------------------------------------------------------------------
@@ -215,13 +226,19 @@ async function main() {
   console.log('Max deviation:', maxDeviationBps, 'bps');
   console.log('Interval:', interval, 'ms');
 
+  const health = { lastCycleAt: null, lastError: null };
+  startHealthServer('mgk-oracle', () => health);
+
   async function cycle() {
+    health.lastCycleAt = new Date().toISOString();
     try {
       const result = await fetchQuorumPrice(venues, maxFreshnessSec, maxDeviationBps);
       if (result) {
         await postPrice(conn, oracleAuthority, priceOraclePda, result.price, result.confidence);
+        health.lastError = null;
       }
     } catch (e) {
+      health.lastError = String(e.message || e);
       console.error('[oracle] Cycle error:', e.message || e);
     }
   }
