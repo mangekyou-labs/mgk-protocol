@@ -92,7 +92,13 @@ async function main() {
       }
       if (
         process.argv.includes("--once") &&
-        ["retry", "backoff", "low_fee_sol", "invalid_price", "blocked"].includes(result.status)
+        [
+          "retry",
+          "backoff",
+          "low_fee_sol",
+          "invalid_price",
+          "blocked",
+        ].includes(result.status)
       )
         process.exitCode = 1;
     } catch {
