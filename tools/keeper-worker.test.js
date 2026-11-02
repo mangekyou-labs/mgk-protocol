@@ -300,3 +300,36 @@ test("bad current batch bytes and simulation failures never send", async () => {
   assert.equal((await w.tick()).status, "retry");
   assert.equal(f.sent.length, 0);
 });
+test("a registry advance during a missing read is reconciled without latching halt", async () => {
+  const f = fixture();
+  const read = f.options.connection.getAccountInfo;
+  f.options.connection.getAccountInfo = async (key) => {
+    if (String(key) === String(f.batch)) {
+      f.reg.writeBigUInt64LE(2n, layouts.Registry.fields.batchIdCounter[0]);
+      return null;
+    }
+    return read(key);
+  };
+  const w = await createKeeperWorker(f.options);
+  assert.equal((await w.tick()).status, "advanced");
+  assert.equal(f.alerts.length, 0);
+  assert.equal(f.sent.length, 0);
+});
+test("reconciliation accepts only a matching batch moving through valid ordered phases", async () => {
+  for (const [status, id, expected] of [
+    [2, 0n, "advanced"],
+    [99, 0n, "retry"],
+    [2, 9n, "retry"],
+  ]) {
+    const f = fixture();
+    f.setSlot(26);
+    f.options.connection.simulateTransaction = async () => {
+      f.b[layouts.Batch.fields.status[0]] = status;
+      f.b.writeBigUInt64LE(id, 8);
+      return { value: { err: "concurrent or invalid" } };
+    };
+    const w = await createKeeperWorker(f.options);
+    assert.equal((await w.tick()).status, expected);
+    assert.equal(f.sent.length, 0);
+  }
+});

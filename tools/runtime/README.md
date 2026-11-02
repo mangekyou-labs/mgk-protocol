@@ -188,10 +188,20 @@ The harness unit suite serializes a signed legacy SettleBatch transaction with
 and a compute-budget instruction, and asserts it fits the 1232-byte packet limit.
 This is the transaction-size justification for the 12-live-order book cap.
 
-The standalone keeper scripts now derive the batch results PDA and forward its
-allocation payer and writable accounts. Their older account decoding and full
-worker migration remain separate work tracked by issue #28; this runtime test
-executes the candidate instructions directly.
+The manifest-bound keeper process harness exercises the real worker entrypoints:
+
+```sh
+MGK_CANDIDATE_MANIFEST=/path/to/candidate.json \
+MGK_KEEPER_REPORT=/path/to/keeper-runtime-report.json \
+NO_DNA=1 node --test tools/runtime/keeper.test.js
+```
+
+It uses isolated ports 19919/19920 (`MGK_KEEPER_PORT` overrides RPC), posts a
+collateralized maker/taker pair, kills after clear, restarts two concurrent
+keepers and checks exact-once quantities/fees and invariants. It also proves fee
+starvation recovery and a missing-current-batch halt. See
+[`../keeper-worker.md`](../keeper-worker.md) for configuration and recovery.
+This evidence is local; devnet operational verification remains pending.
 
 ## Invariant checker (issue #26)
 
