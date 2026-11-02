@@ -24,14 +24,14 @@ describe('settled position valuation', () => {
       liquidationPrice: 71_428_571n,
     });
   });
-  it('values a short and keeps oracle risk separate from a missing mark', () => {
+  it('withholds liquidation and PnL for a missing mark while retaining independently oracle-priced health', () => {
     expect(
       valuePosition({ ...position, qty: -1000n }, 500_000_000n, null, oracle),
     ).toEqual({
       unrealizedUsd: null,
       estimatedLamports: null,
       health: 200_000_000n,
-      liquidationPrice: 166_666_666n,
+      liquidationPrice: null,
     });
   });
   it('makes unrealized PnL and oracle risk unavailable with a stale oracle', () => {

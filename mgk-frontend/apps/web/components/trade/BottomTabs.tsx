@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Balances } from '@/components/portfolio/Balances';
 import { Positions } from '@/components/portfolio/Positions';
@@ -13,6 +13,9 @@ import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 import { usePortfolioPolling } from '@/lib/stores/usePortfolioStore';
 import { OpenOrders } from './OpenOrders';
 import { TradeHistory } from './history/TradeHistory';
+
+// Allow multiple 3-second refresh attempts before treating the portfolio as unavailable.
+const PORTFOLIO_MAX_AGE_MS = 10_000;
 
 const TABS = [
   { id: 'positions', label: 'Positions' },
@@ -39,6 +42,14 @@ export function BottomTabs({
   const [activeTab, setActiveTab] = useState<TabId>('positions');
   const { connected } = useWallet();
   const portfolio = usePortfolioPolling(TRADE_POLL_INTERVAL_MS);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const stale =
+    portfolio.lastFetchedAt != null &&
+    now - portfolio.lastFetchedAt >= PORTFOLIO_MAX_AGE_MS;
   function navigate(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     let next: number;
     if (event.key === 'ArrowRight') next = (index + 1) % TABS.length;
@@ -55,15 +66,17 @@ export function BottomTabs({
   }
   const portfolioMessage = !connected
     ? 'Connect a wallet to view your portfolio.'
-    : portfolio.error
-      ? 'Portfolio unavailable. Retry when RPC connectivity recovers.'
-      : portfolio.loading && !portfolio.data
-        ? 'Loading portfolio…'
-        : !portfolio.data
-          ? portfolio.lastFetchedAt == null
-            ? 'Portfolio unavailable.'
-            : 'No portfolio yet — deposit SOL to start trading.'
-          : null;
+    : stale
+      ? 'Portfolio unavailable. The last chain refresh is stale; waiting for a fresh RPC read.'
+      : portfolio.error
+        ? 'Portfolio unavailable. Retry when RPC connectivity recovers.'
+        : portfolio.loading && !portfolio.data
+          ? 'Loading portfolio…'
+          : !portfolio.data
+            ? portfolio.lastFetchedAt == null
+              ? 'Portfolio unavailable.'
+              : 'No portfolio yet — deposit SOL to start trading.'
+            : null;
   return (
     <div
       data-testid="bottom-tabs"

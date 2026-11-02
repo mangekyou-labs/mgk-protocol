@@ -82,7 +82,7 @@ Browser (Next.js 16 SPA)
 - **No Anchor / IDL** — Pinocchio programs use single-byte discriminators. SDK hand-rolls byte layouts.
 - **Direct RPC** for freshness-critical reads. Indexer for history and WS fan-out.
 - **TradingView widget** for chart (`BINANCE:SOLUSDT` for devnet; Pyth data feed deferred to post-v1).
-- **Zustand** stores for ephemeral UI state; React Query for indexer REST.
+- **Zustand** stores for shared chain polling and ephemeral UI state. Indexer REST uses fetch-based hooks; one page-level status hook supplies the trade screen banners and status bar.
 - **Client-side commit-reveal**: salt + hash computed in browser, persisted to localStorage across refresh.
 
 ## Devnet deployment

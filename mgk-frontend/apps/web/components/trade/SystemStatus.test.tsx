@@ -64,7 +64,7 @@ describe('chain derived system status', () => {
       error: null,
     } as Parameters<typeof SystemStatus>[0]['status'];
     render(<SystemStatus status={status} />);
-    expect(screen.getByText('New exposure paused.')).toBeInTheDocument();
+    expect(screen.getByText(/New exposure paused\./)).toBeInTheDocument();
     expect(screen.getByText('Withdrawals paused.')).toBeInTheDocument();
     expect(screen.getByText('Liquidations paused.')).toBeInTheDocument();
     expect(screen.getByText('Clearing paused.')).toBeInTheDocument();
@@ -73,6 +73,24 @@ describe('chain derived system status', () => {
       screen.getByText(/no settlement time is promised/),
     ).toBeInTheDocument();
     expect(screen.getByText(/Indexer syncing/)).toBeInTheDocument();
+  });
+  it.each([1, 16])('explains the protective actions permitted under exposure pause flag %s', (flags) => {
+    render(<SystemStatus status={{
+      data: { ...healthy, checks: { ...healthy.checks, pause: { severity: 'critical', flags } } },
+      loading: false, error: null,
+    } as Parameters<typeof SystemStatus>[0]['status']} />);
+    expect(screen.getByText(/Cancels and reduce-only closes remain permitted/)).toBeInTheDocument();
+    expect(screen.queryByText('Withdrawals paused.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Liquidations paused.')).not.toBeInTheDocument();
+  });
+  it('reports an aging but valid oracle as a warning without invalidating chain estimates', () => {
+    render(<SystemStatus status={{
+      data: { ...healthy, checks: { ...healthy.checks, oracle: { severity: 'warn', ageSeconds: 45 } } },
+      loading: false, error: null,
+    } as Parameters<typeof SystemStatus>[0]['status']} />);
+    expect(screen.getByText(/Oracle update delayed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Oracle stale or unavailable/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/estimates are unavailable/)).not.toBeInTheDocument();
   });
   it('clears a previously healthy status after an endpoint failure', async () => {
     vi.useFakeTimers();

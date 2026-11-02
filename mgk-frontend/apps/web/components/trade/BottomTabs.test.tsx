@@ -9,7 +9,7 @@ vi.mock('@/lib/stores/usePortfolioStore', () => ({
     data: { positionsLen: 0 },
     loading: false,
     error: null,
-    lastFetchedAt: 1,
+    lastFetchedAt: Date.now(),
   }),
 }));
 vi.mock('@/components/portfolio/Balances', () => ({

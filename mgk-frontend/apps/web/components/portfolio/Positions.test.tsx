@@ -45,6 +45,12 @@ describe('Positions', () => {
       expect(screen.getByTestId(id)).toHaveTextContent('Unavailable');
     }
   });
+  it.each([undefined, { price: 0n, batchId: 8n }, { price: 120_000_000n, batchId: -1n }])('withholds liquidation and PnL for an invalid mark even with a valid oracle', (mark) => {
+    render(<Positions data={data} mark={mark} oracle={oracle} />);
+    for (const id of ['position-pnl', 'position-sol-pnl', 'position-liq'])
+      expect(screen.getByTestId(id)).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('position-health')).not.toHaveTextContent('Unavailable');
+  });
   it('separates loading, unavailable portfolio and known empty positions', () => {
     const { rerender } = render(<Positions data={null} loading />);
     expect(screen.getByText(/loading/i)).toBeInTheDocument();

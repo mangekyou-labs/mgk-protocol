@@ -6,8 +6,6 @@ import {
 import { NEW_EXPOSURE_PAUSE_MASK } from '@/lib/protocol';
 
 const CHECK_MESSAGES: Record<string, string> = {
-  oracle:
-    'Oracle stale or unavailable. Oracle-priced estimates are unavailable.',
   batch:
     'Batch processing delayed or unavailable. Fills may be awaiting settlement; no settlement time is promised.',
   makerDepth: 'Protocol maker depth unavailable.',
@@ -33,7 +31,9 @@ export function SystemStatus({ status }: { status: ProtocolStatusReading }) {
       messages.push('Pause state unavailable.');
     else {
       if (flags & NEW_EXPOSURE_PAUSE_MASK)
-        messages.push('New exposure paused.');
+        messages.push(
+          'New exposure paused. Cancels and reduce-only closes remain permitted; other risk checks still apply.',
+        );
       if (flags & 2) messages.push('Withdrawals paused.');
       if (flags & 4) messages.push('Liquidations paused.');
       if (flags & 32) messages.push('Clearing paused.');
@@ -49,6 +49,15 @@ export function SystemStatus({ status }: { status: ProtocolStatusReading }) {
       messages.push('Indexer down / unavailable. History is unavailable.');
     else if (indexerState(status) === 'syncing')
       messages.push('Indexer syncing. History may be incomplete.');
+    const oracle = checks.oracle;
+    if (!oracle || oracle.available === false)
+      messages.push('Oracle status unavailable. Chain price validation remains independent.');
+    else if (oracle.severity === 'warn')
+      messages.push('Oracle update delayed. Prices up to 60 seconds old remain valid.');
+    else if (oracle.severity === 'critical')
+      messages.push(
+        'Oracle stale or unavailable according to system status. Chain price validation remains independent.',
+      );
     for (const [key, label] of Object.entries(CHECK_MESSAGES))
       if (
         !checks[key] ||
