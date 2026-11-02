@@ -1,5 +1,13 @@
 {
   "feePayers": {"keeper": null, "oracle": null, "maker": null},
   "feeFloorLamports": "10000000",
-  "insuranceFloorLamports": "1000000000"
+  "insuranceFloorLamports": "1000000000",
+  "uptime": {
+    "provider": "UptimeRobot",
+    "path": "/api/status",
+    "intervalSeconds": 60,
+    "alertChannel": "email + Slack #mgk-ops (webhook provisioned outside the repo)",
+    "alertOn": ["unreachable", "severity:critical"],
+    "warnHandling": "severity:warn is logged and paged only after 5 consecutive polls"
+  }
 }
