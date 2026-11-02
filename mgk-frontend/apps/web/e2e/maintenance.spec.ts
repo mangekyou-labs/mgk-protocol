@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-for (const path of ['/', '/trade', '/portfolio']) {
+test('/portfolio is not a screen of its own and lands on /trade', async ({ page }) => {
+  const response = await page.goto('/portfolio');
+  expect(response?.status()).toBe(200);
+  await expect(page).toHaveURL(/\/trade$/);
+  await expect(page.getByTestId('portfolio-page')).toHaveCount(0);
+});
+
+for (const path of ['/', '/trade']) {
   for (const width of [375, 768, 1280]) {
     test(`${path} is closed for maintenance at ${width}px, including a remembered wallet`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
