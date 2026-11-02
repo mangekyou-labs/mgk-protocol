@@ -100,4 +100,28 @@ describe('OpenOrders', () => {
     );
     expect(sendTransaction).not.toHaveBeenCalled();
   });
+
+  it('shows the remaining size in SOL from 0.001-SOL lots', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([
+      { data: bookWithUserOrder(USER), executable: false, lamports: 1, owner: config.matcherProgramId },
+    ]);
+    render(<OpenOrders instrumentId={0} />);
+    // 100 lots = 0.1 SOL.
+    expect(await screen.findByTestId('open-order-qty')).toHaveTextContent('0.100');
+  });
+
+  it('rejects a modify size that is not a whole number of lots', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([
+      { data: bookWithUserOrder(USER), executable: false, lamports: 1, owner: config.matcherProgramId },
+    ]);
+    sendTransaction.mockReset();
+    render(<OpenOrders instrumentId={0} />);
+    await screen.findByTestId('open-order-row');
+    fireEvent.click(screen.getByTestId('open-order-modify'));
+    expect(screen.getByTestId('open-order-modify-input')).toHaveAttribute('placeholder', '0.1');
+    fireEvent.change(screen.getByTestId('open-order-modify-input'), { target: { value: '0.0005' } });
+    fireEvent.click(screen.getByTestId('open-order-modify-confirm'));
+    expect(screen.getByTestId('open-order-modify-error')).toHaveTextContent('Size must be a multiple of 0.001 SOL.');
+    expect(sendTransaction).not.toHaveBeenCalled();
+  });
 });

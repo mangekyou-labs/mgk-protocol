@@ -7,6 +7,7 @@ import * as sdk from '@mgk/sdk';
 
 import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
+import { LOTS_PER_SOL, parseLots } from '@/lib/orderTicket';
 import { NumberDisplay } from '@/components/common/NumberDisplay';
 import { Pill } from '@/components/common/Pill';
 
@@ -217,17 +218,16 @@ function OrderRow({
   const [editing, setEditing] = useState(false);
   const [editQty, setEditQty] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
-  const remainingStr = (Number(remaining) / 1_000_000).toString();
+  const remainingStr = (Number(remaining) / Number(LOTS_PER_SOL)).toString();
 
   const handleModifySubmit = () => {
-    const parsed = parseFloat(editQty);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setEditError('Enter a quantity greater than 0.');
+    const { lots: newQty, lotMultiple } = parseLots(editQty);
+    if (!lotMultiple) {
+      setEditError('Size must be a multiple of 0.001 SOL.');
       return;
     }
-    const newQty = BigInt(Math.round(parsed * 1_000_000));
-    if (newQty <= 0n) {
-      setEditError('Quantity is below the minimum precision.');
+    if (newQty == null) {
+      setEditError('Enter a quantity greater than 0.');
       return;
     }
     if (newQty === order.qty) {
@@ -245,7 +245,7 @@ function OrderRow({
     <div
       data-testid="open-order-row"
       data-order-id={order.orderId.toString()}
-      className="flex items-center gap-2 px-2 py-1 border-b border-border hover:bg-surface-2"
+      className="fade-in flex items-center gap-2 px-2 py-1 border-b border-border hover:bg-surface-2"
     >
       <Pill tone={tone}>{label}</Pill>
       <span data-testid="open-order-price" className="text-text min-w-[60px] text-right">
@@ -286,7 +286,7 @@ function OrderRow({
         </div>
       ) : (
         <span data-testid="open-order-qty" className="text-text min-w-[60px] text-right">
-          <NumberDisplay value={remaining} kind="scaled-base" />
+          <NumberDisplay value={remaining} kind="lots" />
         </span>
       )}
 

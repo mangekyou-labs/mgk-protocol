@@ -1,4 +1,5 @@
-export type NumberKind = 'plain' | 'lamports' | 'scaled-usd' | 'scaled-base';
+/** 'lots' = on-chain order/position qty, integer lots of 0.001 SOL. */
+export type NumberKind = 'plain' | 'lamports' | 'scaled-usd' | 'scaled-base' | 'lots';
 
 export interface NumberDisplayProps {
   value: number | bigint;
@@ -12,6 +13,7 @@ const KIND_SCALE: Record<NumberKind, number> = {
   lamports: 1_000_000_000,
   'scaled-usd': 1_000_000,
   'scaled-base': 1_000_000,
+  lots: 1_000,
 };
 
 const KIND_DECIMALS: Record<NumberKind, number> = {
@@ -19,6 +21,7 @@ const KIND_DECIMALS: Record<NumberKind, number> = {
   lamports: 4,
   'scaled-usd': 2,
   'scaled-base': 6,
+  lots: 3,
 };
 
 function toNumber(value: number | bigint): number {

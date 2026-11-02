@@ -172,7 +172,7 @@ function PositionRow({
         <Pill tone={SIDE_TONE[side]}>{SIDE_LABEL[side]}</Pill>
       </td>
       <td className="px-2 py-2 text-right font-mono tabular-nums">
-        <NumberDisplay value={position.qty} kind="scaled-base" />
+        <NumberDisplay value={position.qty} kind="lots" />
       </td>
       <td className="px-2 py-2 text-right font-mono tabular-nums">
         <NumberDisplay value={position.entryVwap} kind="scaled-usd" />

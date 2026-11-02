@@ -24,8 +24,11 @@ export interface PostOrderParams {
   price: bigint;
   qty: bigint;
   reduceOnly: boolean;
-  /** false = taker (default), true = maker */
-  isMaker?: boolean;
+}
+
+export interface PostOrderOptions {
+  /** Called once the wallet has signed and the transaction is sent. */
+  onSigned?: () => void;
 }
 
 const CU_LIMIT_POST = 300_000;
@@ -113,7 +116,7 @@ export function usePostOrder() {
   const clear = useOrderFormStore((s) => s.clear);
 
   const post = useCallback(
-    async (params: PostOrderParams) => {
+    async (params: PostOrderParams, options: PostOrderOptions = {}) => {
       if (!publicKey || !sendTransaction) {
         throw new Error('Wallet not connected');
       }
@@ -173,7 +176,8 @@ export function usePostOrder() {
         // Committing == open collection window for DFBA posts (checked in resolveOpenBatch).
 
         const sideByte = params.side === 'buy' ? sdk.Side.Buy : sdk.Side.Sell;
-        const isMaker = params.isMaker ?? false;
+        // The trade screen only posts taker limit orders.
+        const isMaker = false;
 
         const ixData = sdk.programs.encodePostOrder({
           side: sideByte,
@@ -223,12 +227,15 @@ export function usePostOrder() {
         );
 
         const sig = await safeSend(tx);
+        options.onSigned?.();
+        // Throws on a failed, expired or unconfirmed transaction: resolving
+        // here means the program accepted the order.
         await sdk.confirmSignature(connection, sig);
 
         setStatus('done');
         clear();
 
-        return { sig, batchId, isMaker };
+        return { sig, batchId };
       } catch (e) {
         const decoded = decodeProgramError(e);
         applySeverity(decoded.severity, { setStatus, clear });
