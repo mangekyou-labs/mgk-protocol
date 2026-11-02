@@ -36,6 +36,7 @@ jobs:
     env:
       NO_DNA: 1
       MGK_CANDIDATE_MANIFEST: ${{ github.workspace }}/candidate.json
+      MGK_KEEPER_REPORT: ${{ github.workspace }}/keeper-runtime-report.json
       MGK_RUNTIME_REPORT: ${{ github.workspace }}/runtime-report.json
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +76,7 @@ jobs:
       - name: Harness contract tests
         run: node --test tools/runtime/harness.test.js tools/runtime/invariants.test.js tools/runtime/audit.test.js tools/oracle-confidence.test.js
       - name: Signed runtime lifecycle and independent model assertions
-        run: node --test tools/runtime/smoke.test.js tools/runtime/indexer.test.js
+        run: node --test tools/runtime/smoke.test.js tools/runtime/indexer.test.js tools/runtime/keeper.test.js
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -83,4 +84,5 @@ jobs:
           path: |
             candidate.json
             runtime-report.json
+            keeper-runtime-report.json
           if-no-files-found: error
