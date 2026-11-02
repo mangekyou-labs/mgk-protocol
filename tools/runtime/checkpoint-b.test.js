@@ -89,7 +89,7 @@ async function startMarket(t, port) {
   const resultsPda = id => pda([Buffer.from('results'), u64(id)], MATCHER)[0];
   let batchId = 0;
   for (const [address, owner, size] of [[registry, CORE, 94], [instrument, CORE, 352], [vault, CORE, 80],
-    [batchPda(0), CORE, 176], [book, MATCHER, 27712]]) {
+    [batchPda(0), CORE, 176]]) {
     await runtime.setAccount(address, address === vault
       ? { owner, data: Buffer.alloc(size), lamports: Number(vaultRent) }
       : { owner, data: Buffer.alloc(size) });
@@ -106,9 +106,11 @@ async function startMarket(t, port) {
     takerFeeBps: 5, makerFeeBps: 0, oracleAddr: oracle.toBytes(), registryBump, instrumentBump,
   }, [meta(registry), meta(payer.publicKey, true, true), meta(instrument),
     meta(SystemProgram.programId, false), meta(vault)])], [payer]);
-  await runtime.send('initialize book', [ix('InitializeBook', { instrumentId: 0 },
+  // The book is created by the program, as on a real cluster (#69): three steps of <= 10 KiB.
+  const initializeBook = () => ix('InitializeBook', { instrumentId: 0 },
     [meta(registry, false), meta(book), meta(payer.publicKey, true, true),
-      meta(SystemProgram.programId, false), meta(MATCHER, false)])], [payer]);
+      meta(SystemProgram.programId, false), meta(MATCHER, false)]);
+  await runtime.send('initialize book', [initializeBook(), initializeBook(), initializeBook()], [payer]);
   const [, batchBump] = pda([Buffer.from('batch'), u64(0)]);
   await runtime.send('create batch', [ix('CreateBatch', { bump: batchBump }, [meta(batchPda(0)), meta(registry)])], [payer]);
   const traders = [];

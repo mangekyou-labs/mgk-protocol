@@ -921,7 +921,16 @@ fn results_account_space() -> usize {
     mgk_common::layout::ACCOUNT_HEADER_LEN + RESULTS_ENVELOPE_LEN + 34 + MAX_SETTLEMENT_ORDERS * 58
 }
 
-/// Create and zero-init a book PDA.
+/// Most an invocation may grow an account (the runtime's `MAX_PERMITTED_DATA_INCREASE`).
+/// Inner instructions are held to this too, so the book is created and grown in steps.
+const MAX_BOOK_GROWTH: usize = 10_240;
+
+/// Create, grow and stamp a book PDA.
+///
+/// The book is larger than one invocation may allocate, so each call adds up to
+/// `MAX_BOOK_GROWTH` bytes: the first creates the PDA (funded for its full size),
+/// later calls grow it, and the call that reaches full size stamps it. Three calls
+/// finish a book; they may share one transaction.
 ///
 /// Accounts:
 /// 0. `[writable]` Book PDA (`["book", instrument_id_le]`)
@@ -929,7 +938,7 @@ fn results_account_space() -> usize {
 /// 2. `[]` System program
 ///
 /// Data: `instrument_id(2 LE) + bump(1)`.
-/// Idempotent: if book already has full size, succeeds without re-creating.
+/// Idempotent: a full-size, stamped book is left untouched.
 pub fn process_initialize_book(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -967,11 +976,17 @@ pub fn process_initialize_book(
         return Err(ProgramError::InvalidSeeds);
     }
 
-    // Already allocated (idempotent). A pre-allocated, still-zeroed account
-    // has no discriminator yet, so stamp it; a stamped book is left alone.
-    if book_account.data_len() >= book_space && book_account.owner() == program_id {
-        stamp_new_book(book_account, instrument_id)?;
-        msg!("InitializeBook: already exists");
+    // Already created: grow one step if short, then stamp once full size. A
+    // still-zeroed account has no discriminator yet; a stamped book is left alone.
+    if book_account.owner() == program_id {
+        let len = book_account.data_len();
+        if len < book_space {
+            book_account.resize(core::cmp::min(len + MAX_BOOK_GROWTH, book_space))?;
+        }
+        if book_account.data_len() >= book_space {
+            stamp_new_book(book_account, instrument_id)?;
+        }
+        msg!("InitializeBook: book exists");
         return Ok(());
     }
 
@@ -985,12 +1000,14 @@ pub fn process_initialize_book(
     use pinocchio::sysvars::{rent::Rent, Sysvar};
 
     let rent = Rent::get()?;
+    // Rent for the full size up front, so the growth steps need no transfers.
     let lamports = rent.minimum_balance(book_space);
+    let initial_space = core::cmp::min(book_space, MAX_BOOK_GROWTH);
 
     let mut ix_data = [0u8; 52];
     ix_data[0..4].copy_from_slice(&0u32.to_le_bytes()); // CreateAccount
     ix_data[4..12].copy_from_slice(&lamports.to_le_bytes());
-    ix_data[12..20].copy_from_slice(&(book_space as u64).to_le_bytes());
+    ix_data[12..20].copy_from_slice(&(initial_space as u64).to_le_bytes());
     ix_data[20..52].copy_from_slice(program_id.as_ref());
 
     let metas = [
@@ -1008,8 +1025,10 @@ pub fn process_initialize_book(
     let signer = Signer::from(&signer_seeds);
     invoke_signed::<2>(&ix, &[payer, book_account], &[signer])?;
     // createAccount zeros account data → empty BookState (resting_count=0),
-    // which still lacks the discriminator + layout version: stamp them.
-    stamp_new_book(book_account, instrument_id)?;
+    // which still lacks the discriminator + layout version: stamp it once full.
+    if initial_space == book_space {
+        stamp_new_book(book_account, instrument_id)?;
+    }
     msg!("InitializeBook: book PDA created");
     Ok(())
 }

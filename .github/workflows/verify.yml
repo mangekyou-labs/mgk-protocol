@@ -78,7 +78,7 @@ jobs:
       - name: Harness contract tests
         run: node --test tools/runtime/harness.test.js tools/runtime/invariants.test.js tools/runtime/audit.test.js tools/oracle-confidence.test.js tools/gate/report.test.js tools/gate/latency.test.js tools/gate/soak.test.js
       - name: Signed runtime lifecycle and independent model assertions
-        run: node --test tools/runtime/smoke.test.js tools/runtime/indexer.test.js tools/runtime/keeper.test.js tools/runtime/maker.test.js tools/gate/gate.test.js tools/runtime/checkpoint-b.test.js
+        run: node --test tools/runtime/smoke.test.js tools/runtime/book-init.test.js tools/runtime/indexer.test.js tools/runtime/keeper.test.js tools/runtime/maker.test.js tools/gate/gate.test.js tools/runtime/checkpoint-b.test.js
       - uses: actions/upload-artifact@v4
         if: always()
         with:
