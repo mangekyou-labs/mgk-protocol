@@ -33,10 +33,10 @@ describe('Header', () => {
     expect(screen.getByLabelText('mgk')).toBeInTheDocument();
   });
 
-  it('renders the Trade and Portfolio nav links', () => {
+  it('links only to the trade screen, with no Portfolio nav', () => {
     render(<Header />);
     expect(screen.getByRole('link', { name: 'Trade' })).toHaveAttribute('href', '/trade');
-    expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/portfolio');
+    expect(screen.queryByRole('link', { name: 'Portfolio' })).toBeNull();
   });
 
   it('renders the "Get devnet SOL" CTA pointing to the public faucet', () => {
@@ -60,9 +60,6 @@ describe('Header', () => {
 
   it('marks the active nav link with aria-current="page"', () => {
     render(<Header />);
-    const trade = screen.getByRole('link', { name: 'Trade' });
-    const portfolio = screen.getByRole('link', { name: 'Portfolio' });
-    expect(trade).toHaveAttribute('aria-current', 'page');
-    expect(portfolio).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: 'Trade' })).toHaveAttribute('aria-current', 'page');
   });
 });

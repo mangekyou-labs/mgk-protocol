@@ -44,8 +44,7 @@ function loadTradingViewScript(): Promise<void> {
 }
 
 /**
- * Subset of TradingView interval strings the widget understands. Kept
- * in sync with `ChartToolbar`'s `TIMEFRAMES`.
+ * Subset of TradingView interval strings the widget understands.
  */
 export type TradingViewInterval = '1' | '5' | '15' | '60' | '240' | 'D';
 
@@ -120,8 +119,8 @@ export function TradingViewWidget({
           locale: 'en',
           toolbar_bg: '#0a0a0a',
           enable_publishing: false,
-          // Our ChartToolbar owns timeframe + view-mode; hide TV's redundant
-          // top toolbar so the UI has a single source of truth.
+          // The chart is a fixed 15m external reference; hide TV.s top toolbar
+          // so it cannot be re-configured into something that looks tradable.
           hide_top_toolbar: true,
           hide_legend: false,
           save_image: false,
