@@ -33,6 +33,11 @@ const rawIx = (discriminator, data, keys, programId) => new TransactionInstructi
 const field = (name, path, value) => ({ name, path, value: String(value) });
 const GATE_DIR = resolve(__dirname, '../gate');
 
+// Bare MgkError codes asserted in this file (programs/common/src/error.rs):
+// 4 InsufficientFunds, 7 Unauthorized, 110 PortfolioHealthy, 201 InvalidOrder,
+// 210 InvalidPrice, 211 InvalidQuantity, 212 PoolFull, 300 InvalidSide,
+// 402 InvalidRiskParams, 602 OperationPaused, 608 PortfolioExposureLimitExceeded.
+
 function runPython(script, request) {
   return JSON.parse(execFileSync('python3', [resolve(GATE_DIR, script)], {
     input: JSON.stringify(request), encoding: 'utf8',
@@ -647,5 +652,95 @@ test('P0-26 capped batch, P1-2 DFBA paper vectors, P1-3 adversarial at cap', { t
   m.runtime.report.checkpointB.p0_26 = evidence.p0_26;
   m.runtime.report.checkpointB.p1_2 = evidence.p1_2;
   m.runtime.report.checkpointB.p1_3 = evidence.p1_3;
+  m.runtime.flushReport();
+});
+
+test('P0-8: crossed taker/taker and maker/maker orders never fill', { timeout: 300000 }, async t => {
+  const m = await startMarket(t, 20141);
+  const A = await m.addTrader(1_000_000_000);
+  const B = await m.addTrader(1_000_000_000);
+  const evidence = {};
+  // Crossed taker/taker: a $101 taker buy against a $99 taker sell. Both
+  // rest in different DFBA auctions (bid: maker-buy x taker-sell; ask:
+  // maker-sell x taker-buy), so the matcher must produce no fill.
+  await m.freshOracle();
+  const [ttBuy] = await m.post(A, { side: 0, isMaker: false, price: 101_000_000, qty: 100 });
+  const [ttSell] = await m.post(B, { side: 1, isMaker: false, price: 99_000_000, qty: 100 });
+  assert.equal((await m.bookOrders()).length, 2, 'both crossed taker orders rest on the book');
+  let cleared = await m.closeAndClear();
+  assert.equal(cleared.numFills, 0, 'crossed taker/taker orders produce no fill');
+  assert.equal(cleared.fills.length, 0, 'crossed taker/taker results carry no fills');
+  evidence.takerTaker = await m.settle([A, B], 100_000_000, cleared);
+  await m.assertModel('P0-8 crossed taker/taker settled with no fill');
+  assert.equal((await m.portfolioState(A)).positionsLen, 0, 'taker buyer stays flat');
+  assert.equal((await m.portfolioState(B)).positionsLen, 0, 'taker seller stays flat');
+  await m.cancel(A, ttBuy);
+  await m.cancel(B, ttSell);
+  // Crossed maker/maker: a $101 maker buy against a $99 maker sell.
+  await m.freshOracle();
+  const [mmBuy] = await m.post(A, { side: 0, isMaker: true, price: 101_000_000, qty: 100 });
+  const [mmSell] = await m.post(B, { side: 1, isMaker: true, price: 99_000_000, qty: 100 });
+  assert.equal((await m.bookOrders()).length, 2, 'both crossed maker orders rest on the book');
+  cleared = await m.closeAndClear();
+  assert.equal(cleared.numFills, 0, 'crossed maker/maker orders produce no fill');
+  assert.equal(cleared.fills.length, 0, 'crossed maker/maker results carry no fills');
+  evidence.makerMaker = await m.settle([A, B], 100_000_000, cleared);
+  await m.assertModel('P0-8 crossed maker/maker settled with no fill');
+  assert.equal((await m.portfolioState(A)).positionsLen, 0, 'maker buyer stays flat');
+  assert.equal((await m.portfolioState(B)).positionsLen, 0, 'maker seller stays flat');
+  await m.cancel(A, mmBuy);
+  await m.cancel(B, mmSell);
+  m.runtime.report.checkpointB.p0_8 = evidence;
+  m.runtime.flushReport();
+});
+
+test('P0-14: over-5x leverage order rejects at post', { timeout: 300000 }, async t => {
+  const m = await startMarket(t, 20151);
+  const T = await m.addTrader(1_000_000_000);
+  const evidence = {};
+  const instrument = decodeAccount('Instrument', (await m.runtime.account(m.instrument)).data);
+  assert.equal(instrument.maxLeverage, 5, 'candidate instrument caps leverage at 5x');
+  evidence.maxLeverage = String(instrument.maxLeverage);
+  // 6,000 lots at $100 is 6 SOL of notional against 1 SOL of collateral
+  // (6x, over the 5x cap): the 20% initial-margin reservation alone
+  // (1,203,000,000 lamports) exceeds free collateral, so the post rejects
+  // with InsufficientFunds (4) before any book or batch state changes.
+  await m.freshOracle();
+  const postIx = qty => ix('PostOrder',
+    { side: 0, isMaker: false, price: 100_000_000n, qty: BigInt(qty), instrumentId: 0, reduceOnly: false },
+    [meta(m.traders[T].portfolio), meta(m.traders[T].user.publicKey, true, true), meta(m.batchPda(m.batchId)),
+      meta(m.registry, false), meta(m.book), meta(MATCHER, false), meta(m.instrument, false),
+      meta(m.oracle, false), meta(m.vault, false)]);
+  evidence.over5x = await m.rejectUnchanged('P0-14 over-5x leverage post rejected',
+    [postIx(6000)], [m.payer, m.traders[T].user],
+    [m.traders[T].portfolio, m.book, m.batchPda(m.batchId), m.vault], 4);
+  // Control: 4,000 lots (4 SOL notional, 4x) posts and cancels cleanly,
+  // so the rejection above is the leverage bound, not a broken market.
+  const [withinId] = await m.post(T, { side: 0, isMaker: false, price: 100_000_000, qty: 4000 });
+  assert.ok(withinId !== undefined, 'within-5x order posts');
+  await m.cancel(T, withinId);
+  await m.assertModel('P0-14 leverage checks left balances at the model');
+  m.runtime.report.checkpointB.p0_14 = evidence;
+  m.runtime.flushReport();
+});
+
+test('P0-27: negative maker fee rejects at runtime', { timeout: 300000 }, async t => {
+  const m = await startMarket(t, 20161);
+  const evidence = {};
+  // SetInstrumentFees (disc 22) is governance-signed and reaches
+  // Instrument::validate_demo_fees via apply_instrument_fees: the demo
+  // schedule is exactly taker 5 / maker 0, so maker_fee_bps < 0 must
+  // reject with InvalidRiskParams (402) and leave the instrument intact.
+  const feesIx = (takerFeeBps, makerFeeBps) => ix('SetInstrumentFees', { takerFeeBps, makerFeeBps },
+    [meta(m.instrument), meta(m.registry, false), meta(m.payer.publicKey, false, true)]);
+  evidence.negativeMaker = await m.rejectUnchanged('P0-27 maker_fee_bps < 0 rejected',
+    [feesIx(5, -1)], [m.payer], [m.instrument, m.registry], 402);
+  // The valid demo schedule still applies, proving the path is live and
+  // only the out-of-schedule fee was refused.
+  await m.runtime.send('P0-27 valid demo fees accepted', [feesIx(5, 0)], [m.payer]);
+  const instrument = decodeAccount('Instrument', (await m.runtime.account(m.instrument)).data);
+  assert.equal(instrument.takerFeeBps, 5, 'taker fee stays at the demo schedule');
+  assert.equal(instrument.makerFeeBps, 0, 'maker fee stays at the demo schedule');
+  m.runtime.report.checkpointB.p0_27 = evidence;
   m.runtime.flushReport();
 });
