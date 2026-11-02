@@ -42,7 +42,10 @@ function mockFetchOnce(body: unknown, status = 200) {
   );
 }
 
-let mockWallet: { publicKey: { toBase58: () => string } | null; connected: boolean };
+let mockWallet: {
+  publicKey: { toBase58: () => string } | null;
+  connected: boolean;
+};
 vi.mock('@solana/wallet-adapter-react', () => ({
   useWallet: () => mockWallet,
 }));
@@ -87,6 +90,25 @@ describe('TradeHistory', () => {
     );
   });
 
+  it.each(['down', 'syncing'] as const)(
+    'does not present an empty history while the indexer is %s',
+    async (state) => {
+      globalThis.fetch = mockFetchOnce({ fills: [] });
+      render(<TradeHistory indexerState={state} />);
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('trade-history-unavailable'),
+        ).toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByText('You have no trades yet.'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('trade-history-unavailable')).toHaveTextContent(
+        state === 'syncing' ? 'syncing' : 'unavailable',
+      );
+    },
+  );
+
   it('renders the error state when the indexer returns non-OK', async () => {
     globalThis.fetch = mockFetchOnce({ error: 'no' }, 500);
     render(<TradeHistory />);
@@ -107,7 +129,10 @@ describe('TradeHistory', () => {
     const first = rows[0]!;
     expect(first.getAttribute('data-slot')).toBe('1001');
     expect(first.getAttribute('data-role')).toBe('taker');
-    expect(within(first).getByTestId('trade-history-role')).toHaveTextContent('taker');
+    expect(within(first).getByTestId('trade-history-role')).toHaveTextContent(
+      'taker',
+    );
+    expect(within(rows[1]!).getByText('Long')).toBeInTheDocument();
   });
 
   it('shows fill size in SOL from 0.001-SOL lots', async () => {

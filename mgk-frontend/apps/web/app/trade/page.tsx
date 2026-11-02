@@ -8,6 +8,9 @@ import { PriceChart } from '@/components/chart/PriceChart';
 import { TxToast } from '@/components/common/TxToast';
 import { PageFrame } from '@/components/layout/PageFrame';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
+import { useProtocolStatus } from '@/lib/hooks/useProtocolStatus';
+import { SystemStatus } from '@/components/trade/SystemStatus';
+import { StatusBar } from '@/components/trade/StatusBar';
 import { BottomTabs } from '@/components/trade/BottomTabs';
 import { MarketHeader } from '@/components/trade/MarketHeader';
 import { BOOK_LEVELS_PER_SIDE, OrderBook } from '@/components/trade/OrderBook';
@@ -47,6 +50,7 @@ function useNowMs(): number {
 export default function TradePage() {
   const { connected } = useAutoConnect();
   const { publicKey } = useWallet();
+  const systemStatus = useProtocolStatus();
   const market = useMarketBar(TRADE_POLL_INTERVAL_MS);
   const { bids, asks, data: bookData, error: bookError } = useBookTopN(
     INSTRUMENT_ID,
@@ -161,6 +165,7 @@ export default function TradePage() {
 
   return (
     <PageFrame>
+      <SystemStatus status={systemStatus} />
       <MarketHeader
         oracle={market.oracle}
         mark={market.lastClear}
@@ -217,7 +222,8 @@ export default function TradePage() {
           </ReadinessChecklist>
         </div>
       </div>
-      <BottomTabs />
+      <BottomTabs status={systemStatus} mark={market.lastClear} oracle={market.oracle} />
+      <StatusBar status={systemStatus} />
       {toast && (
         <TxToast
           signature={toast.sig}

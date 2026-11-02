@@ -1,122 +1,77 @@
 'use client';
 
-import * as sdk from '@mgk/sdk';
-import { NumberDisplay } from '@/components/common/NumberDisplay';
-import { PnlDisplay } from '@/components/common/PnlDisplay';
-
-type PortfolioState = sdk.state.PortfolioState;
-
+import type { state } from '@mgk/sdk';
+import { PortfolioAmount } from './PortfolioAmount';
 export interface BalancesProps {
-  data: PortfolioState | null;
+  data: state.PortfolioState | null;
   loading?: boolean;
   className?: string;
 }
-
-/** Initial margin locked against open positions (im = equity - freeCollateral). */
-function lockedCollateral(data: PortfolioState): bigint {
-  return data.equity - data.freeCollateral;
-}
-
-/** Convert lamports (bigint) to a SOL number for `PnlDisplay` (which takes number). */
-function lamportsToSolNumber(lamports: bigint): number {
-  return Number(lamports) / 1_000_000_000;
-}
-
 export function Balances({ data, loading, className }: BalancesProps) {
-  if (loading && !data) {
-    return (
-      <section
-        data-testid="balances"
-        data-state="loading"
-        className={['rounded-md border border-border bg-surface-1 p-4', className ?? '']
-          .filter(Boolean)
-          .join(' ')}
-      >
-        <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-          Balances
-        </h3>
-        <p className="mt-2 text-text-faint">Loading…</p>
-      </section>
-    );
-  }
-
-  if (!data) {
-    return (
-      <section
-        data-testid="balances"
-        data-state="empty"
-        className={['rounded-md border border-border bg-surface-1 p-4', className ?? '']
-          .filter(Boolean)
-          .join(' ')}
-      >
-        <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-          Balances
-        </h3>
-        <p className="mt-2 text-text-faint">
-          No portfolio yet — deposit SOL to start trading.
-        </p>
-      </section>
-    );
-  }
-
-  const locked = lockedCollateral(data);
-
+  const rows = data
+    ? ([
+        ['Collateral equity', 'balances-equity', data.equity, 9, 'SOL'],
+        [
+          'Withdrawable collateral (last chain refresh)',
+          'balances-free',
+          data.freeCollateral,
+          9,
+          'SOL',
+        ],
+        [
+          'Order reservations',
+          'balances-reserved',
+          data.reservedCollateral,
+          9,
+          'SOL',
+        ],
+        [
+          'Cumulative realized USD PnL',
+          'balances-realized-usd',
+          data.realizedUsd,
+          6,
+          'USD',
+        ],
+        [
+          'Cumulative realized SOL PnL',
+          'balances-pnl',
+          data.realizedLamports,
+          9,
+          'SOL',
+        ],
+        ['Fees paid', 'balances-fees', data.feesPaid, 9, 'SOL'],
+      ] as const)
+    : [];
   return (
     <section
       data-testid="balances"
-      data-state="ready"
-      data-refreshing={loading ? 'true' : 'false'}
-      className={['rounded-md border border-border bg-surface-1 p-4', className ?? '']
-        .filter(Boolean)
-        .join(' ')}
+      data-state={!data ? (loading ? 'loading' : 'unavailable') : 'ready'}
+      className={`rounded-md border border-border bg-surface-1 p-4 ${className ?? ''}`}
     >
-      <h3 className="text-xs font-medium uppercase tracking-wider text-text-muted">
-        Balances
+      <h3 className="text-xs uppercase tracking-wider text-text-muted">
+        Collateral
       </h3>
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
-        <Row label="Equity" testid="balances-equity">
-          <NumberDisplay value={data.equity} kind="lamports" />
-          <span className="ml-1 text-text-faint text-[11px]">SOL</span>
-        </Row>
-        <Row label="Withdrawable collateral" testid="balances-free">
-          <NumberDisplay value={data.freeCollateral} kind="lamports" />
-          <span className="ml-1 text-text-faint text-[11px]">SOL</span>
-        </Row>
-        <Row label="Locked Collateral" testid="balances-locked">
-          <NumberDisplay value={locked} kind="lamports" />
-          <span className="ml-1 text-text-faint text-[11px]">SOL</span>
-        </Row>
-        <Row label="Realized PnL" testid="balances-pnl">
-          <PnlDisplay value={lamportsToSolNumber(data.realizedLamports)} />
-          <span className="ml-1 text-text-faint text-[11px]">SOL</span>
-        </Row>
-        <Row label="Maintenance Margin" testid="balances-mm">
-          <NumberDisplay value={data.mm} kind="lamports" />
-          <span className="ml-1 text-text-faint text-[11px]">SOL</span>
-        </Row>
-      </dl>
+      {!data ? (
+        <p className="mt-2 text-text-faint">
+          {loading ? 'Loading collateral…' : 'Portfolio unavailable.'}
+        </p>
+      ) : (
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
+          {rows.map(([label, id, value, decimals, unit]) => (
+            <div key={id} className="contents">
+              <dt>{label}</dt>
+              <dd data-testid={id} className="text-right">
+                <PortfolioAmount
+                  value={value}
+                  decimals={decimals}
+                  unit={unit}
+                />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <p className="mt-3 text-text-faint">Funding: off</p>
     </section>
-  );
-}
-
-function Row({
-  label,
-  children,
-  testid,
-}: {
-  label: string;
-  children: React.ReactNode;
-  testid: string;
-}) {
-  return (
-    <>
-      <dt className="text-text-muted text-xs">{label}</dt>
-      <dd
-        data-testid={testid}
-        className="text-right text-text font-mono tabular-nums"
-      >
-        {children}
-      </dd>
-    </>
   );
 }

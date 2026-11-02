@@ -9,9 +9,13 @@ import { useWallet } from '@solana/wallet-adapter-react';
 export interface TradeHistoryProps {
   instrumentId?: number;
   className?: string;
+  indexerState?: 'live' | 'syncing' | 'down' | 'unavailable';
 }
 
-function sideTone(side: number): { label: 'Long' | 'Short'; tone: 'bull' | 'bear' } {
+function sideTone(side: number): {
+  label: 'Long' | 'Short';
+  tone: 'bull' | 'bear';
+} {
   return side === 0
     ? { label: 'Long', tone: 'bull' }
     : { label: 'Short', tone: 'bear' };
@@ -21,9 +25,13 @@ function explorerLink(signature: string): string {
   return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}?cluster=devnet`;
 }
 
-export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps) {
+export function TradeHistory({
+  instrumentId = 0,
+  className,
+  indexerState,
+}: TradeHistoryProps) {
   const { publicKey, connected } = useWallet();
-  const { fills, loading, error, isPolling } = useMyFills(instrumentId);
+  const { fills, loading, error } = useMyFills(instrumentId);
 
   if (!connected || !publicKey) {
     return (
@@ -33,6 +41,16 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
       >
         Connect a wallet to view your trade history.
       </div>
+    );
+  }
+
+  if (indexerState && indexerState !== 'live') {
+    return (
+      <p data-testid="trade-history-unavailable" className="p-3 text-warn">
+        {indexerState === 'syncing'
+          ? 'Indexer syncing — confirmed fill history may be incomplete.'
+          : 'Indexer unavailable — confirmed fill history is unavailable.'}
+      </p>
     );
   }
 
@@ -65,11 +83,6 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
         className={`text-text-faint px-4 py-8 text-center font-mono text-xs ${className ?? ''}`}
       >
         You have no trades yet.
-        {!isPolling && (
-          <div className="text-text-faint mt-1 text-[10px]">
-            (Indexer is offline — start with <code className="text-text-muted">pnpm -F indexer dev</code>.)
-          </div>
-        )}
       </div>
     );
   }
@@ -92,11 +105,13 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
         <div className="text-right">Tx</div>
       </div>
       <div data-testid="trade-history-rows" className="flex flex-col">
-        {fills.map((f) => {
-          const { label, tone } = sideTone(f.taker_side);
+        {fills.map((f, index) => {
+          const { label, tone } = sideTone(
+            f.role === 'maker' ? 1 - f.taker_side : f.taker_side,
+          );
           return (
             <div
-              key={`${f.slot}-${f.tx_signature}`}
+              key={`${f.slot}-${f.tx_signature}-${index}`}
               data-testid="trade-history-row"
               data-slot={f.slot}
               data-role={f.role}

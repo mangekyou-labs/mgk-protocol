@@ -32,13 +32,16 @@ export interface MarketExposure {
 }
 
 export function readOracle(
-  oracle: { isActive: boolean; price: bigint; timestamp: bigint } | null,
+  oracle: { isActive: boolean; price: bigint; timestamp: bigint; confidence: bigint } | null,
   nowSeconds: number,
 ): OracleReading {
-  if (!oracle || !oracle.isActive || oracle.price <= 0n) {
+  if (
+    !oracle || !oracle.isActive || oracle.price <= 0n || oracle.confidence < 0n ||
+    oracle.confidence * 100n > oracle.price || oracle.timestamp > BigInt(nowSeconds)
+  ) {
     return { state: 'unavailable', price: null, ageSeconds: null };
   }
-  const ageSeconds = Math.max(0, nowSeconds - Number(oracle.timestamp));
+  const ageSeconds = nowSeconds - Number(oracle.timestamp);
   return {
     state: ageSeconds > ORACLE_MAX_AGE_SECONDS ? 'stale' : 'valid',
     price: oracle.price,
