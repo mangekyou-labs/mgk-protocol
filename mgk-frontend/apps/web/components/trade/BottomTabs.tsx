@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 
 import { Balances } from '@/components/portfolio/Balances';
 import { Positions } from '@/components/portfolio/Positions';
+import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 import { usePortfolioPolling } from '@/lib/stores/usePortfolioStore';
 import { OpenOrders } from './OpenOrders';
 import { TradeHistory } from './history/TradeHistory';
@@ -48,7 +49,7 @@ export interface BottomTabsProps {
 export function BottomTabs({ instrumentId = 0, className }: BottomTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('positions');
   const [openOrderCount, setOpenOrderCount] = useState<number | null>(null);
-  const portfolio = usePortfolioPolling(3000);
+  const portfolio = usePortfolioPolling(TRADE_POLL_INTERVAL_MS);
   const tabs = useMemo<Tab[]>(
     () =>
       TABS.map((tab) => {

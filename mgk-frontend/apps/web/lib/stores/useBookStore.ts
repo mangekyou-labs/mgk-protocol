@@ -7,6 +7,7 @@ import * as sdk from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
+import { decodeOrNull } from '@/lib/decode';
 
 type BookHeader = sdk.state.BookHeader;
 type BookLevel = sdk.state.BookLevel;
@@ -24,7 +25,7 @@ export interface BookPollParams {
 
 interface BookStore {
   data: BookHeader | null;
-  /** Resting orders decoded from the same book read. */
+  /** Orders on the book, decoded from the same book read. */
   orders: sdk.state.RestingOrder[];
   instrumentId: number | null;
   loading: boolean;
@@ -86,14 +87,8 @@ export const useBookStore = create<BookStore>((set, get) => ({
         });
         return;
       }
-      const bytes = new Uint8Array(acc.data);
-      const data = sdk.state.decodeBookHeader(bytes);
-      let orders: sdk.state.RestingOrder[] = [];
-      try {
-        orders = sdk.state.decodeRestingOrders(bytes);
-      } catch {
-        orders = [];
-      }
+      const data = sdk.state.decodeBookHeader(new Uint8Array(acc.data));
+      const orders = decodeOrNull(acc, sdk.state.decodeRestingOrders) ?? [];
 
       set({
         data,
