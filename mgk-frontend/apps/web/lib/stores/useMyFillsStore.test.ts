@@ -127,4 +127,19 @@ describe('useMyFillsStore', () => {
       expect(useMyFillsStore.getState().fills.length).toBe(2);
     });
   });
+
+  it('keeps polling for the remaining consumer when another one unmounts', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(async () =>
+      new Response(JSON.stringify(FILLS_RESPONSE), { status: 200 }),
+    );
+    const page = renderHook(() => useMyFills(INSTRUMENT, 60_000));
+    const tab = renderHook(() => useMyFills(INSTRUMENT, 60_000));
+    await waitFor(() => {
+      expect(useMyFillsStore.getState().fills.length).toBe(2);
+    });
+    tab.unmount();
+    expect(useMyFillsStore.getState().fills.length).toBe(2);
+    page.unmount();
+    expect(useMyFillsStore.getState().fills.length).toBe(0);
+  });
 });

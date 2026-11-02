@@ -24,6 +24,8 @@ export interface BookPollParams {
 
 interface BookStore {
   data: BookHeader | null;
+  /** Resting orders decoded from the same book read. */
+  orders: sdk.state.RestingOrder[];
   instrumentId: number | null;
   loading: boolean;
   error: string | null;
@@ -39,6 +41,7 @@ let currentParams: BookPollParams | null = null;
 
 export const useBookStore = create<BookStore>((set, get) => ({
   data: null,
+  orders: [],
   instrumentId: null,
   loading: false,
   error: null,
@@ -76,16 +79,25 @@ export const useBookStore = create<BookStore>((set, get) => ({
       if (!acc) {
         set({
           data: null,
+          orders: [],
           loading: false,
           error: null,
           lastFetchedAt: Date.now(),
         });
         return;
       }
-      const data = sdk.state.decodeBookHeader(new Uint8Array(acc.data));
+      const bytes = new Uint8Array(acc.data);
+      const data = sdk.state.decodeBookHeader(bytes);
+      let orders: sdk.state.RestingOrder[] = [];
+      try {
+        orders = sdk.state.decodeRestingOrders(bytes);
+      } catch {
+        orders = [];
+      }
 
       set({
         data,
+        orders,
         loading: false,
         error: null,
         lastFetchedAt: Date.now(),

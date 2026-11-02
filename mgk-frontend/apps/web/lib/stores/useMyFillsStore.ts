@@ -66,6 +66,8 @@ interface PollParams {
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: PollParams | null = null;
+/** Mounted useMyFills consumers sharing the single poller. */
+let subscribers = 0;
 
 async function fetchFills(
   pubkey: string,
@@ -156,12 +158,21 @@ export function useMyFills(
 
   useEffect(() => {
     if (!connected || !publicKey) {
-      stopMyFillsPolling();
+      if (subscribers === 0) stopMyFillsPolling();
       return;
     }
-    void startMyFillsPolling(publicKey.toBase58(), instrumentId, intervalMs);
+    subscribers += 1;
+    const pubkey = publicKey.toBase58();
+    if (
+      currentParams?.pubkey !== pubkey ||
+      currentParams.instrumentId !== instrumentId ||
+      currentParams.intervalMs !== intervalMs
+    ) {
+      void startMyFillsPolling(pubkey, instrumentId, intervalMs);
+    }
     return () => {
-      stopMyFillsPolling();
+      subscribers -= 1;
+      if (subscribers === 0) stopMyFillsPolling();
     };
   }, [publicKey, connected, instrumentId, intervalMs]);
 
