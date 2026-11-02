@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { state } from '@mgk/sdk';
-import { findCommitmentsForBatch } from './keeper.js';
+import { findCommitmentsForBatch, startKeeper, type StartKeeperParams } from './keeper.js';
 
 // The fixture was emitted from the actual Rust Commitment type, including its header.
 describe('keeper commitment scan', () => {
@@ -25,4 +25,8 @@ describe('keeper commitment scan', () => {
     expect(rows).toEqual([{pubkey, batchId: expected.batchId, user: expected.user, status: expected.status}]);
     expect(await findCommitmentsForBatch(connection, program, expected.batchId + 1n)).toEqual([]);
   });
+});
+
+it('rejects embedded keeper startup in the read-only indexer', () => {
+  expect(() => startKeeper({} as StartKeeperParams)).toThrow('Embedded keeper disabled');
 });
