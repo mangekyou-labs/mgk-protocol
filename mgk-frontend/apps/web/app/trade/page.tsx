@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import * as sdk from '@mgk/sdk';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 import { PriceChart } from '@/components/chart/PriceChart';
 import { TxToast } from '@/components/common/TxToast';
@@ -9,26 +9,49 @@ import { PageFrame } from '@/components/layout/PageFrame';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { BottomTabs } from '@/components/trade/BottomTabs';
 import { MarketHeader } from '@/components/trade/MarketHeader';
-import { OrderBook } from '@/components/trade/OrderBook';
+import { BOOK_LEVELS_PER_SIDE, OrderBook } from '@/components/trade/OrderBook';
 import { ReadinessChecklist } from '@/components/trade/ReadinessChecklist';
 import { OrderForm, type OrderFormParams } from '@/components/trade/OrderForm';
-import { usePostOrder } from '@/lib/hooks/useOrderSubmission';
+import { useMarketBar } from '@/lib/hooks/useMarketBar';
+import { decodeProgramError, usePostOrder } from '@/lib/hooks/useOrderSubmission';
 import { useOrderFormWalletGuard } from '@/lib/hooks/useOrderFormWalletGuard';
+import { bookStatus } from '@/lib/marketBar';
+import { orderLifecycle } from '@/lib/orderLifecycle';
 import { useBatchPolling } from '@/lib/stores/useBatchStore';
-import { useBookTopN } from '@/lib/stores/useBookStore';
+import { useBookStore, useBookTopN } from '@/lib/stores/useBookStore';
+import { useMyFills } from '@/lib/stores/useMyFillsStore';
 import { useOrderFormStore } from '@/lib/stores/useOrderFormStore';
 import { usePortfolioPolling } from '@/lib/stores/usePortfolioStore';
 
 const INSTRUMENT_ID = 0; // SOL-PERP only in v1
+const BOOK_INTERVAL_MS = 5000;
+
+/** Re-renders once a second so the book's lag stays current between reads. */
+function useNowMs(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const handle = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(handle);
+  }, []);
+  return now;
+}
 
 export default function TradePage() {
   const { connected } = useAutoConnect();
-  const { bids, asks, data: bookData } = useBookTopN(INSTRUMENT_ID, 20);
-  const { currentBatchId } = useBatchPolling(3000);
+  const { publicKey } = useWallet();
+  const market = useMarketBar(3000);
+  const { bids, asks, data: bookData, error: bookError } = useBookTopN(
+    INSTRUMENT_ID,
+    BOOK_LEVELS_PER_SIDE,
+    BOOK_INTERVAL_MS,
+  );
+  const bookOrders = useBookStore((s) => s.orders);
+  const bookFetchedAt = useBookStore((s) => s.lastFetchedAt);
+  const { data: batch, currentBatchId } = useBatchPolling(3000);
   const { data: portfolio, loading: portfolioLoading, error: portfolioError } = usePortfolioPolling(3000);
+  const { fills } = useMyFills(INSTRUMENT_ID);
   const { post } = usePostOrder();
-  const orderFormStatus = useOrderFormStore((s) => s.status);
-  const submitting = orderFormStatus === 'submitting';
+  const nowMs = useNowMs();
 
   // Clear stale in-flight state when the wallet disconnects or switches.
   useOrderFormWalletGuard();
@@ -44,63 +67,62 @@ export default function TradePage() {
     }
   }, []);
 
-  const [toast, setToast] = useState<{
-    sig: string;
-    error: string | null;
-    retry?: () => void;
-  } | null>(null);
+  const [toast, setToast] = useState<{ sig: string; error: string | null } | null>(null);
+  const [accepted, setAccepted] = useState<{ wallet: string | null; batchId: bigint } | null>(null);
+  const [priceOverride, setPriceOverride] = useState<{ price: bigint; nonce: number } | null>(null);
 
-  const bestBid = bookData?.bestBid ?? null;
-  const bestAsk = bookData?.bestAsk ?? null;
+  // The last order's lifecycle belongs to the wallet that placed it.
+  const walletKey = publicKey?.toBase58() ?? null;
+  const acceptedBatchId = accepted?.wallet === walletKey ? accepted.batchId : null;
 
-  const position = portfolio?.positions.find(
-    (p) => p.instrumentId === INSTRUMENT_ID,
-  );
-  const freeCollateral = portfolio?.freeCollateral ?? 0n;
-  const positionQty = position?.qty ?? 0n;
-  void sdk;
+  const book = bookStatus({
+    hasData: bookData != null,
+    error: bookError,
+    lastFetchedAt: bookFetchedAt,
+    nowMs,
+    intervalMs: BOOK_INTERVAL_MS,
+  });
 
-  const handleSubmitRef = useRef<(params: OrderFormParams) => Promise<void>>(
-    async () => {},
-  );
+  const ownPrices = useMemo(() => {
+    if (!publicKey) return undefined;
+    const mine = bookOrders.filter(
+      (o) => o.instrumentId === INSTRUMENT_ID && o.user.equals(publicKey),
+    );
+    return {
+      bids: mine.filter((o) => Number(o.side) === 0).map((o) => o.price),
+      asks: mine.filter((o) => Number(o.side) === 1).map((o) => o.price),
+    };
+  }, [bookOrders, publicKey]);
+
+  const handleSelectPrice = useCallback((price: bigint) => {
+    setPriceOverride((prev) => ({ price, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
+
+  const position = portfolio?.positions.find((p) => p.instrumentId === INSTRUMENT_ID);
 
   const handleSubmit = useCallback(
-    async (params: OrderFormParams) => {
-      if (currentBatchId == null) return;
-
+    async (params: OrderFormParams, onSigned: () => void) => {
       try {
-        const result = await post({
-          instrumentId: INSTRUMENT_ID,
-          side: params.side,
-          price: params.price,
-          qty: params.qty,
-          reduceOnly: params.reduceOnly,
-          isMaker: params.isMaker ?? false,
-        });
+        const result = await post({ instrumentId: INSTRUMENT_ID, ...params }, { onSigned });
+        setAccepted({ wallet: walletKey, batchId: result.batchId });
         setToast({ sig: result.sig, error: null });
-      } catch (postErr) {
-        const decoded = (postErr as { decoded?: { message: string; severity: string } })
-          .decoded;
-        const msg = decoded?.message ?? (
-          postErr instanceof Error
-            ? postErr.message
-            : String(postErr)
-        );
-        setToast({
-          sig: '',
-          error: `Post failed: ${msg}`,
-          retry: () => {
-            void handleSubmitRef.current(params);
-          },
-        });
+      } catch (err) {
+        setToast({ sig: '', error: `Order not placed: ${decodeProgramError(err).message}` });
+        throw err;
       }
     },
-    [post, currentBatchId],
+    [post, walletKey],
   );
 
-  useEffect(() => {
-    handleSubmitRef.current = handleSubmit;
-  }, [handleSubmit]);
+  const lifecycle =
+    acceptedBatchId == null
+      ? null
+      : orderLifecycle({
+          acceptedBatchId,
+          currentBatchId,
+          currentStatus: batch?.status ?? null,
+          filled: fills.some((f) => BigInt(f.batch_id) === acceptedBatchId),
+        });
 
   const handleAccountSuccess = useCallback((sig: string) => {
     setToast({ sig, error: null });
@@ -112,45 +134,56 @@ export default function TradePage() {
 
   return (
     <PageFrame>
-      <MarketHeader />
-      <div
-        data-testid="trade-body"
-        className="flex flex-1 min-h-0"
-      >
+      <MarketHeader
+        oracle={market.oracle}
+        mark={market.lastClear}
+        collectingBatchId={market.collectingBatchId}
+      />
+      <div data-testid="trade-body" className="flex flex-1 min-h-0">
         <div
           data-testid="chart-section"
           className="flex-[5] min-w-0 flex flex-col border-r border-border"
         >
-          <PriceChart
-            instrumentId={INSTRUMENT_ID}
-            className="flex-1 min-h-0"
-          />
+          <PriceChart instrumentId={INSTRUMENT_ID} className="flex-1 min-h-0" />
         </div>
 
         <div
           data-testid="orderbook-section"
           className="flex-[2] min-w-0 flex flex-col border-r border-border"
         >
-          <OrderBook bids={bids} asks={asks} className="flex-1 min-h-0" />
+          <OrderBook
+            status={book.status}
+            ageSeconds={book.ageSeconds}
+            bids={bids}
+            asks={asks}
+            lastClear={market.lastClear}
+            ownPrices={ownPrices}
+            onSelectPrice={handleSelectPrice}
+            className="flex-1 min-h-0"
+          />
         </div>
 
-        <div
-          data-testid="orderform-section"
-          className="flex-[2] min-w-0 flex flex-col p-2"
-        >
-          <ReadinessChecklist portfolio={portfolio} loading={portfolioLoading} error={portfolioError} onTxSuccess={handleAccountSuccess} onTxError={handleAccountError}>
+        <div data-testid="orderform-section" className="flex-[2] min-w-0 flex flex-col p-2">
+          <ReadinessChecklist
+            portfolio={portfolio}
+            loading={portfolioLoading}
+            error={portfolioError}
+            onTxSuccess={handleAccountSuccess}
+            onTxError={handleAccountError}
+          >
             <OrderForm
-              bestBid={bestBid}
-              bestAsk={bestAsk}
+              oracle={market.oracle}
+              newExposurePaused={market.newExposurePaused}
+              unsettledBatchId={market.batchUnsettled ? currentBatchId : null}
+              freeCollateral={portfolio?.freeCollateral ?? null}
+              positionLots={portfolio ? (position?.qty ?? 0n) : null}
               onSubmit={connected ? handleSubmit : undefined}
-              freeCollateral={freeCollateral}
-              loading={portfolioLoading}
-              submitting={submitting}
+              lifecycle={lifecycle}
+              priceOverride={priceOverride}
               portfolio={portfolio}
               portfolioLoading={portfolioLoading}
               onTxSuccess={handleAccountSuccess}
               onTxError={handleAccountError}
-              positionQty={positionQty}
               className="flex-1"
             />
           </ReadinessChecklist>
@@ -161,7 +194,6 @@ export default function TradePage() {
         <TxToast
           signature={toast.sig}
           error={toast.error}
-          onRetry={toast.retry}
           onDismiss={() => setToast(null)}
         />
       )}
