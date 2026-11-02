@@ -24,12 +24,14 @@ test('render defines keeper, oracle and maker workers with autoDeploy disabled',
   }
 });
 
-test('every worker consumes the shared deployment manifest and monitoring config', () => {
+test('every worker consumes the shared deployment manifest', () => {
   for (const name of ['mgk-keeper', 'mgk-oracle', 'mgk-maker']) {
     const block = serviceBlock(name);
     assert.match(block, /DEPLOYMENT_MANIFEST/, `${name} must set DEPLOYMENT_MANIFEST`);
     assert.match(block, /deployments\/devnet\.json/, `${name} must point at deployments/devnet.json`);
   }
+  assert.match(serviceBlock('mgk-keeper'), /MONITORING_CONFIG/);
+  assert.match(serviceBlock('mgk-maker'), /MONITORING_CONFIG/);
   assert.match(serviceBlock('mgk-keeper'), /KEEPER_KEYPAIR/);
   assert.match(serviceBlock('mgk-oracle'), /ORACLE_AUTHORITY_KEYPAIR/);
   assert.match(serviceBlock('mgk-maker'), /MAKER_KEYPAIR/);

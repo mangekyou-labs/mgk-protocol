@@ -4,10 +4,12 @@
   "insuranceFloorLamports": "1000000000",
   "uptime": {
     "provider": "UptimeRobot",
+    "type": "keyword",
     "path": "/api/status",
     "intervalSeconds": 60,
+    "keyword": "\"severity\":\"critical\"",
     "alertChannel": "email + Slack #mgk-ops (webhook provisioned outside the repo)",
-    "alertOn": ["unreachable", "severity:critical"],
-    "warnHandling": "severity:warn is logged and paged only after 5 consecutive polls"
+    "alertOn": ["endpoint unreachable", "response contains the keyword"],
+    "warnHandling": "severity warn is logged and paged only after 5 consecutive polls"
   }
 }
