@@ -213,6 +213,15 @@ async function main() {
   const conn = new Connection(rpc, 'confirmed');
   const oracleAuthority = loadOracleKeypair();
 
+  // Before the #38 deploy the market addresses do not exist yet. Stay
+  // alive (health endpoint up, nothing published) instead of crash-looping.
+  if (!process.env.PRICE_ORACLE_ADDRESS || !process.env.INSTRUMENT_ADDRESS) {
+    const health = { lastCycleAt: null, lastError: 'waiting for PRICE_ORACLE_ADDRESS/INSTRUMENT_ADDRESS (set at #38 deploy)' };
+    startHealthServer('mgk-oracle', () => health);
+    console.log('[oracle] Market addresses not set yet; idling. Nothing will be published.');
+    while (true) { health.lastCycleAt = new Date().toISOString(); await sleep(30000); }
+  }
+
   const priceOraclePda = new PublicKey(process.env.PRICE_ORACLE_ADDRESS);
   const instrumentPda = new PublicKey(process.env.INSTRUMENT_ADDRESS);
 
