@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 import { describe, expect, it, vi } from 'vitest';
 import * as sdk from '@mgk/sdk';
@@ -75,30 +75,14 @@ describe('OpenOrders', () => {
     expect(onCountChange).toHaveBeenCalledWith(1);
   });
 
-  it('shows validation feedback instead of silently ignoring a zero modify quantity', async () => {
+  it('offers only cancel on an order on the book, no modify', async () => {
     getMultipleAccountsInfo.mockResolvedValue([
-      {
-        data: bookWithUserOrder(USER),
-        executable: false,
-        lamports: 1,
-        owner: config.matcherProgramId,
-      },
+      { data: bookWithUserOrder(USER), executable: false, lamports: 1, owner: config.matcherProgramId },
     ]);
-    sendTransaction.mockReset();
-
     render(<OpenOrders instrumentId={0} />);
-
-    await screen.findByTestId('open-order-row');
-    fireEvent.click(screen.getByTestId('open-order-modify'));
-    fireEvent.change(screen.getByTestId('open-order-modify-input'), {
-      target: { value: '0' },
-    });
-    fireEvent.click(screen.getByTestId('open-order-modify-confirm'));
-
-    expect(screen.getByTestId('open-order-modify-error')).toHaveTextContent(
-      'Enter a quantity greater than 0.',
-    );
-    expect(sendTransaction).not.toHaveBeenCalled();
+    const row = await screen.findByTestId('open-order-row');
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['Cancel']);
+    expect(screen.queryByText(/modify/i)).not.toBeInTheDocument();
   });
 
   it('shows the remaining size in SOL from 0.001-SOL lots', async () => {
@@ -108,20 +92,5 @@ describe('OpenOrders', () => {
     render(<OpenOrders instrumentId={0} />);
     // 100 lots = 0.1 SOL.
     expect(await screen.findByTestId('open-order-qty')).toHaveTextContent('0.100');
-  });
-
-  it('rejects a modify size that is not a whole number of lots', async () => {
-    getMultipleAccountsInfo.mockResolvedValue([
-      { data: bookWithUserOrder(USER), executable: false, lamports: 1, owner: config.matcherProgramId },
-    ]);
-    sendTransaction.mockReset();
-    render(<OpenOrders instrumentId={0} />);
-    await screen.findByTestId('open-order-row');
-    fireEvent.click(screen.getByTestId('open-order-modify'));
-    expect(screen.getByTestId('open-order-modify-input')).toHaveAttribute('placeholder', '0.1');
-    fireEvent.change(screen.getByTestId('open-order-modify-input'), { target: { value: '0.0005' } });
-    fireEvent.click(screen.getByTestId('open-order-modify-confirm'));
-    expect(screen.getByTestId('open-order-modify-error')).toHaveTextContent('Size must be a multiple of 0.001 SOL.');
-    expect(sendTransaction).not.toHaveBeenCalled();
   });
 });
