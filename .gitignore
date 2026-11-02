@@ -99,3 +99,6 @@ brand.md
 render-secret*.json
 keeper-keypair*.json
 oracle-keypair*.json
+
+# Agent worktrees
+.worktrees/
