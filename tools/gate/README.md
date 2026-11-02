@@ -30,18 +30,31 @@ python3 -m unittest discover -s tools/gate -p 'test_*.py'
 
 ## Gate report (`report.js`)
 
-`GATE_ROWS` holds all 35 P0 and 4 P1 acceptance-gate rows with the one required evidence tier per row from the issue #11 resolution (D devnet, D (browser), D′ throwaway devnet market, L local runtime on identical bytecode, M manual). `buildReport({commit, cluster, programs, rows})` renders the pinned Markdown run record: source commit, cluster, and each program ID with its `.so` SHA-256. Rows not supplied read `not run`; a `pass` supplied at any tier other than the row's required tier throws — there is no tier substitution. The checked-in template is [docs/acceptance/TEMPLATE.md](../../docs/acceptance/TEMPLATE.md).
+`GATE_ROWS` holds all 35 P0 and 4 P1 acceptance-gate rows with the one required evidence tier per row from the issue #11 resolution (D devnet, D (browser), D′ throwaway devnet market, L local runtime on identical bytecode, M manual). `buildReport({commit, cluster, programs, rows})` renders the pinned Markdown run record: source commit, cluster, and each program ID with its `.so` SHA-256. Rows not supplied read `not run`; only a `pass` at the row's required tier counts, so a `pass` or `fail` supplied at any other tier (or with no tier) renders as `not run` with a `recorded tier X, requires Y` note — there is no tier substitution. Unknown or duplicate row ids and missing pins throw. The checked-in template is [docs/acceptance/TEMPLATE.md](../../docs/acceptance/TEMPLATE.md).
 
 ```sh
 node tools/gate/report.js --manifest candidate.json --cluster devnet --rows rows.json --output docs/acceptance/<date>-<commit>.md
 node --test tools/gate/report.test.js
 ```
 
-Rows JSON is an array of `{id, status, tier, batchIds?, signatures?, notes?}` (status `pass`, `fail`, or `not run`).
+Rows JSON is an array of row objects (or `{rows: [...]}`) with this shape:
+
+| Field | Meaning |
+|---|---|
+| `id` | Gate row id (required) |
+| `status` | `pass`, `fail`, or `not run` (default `not run`) |
+| `tier` | Tier the result was recorded at; only the required tier counts |
+| `batchIds?` | Batch ids evidencing the row, rendered as `batches: …` |
+| `signatures?` | Transaction signatures, rendered as `signatures: …` |
+| `preSnapshot?` | Pre-run snapshot reference, rendered as `pre: …` |
+| `postSnapshot?` | Post-run snapshot reference, rendered as `post: …` |
+| `expected?` | Expected value, rendered as `expected: …` |
+| `observed?` | Observed value, rendered as `observed: …` |
+| `notes?` | Free-text note appended to the evidence |
 
 ## Latency recorder (`latency.js`)
 
-`LatencyRecorder` takes explicit millisecond timestamps (`sign(id, at, {coldStart})`, `accept(id, at)`, `settle(id, at)`; `at` defaults to `Date.now()`). `exclude(id, reason)` removes a declared-unhealthy sample from every count and percentile. `summary()` reports nearest-rank percentiles (sort ascending, take rank `ceil(p/100 * n)` — an observed sample, never an average) and a verdict that passes only with at least 30 included orders spanning at least 30 minutes (first sign to last settle) including a cold start, accepted p95 at most 5000 ms, settled p50 at most 20000 ms, and settled max at most 60000 ms; any signed-but-unsettled order fails the verdict. The exported constants `MIN_ORDERS`, `MIN_SPAN_MS`, `ACCEPTED_P95_MAX_MS`, `SETTLED_P50_MAX_MS`, and `SETTLED_MAX_MS` pin those thresholds.
+`LatencyRecorder` takes explicit millisecond timestamps (`sign(id, at, {coldStart, role})`, `accept(id, at)`, `settle(id, at)`; `at` defaults to `Date.now()`). Only taker orders count: `sign` requires `role: 'taker'` and throws otherwise. The run context is recorded with `setRunContext({againstMakerLadder, monitoringGreen})` (or the constructor's second argument), and the verdict fails unless both are true. `exclude(id, reason, evidence)` removes a declared-unhealthy sample from every count and percentile; the evidence must prove the order showed awaiting settlement with no error and no fake fill (`{displayed: 'awaiting-settlement', errorShown: false, fakeFillShown: false}`), exclusion after settlement throws, and excluded entries in the summary carry that evidence. `summary()` reports nearest-rank percentiles (sort ascending, take rank `ceil(p/100 * n)` — an observed sample, never an average) and a verdict (`summary.verdict.pass` / `.failures`) that passes only with at least 30 included orders spanning at least 30 minutes (first sign to last settle), the chronologically first included order flagged as the cold start, accepted p95 at most 5000 ms, settled p50 at most 20000 ms, and settled max at most 60000 ms; any signed-but-unsettled order fails the verdict. The exported constants `MIN_ORDERS`, `MIN_SPAN_MS`, `ACCEPTED_P95_MAX_MS`, `SETTLED_P50_MAX_MS`, and `SETTLED_MAX_MS` pin those thresholds.
 
 ```sh
 node --test tools/gate/latency.test.js
@@ -49,7 +62,7 @@ node --test tools/gate/latency.test.js
 
 ## Soak driver (`soak.js`)
 
-`runSoak({durationMs, pollMs, stuckClearedMs, now, sleep, observe, audit})` polls `observe()` (returning `{currentBatchId, batches: [{id, status}]}` with status `cleared`, `settled`, or other) for the duration — 2 h and a 120000 ms stuck-Cleared budget by default — then runs `audit()` exactly once, even when polling failed. It fails on a batch id skipped between polls (missing batch), a batch held in Cleared past the budget, any observe error, or any audit violation, and returns `{pass, failures, batchesSeen, polls, auditViolations}`. Tests inject a fake clock so they run without real waiting; `observeDeployment` wires observation to `readProtocolState` and the CLI wires the final audit to `auditDeployment`.
+`runSoak({durationMs, pollMs, stuckClearedMs, minBatches, now, sleep, observe, audit, drive})` polls `observe()` (returning `{currentBatchId, batches: [{id, status}]}` with status `cleared`, `settled`, or other) for the duration — 2 h and a 120000 ms stuck-Cleared budget by default — then runs `audit()` exactly once, even when polling failed. The optional `drive(pollIndex)` hook runs on every poll so a caller can supply workload; its errors are recorded as failures. Ticket #40's devnet run supplies maker/taker activity through `drive`; the CLI only observes. It fails on a batch id skipped between polls (missing batch), a batch held in Cleared past the budget, any observe or drive error, fewer than `minBatches` batches seen, or any audit violation, and returns `{pass, failures, batchesSeen, batchIds, polls, auditViolations}`. The CLI `--min-batches` defaults to `Math.floor(durationMs / 10000)` (720 at the 2 h default, about one batch per 10 s). Tests inject a fake clock so they run without real waiting; `observeDeployment` wires observation to `readProtocolState` and the CLI wires the final audit to `auditDeployment`.
 
 ```sh
 node tools/gate/soak.js --rpc https://api.devnet.solana.com --deployment deployments/devnet.json

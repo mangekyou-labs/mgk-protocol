@@ -1,6 +1,8 @@
 # Acceptance gate report template
 
-Copy this file to docs/acceptance/<date>-<commit>.md for a run, then pin it to the run candidate manifest: replace the commit, cluster, program IDs and .so SHA-256 values below with the manifest values and record each row result at its required tier. A pass at any other tier does not count. Unrun rows stay not run.
+Copy this file to docs/acceptance/<date>-<commit>.md for a run, then pin it to the run candidate manifest: replace the commit, cluster, program IDs and .so SHA-256 values below with the manifest values and record each row result at its required tier. Only a pass at the required tier counts: a pass or fail recorded at any other tier (or with no tier) renders as not run with a recorded-tier note. Unrun rows stay not run.
+
+Rows are supplied to the report generator as JSON: an array of `{id, status, tier, batchIds?, signatures?, preSnapshot?, postSnapshot?, expected?, observed?, notes?}` (status `pass`, `fail`, or `not run`). Evidence renders batch ids as `batches: …`, signatures as `signatures: …`, snapshots as `pre: …` / `post: …`, and values as `expected: …` / `observed: …`. Raw JSON snapshots are CI artifacts.
 
 - Commit: `<commit>`
 - Cluster: <cluster>

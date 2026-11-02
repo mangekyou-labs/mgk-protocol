@@ -32,6 +32,26 @@ const ix = (name, params, keys) => new TransactionInstruction({
   programId: CORE, keys, data: Buffer.from(encodeInstruction('core', name, params)),
 });
 
+// Collect a keeper worker's stdout/stderr JSON-lines records.
+function collectKeeperOutput(keeper) {
+  keeper.records = [];
+  keeper.output = '';
+  for (const stream of [keeper.stdout, keeper.stderr]) {
+    let pending = '';
+    stream.on('data', chunk => {
+      keeper.output += String(chunk);
+      pending += String(chunk);
+      let newline;
+      while ((newline = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, newline);
+        pending = pending.slice(newline + 1);
+        try { keeper.records.push(JSON.parse(line)); } catch { /* keeper log line */ }
+      }
+    });
+  }
+  return keeper;
+}
+
 test('gate tooling end-to-end: market fill and settle, latency, shortened soak, pinned report', { timeout: 300000 }, async t => {
   assert.ok(process.env.MGK_CANDIDATE_MANIFEST, 'MGK_CANDIDATE_MANIFEST required');
   const candidate = JSON.parse(readFileSync(process.env.MGK_CANDIDATE_MANIFEST, 'utf8'));
@@ -90,7 +110,11 @@ test('gate tooling end-to-end: market fill and settle, latency, shortened soak, 
   await runtime.send('fund insurance', [ix('TopUp', { amount: 100000000n },
     [meta(payer.publicKey, true, true), meta(vault), meta(SystemProgram.programId, false)])], [payer]);
 
+  // Latency gate context: the taker order runs against the maker ladder
+  // posted below. The harness has no monitoring worker, so monitoring is
+  // declared green for this local mechanism check only.
   const recorder = new LatencyRecorder();
+  recorder.setRunContext({ againstMakerLadder: true, monitoringGreen: true });
   for (let i = 0; i < 2; i++) {
     const user = traders[i];
     const [portfolio, bump] = portfolios[i];
@@ -99,12 +123,14 @@ test('gate tooling end-to-end: market fill and settle, latency, shortened soak, 
     await runtime.send(`deposit trader ${i}`, [ix('Deposit', { amount: 1000000000n },
       [meta(portfolio), meta(user.publicKey, true, true), meta(SystemProgram.programId, false), meta(vault)])], [payer, user]);
     const orderId = i === 0 ? 'maker-buy' : 'taker-sell';
-    recorder.sign(orderId, Date.now(), { coldStart: i === 1 });
+    // Only the taker order counts for latency; as the first (only) included
+    // order it carries the cold-start flag.
+    if (i === 1) recorder.sign(orderId, Date.now(), { coldStart: true, role: 'taker' });
     await runtime.send(`post trader ${i}`, [ix('PostOrder', {
       side: i, isMaker: i === 0, price: 100000000n, qty: 1n, instrumentId: 0, reduceOnly: false,
     }, [meta(portfolio), meta(user.publicKey, true, true), meta(batch), meta(registry, false),
       meta(book), meta(MATCHER, false), meta(instrument, false), meta(oracle, false), meta(vault, false)])], [payer, user]);
-    recorder.accept(orderId, Date.now());
+    if (i === 1) recorder.accept(orderId, Date.now());
   }
 
   // Drive clear + settle with the real keeper worker, as in keeper.test.js.
@@ -125,21 +151,17 @@ test('gate tooling end-to-end: market fill and settle, latency, shortened soak, 
         MONITORING_CONFIG: resolve(__dirname, '../../deployments/monitoring.json'),
       },
     });
-  keeper.records = [];
-  keeper.output = '';
-  for (const stream of [keeper.stdout, keeper.stderr]) {
-    let pending = '';
-    stream.on('data', chunk => {
-      keeper.output += String(chunk);
-      pending += String(chunk);
-      let newline;
-      while ((newline = pending.indexOf('\n')) >= 0) {
-        const line = pending.slice(0, newline);
-        pending = pending.slice(newline + 1);
-        try { keeper.records.push(JSON.parse(line)); } catch { /* keeper log line */ }
-      }
-    });
-  }
+  collectKeeperOutput(keeper);
+  // Start the shortened soak now so it observes the batch live while the
+  // keeper clears and settles it, then run the scenario audit at the end.
+  const programs = programsFrom(candidate);
+  const soakPromise = runSoak({
+    durationMs: 8000, pollMs: 250,
+    observe: () => observeDeployment({ rpc: (method, params) => runtime.rpc(method, params), programs }),
+    audit: () => auditScenario('gate harness soak', {
+      rpc: (method, params) => runtime.rpc(method, params), programs,
+    }),
+  });
   await runtime.advanceSlots(30);
   await freshOracle();
   const deadline = Date.now() + 120000;
@@ -152,30 +174,23 @@ test('gate tooling end-to-end: market fill and settle, latency, shortened soak, 
     keeper.kill('SIGKILL');
     await done;
   }
-  recorder.settle('maker-buy', Date.now());
   recorder.settle('taker-sell', Date.now());
   assert.equal(decodeAccount('Batch', (await runtime.account(batch)).data).status, 3);
   assert.equal(decodeResults((await runtime.account(results)).data).numFills, 2);
   assert.equal(decodeResults((await runtime.account(results)).data).spent, true);
 
   const latency = recorder.summary();
-  assert.equal(latency.accepted.count, 2);
-  assert.equal(latency.settled.count, 2);
+  assert.equal(latency.accepted.count, 1);
+  assert.equal(latency.settled.count, 1);
   assert.deepEqual(latency.unsettled, []);
   assert.ok(latency.accepted.max >= 0 && latency.settled.max >= 0);
-  // Two harness orders can never meet the 30-order / 30-minute gate bar.
-  assert.equal(latency.pass, false);
+  // One harness taker order can never meet the 30-order / 30-minute gate bar.
+  assert.equal(latency.verdict.pass, false);
   assert.ok(latency.verdict.failures.some(f => /fewer than 30|span/.test(f)), JSON.stringify(latency.verdict));
 
-  // Shortened soak over the live runtime, ending in the scenario audit.
-  const programs = programsFrom(candidate);
-  const soak = await runSoak({
-    durationMs: 3000, pollMs: 250,
-    observe: () => observeDeployment({ rpc: (method, params) => runtime.rpc(method, params), programs }),
-    audit: () => auditScenario('gate harness soak', {
-      rpc: (method, params) => runtime.rpc(method, params), programs,
-    }),
-  });
+  // The soak started above observed the live batch transition and ends in
+  // the scenario audit.
+  const soak = await soakPromise;
   assert.equal(soak.pass, true, JSON.stringify(soak));
   assert.ok(soak.polls >= 4, `soak polls ${soak.polls}`);
   assert.ok(soak.batchesSeen >= 1, `soak batchesSeen ${soak.batchesSeen}`);
@@ -195,8 +210,12 @@ test('gate tooling end-to-end: market fill and settle, latency, shortened soak, 
   assert.ok(report.split('\n').find(l => l.includes('P0-8')).includes('pass'));
   assert.ok(report.split('\n').find(l => l.includes('P0-1')).includes('not run'));
   assert.ok(report.split('\n').find(l => l.includes('P0-35')).includes('not run'));
-  assert.throws(() => buildReport({
+  // A pass at the wrong tier renders as "not run", never as a pass.
+  const wrongTier = buildReport({
     commit: candidate.commit, cluster: 'localnet', programs: candidate.programs,
     rows: [{ id: 'P0-35', status: 'pass', tier: 'L' }],
-  }), /P0-35/);
+  });
+  const p35 = wrongTier.split('\n').find(l => l.includes('P0-35'));
+  assert.ok(p35.includes('not run'), p35);
+  assert.ok(p35.includes('recorded tier L, requires D'), p35);
 });

@@ -3,15 +3,17 @@
 // Acceptance-gate report (issue #35). Renders one Markdown run record pinned
 // to a source commit, the candidate `.so` SHA-256 hashes, program IDs and
 // cluster. Each GATE_ROWS entry has exactly one required evidence tier from
-// the issue #11 resolution; a pass at any other tier is rejected here so a
-// lower-tier pass can never stand in for the required tier.
+// the issue #11 resolution; only a pass at that tier counts, so a pass or
+// fail recorded at any other tier (or with no tier) renders as "not run"
+// with a "recorded tier X, requires Y" note.
 //
 // CLI (mirrors tools/runtime/candidate.js and tools/runtime/audit.js):
 //   node tools/gate/report.js --manifest candidate.json [--cluster devnet]
 //                             [--rows rows.json] [--output report.md]
 //   node tools/gate/report.js candidate.json [rows.json] [report.md]
-// Rows JSON is an array of {id, status, tier, batchIds?, signatures?, notes?}
-// (or an object with a `rows` array). Exits 2 on usage or validation errors.
+// Rows JSON is an array of {id, status, tier, batchIds?, signatures?,
+// preSnapshot?, postSnapshot?, expected?, observed?, notes?} (or an object
+// with a `rows` array). Exits 2 on usage or validation errors.
 const assert = require('node:assert/strict');
 const { readFileSync, writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');
@@ -59,7 +61,7 @@ const GATE_ROWS = Object.freeze([
   { id: 'P1-2', priority: 'P1', tier: 'L', title: 'DFBA paper vectors: marginal pro-rata and identical-price allocation, with deterministic dust' },
   { id: 'P1-3', priority: 'P1', tier: 'L', title: 'Adversarial and overflow inputs at the order cap' },
   { id: 'P1-4', priority: 'P1', tier: 'D′', title: 'Pause banner and paused-state UI in the browser' },
-].map(row => Object.freeze({ ...row, scenario: row.title })));
+]);
 
 const BY_ID = new Map(GATE_ROWS.map(row => [row.id, row]));
 const STATUSES = new Set(['pass', 'fail', 'not run']);
@@ -79,16 +81,15 @@ function escapeCell(value) {
 }
 
 function evidenceText(row) {
+  const show = value => (typeof value === 'string' ? value : JSON.stringify(value));
   const parts = [];
   if (row.batchIds?.length) parts.push(`batches: ${row.batchIds.join(', ')}`);
-  if (row.batchId !== undefined) parts.push(`batch: ${row.batchId}`);
   if (row.signatures?.length) parts.push(`signatures: ${row.signatures.join(', ')}`);
-  if (row.signature) parts.push(`signature: ${row.signature}`);
+  if (row.preSnapshot !== undefined) parts.push(`pre: ${show(row.preSnapshot)}`);
+  if (row.postSnapshot !== undefined) parts.push(`post: ${show(row.postSnapshot)}`);
   if (row.expected !== undefined) parts.push(`expected: ${row.expected}`);
   if (row.observed !== undefined) parts.push(`observed: ${row.observed}`);
   if (row.notes) parts.push(String(row.notes));
-  if (row.note) parts.push(String(row.note));
-  if (row.evidence) parts.push(String(row.evidence));
   return parts.join('; ');
 }
 
@@ -112,12 +113,6 @@ function buildReport({ commit, cluster, programs, rows } = {}) {
     assert.ok(!supplied.has(row.id), `duplicate row id: ${row.id}`);
     const status = row.status ?? 'not run';
     assert.ok(STATUSES.has(status), `${row.id}: status must be pass, fail, or not run`);
-    if (status === 'pass') {
-      assert.ok(
-        row.tier !== undefined && tiersEqual(row.tier, gate.tier),
-        `${row.id}: pass requires tier ${gate.tier}, got ${row.tier ?? 'none'} (no tier substitution)`,
-      );
-    }
     supplied.set(row.id, row);
   }
   const lines = [
@@ -141,9 +136,15 @@ function buildReport({ commit, cluster, programs, rows } = {}) {
   ];
   for (const gate of GATE_ROWS) {
     const row = supplied.get(gate.id);
-    const status = row?.status ?? 'not run';
+    let status = row?.status ?? 'not run';
     let evidence = row ? evidenceText(row) : '';
-    if (row && row.tier !== undefined && !tiersEqual(row.tier, gate.tier) && status !== 'pass') {
+    const tierMatches = row !== undefined && row.tier !== undefined && tiersEqual(row.tier, gate.tier);
+    if (row && (status === 'pass' || status === 'fail') && !tierMatches) {
+      // Only a pass at the required tier counts (issue #11): a result
+      // recorded at any other tier, or with no tier, reads "not run".
+      status = 'not run';
+      evidence = [evidence, `recorded tier ${row.tier ?? 'none'}, requires ${gate.tier}`].filter(Boolean).join('; ');
+    } else if (row && status === 'not run' && row.tier !== undefined && !tierMatches) {
       evidence = [evidence, `recorded tier ${row.tier}, requires ${gate.tier}`].filter(Boolean).join('; ');
     }
     lines.push(`| ${gate.id} | ${escapeCell(gate.title)} | ${gate.tier} | ${status} | ${escapeCell(evidence)} |`);

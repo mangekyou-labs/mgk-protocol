@@ -3,13 +3,21 @@
 // explicit millisecond timestamps; every `at` argument defaults to
 // Date.now() so live drivers can omit it while tests stay deterministic.
 //
+// Gate context (issue #11): only taker orders against the protocol-maker
+// ladder with monitoring green count. sign() therefore requires
+// { role: 'taker' } — any other role is an error — and the summary verdict
+// fails unless setRunContext (or the constructor options) records
+// againstMakerLadder and monitoringGreen as true.
+//
 // Percentiles use the nearest-rank method: sort the samples ascending and
 // take the value at rank ceil(p / 100 * n) (1-based). This is the gate
 // contract — a p95 is an observed sample, never an interpolated average.
 //
 // Samples from declared-unhealthy periods are removed with exclude(id,
-// reason): they leave every count, percentile and the span, and an excluded
-// order never fails the verdict for being unsettled.
+// reason, evidence): the evidence must prove the order showed
+// "awaiting settlement" with no error and no fake fill, exclusion after
+// settlement is refused, and excluded samples leave every count,
+// percentile and the span.
 const assert = require('node:assert/strict');
 
 const MIN_ORDERS = 30;
@@ -17,14 +25,6 @@ const MIN_SPAN_MS = 30 * 60 * 1000;
 const ACCEPTED_P95_MAX_MS = 5000;
 const SETTLED_P50_MAX_MS = 20000;
 const SETTLED_MAX_MS = 60000;
-const PERCENTILE_METHOD = 'nearest-rank';
-const THRESHOLDS = Object.freeze({
-  MIN_ORDERS,
-  MIN_SPAN_MS,
-  ACCEPTED_P95_MAX_MS,
-  SETTLED_P50_MAX_MS,
-  SETTLED_MAX_MS,
-});
 
 function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -43,10 +43,21 @@ function stats(samples) {
 }
 
 class LatencyRecorder {
-  constructor(now = Date.now) {
+  constructor(now = Date.now, runContext = {}) {
     assert.equal(typeof now, 'function', 'clock function required');
     this._now = now;
     this._orders = new Map();
+    this._runContext = { againstMakerLadder: false, monitoringGreen: false };
+    this.setRunContext(runContext);
+  }
+
+  // Record the gate run context. Both flags must be true for the verdict
+  // to pass: the orders ran against the protocol-maker ladder and the
+  // monitoring stayed green for the whole run.
+  setRunContext({ againstMakerLadder, monitoringGreen } = {}) {
+    if (againstMakerLadder !== undefined) this._runContext.againstMakerLadder = Boolean(againstMakerLadder);
+    if (monitoringGreen !== undefined) this._runContext.monitoringGreen = Boolean(monitoringGreen);
+    return this;
   }
 
   _at(at) {
@@ -61,8 +72,9 @@ class LatencyRecorder {
     return order;
   }
 
-  sign(id, at, { coldStart = false } = {}) {
+  sign(id, at, { coldStart = false, role } = {}) {
     assert.ok(typeof id === 'string' && id, 'order id required');
+    assert.ok(role === 'taker', `${id}: only taker orders count (role must be 'taker', got ${role ?? 'none'})`);
     assert.ok(!this._orders.has(id), `${id}: already signed`);
     this._orders.set(id, {
       id,
@@ -98,17 +110,34 @@ class LatencyRecorder {
   }
 
   // Declared-unhealthy sample: kept for the record, removed from the gate.
-  exclude(id, reason) {
+  // The evidence must prove the order showed "awaiting settlement" with no
+  // error and no fake fill, and a settled order can never be excluded, so
+  // a slow healthy fill can never be erased from max/percentiles.
+  exclude(id, reason, evidence) {
     assert.ok(typeof reason === 'string' && reason.trim(), 'exclude reason required');
     const order = this._order(id);
     assert.ok(!order.excluded, `${id}: already excluded`);
-    order.excluded = reason;
+    assert.ok(order.settleAt === null, `${id}: cannot exclude after settlement`);
+    assert.ok(
+      evidence && evidence.displayed === 'awaiting-settlement' &&
+        evidence.errorShown === false && evidence.fakeFillShown === false,
+      `${id}: exclusion requires proof the order showed awaiting settlement with no error and no fake fill`,
+    );
+    order.excluded = {
+      reason,
+      evidence: {
+        displayed: evidence.displayed,
+        errorShown: evidence.errorShown,
+        fakeFillShown: evidence.fakeFillShown,
+      },
+    };
     return this;
   }
 
   summary() {
     const all = [...this._orders.values()];
-    const excluded = all.filter(o => o.excluded).map(o => ({ id: o.id, reason: o.excluded }));
+    const excluded = all.filter(o => o.excluded)
+      .map(o => ({ id: o.id, reason: o.excluded.reason, evidence: o.excluded.evidence }));
     const included = all.filter(o => !o.excluded);
     const acceptedSamples = included.filter(o => o.acceptAt !== null).map(o => o.acceptAt - o.signAt);
     const settledSamples = included.filter(o => o.settleAt !== null).map(o => o.settleAt - o.signAt);
@@ -116,7 +145,10 @@ class LatencyRecorder {
     const settled = stats(settledSamples);
     const unsettled = included.filter(o => o.settleAt === null).map(o => o.id);
     const unaccepted = included.filter(o => o.acceptAt === null).map(o => o.id);
-    const hasColdStart = included.some(o => o.coldStart);
+    // The cold-start requirement is met only by the chronologically first
+    // included order (by signAt); a later flagged order does not count.
+    const bySignAt = [...included].sort((a, b) => a.signAt - b.signAt);
+    const coldStart = bySignAt.length ? bySignAt[0].coldStart : false;
     const firstSign = included.length ? Math.min(...included.map(o => o.signAt)) : null;
     const lastSettle = included.some(o => o.settleAt !== null)
       ? Math.max(...included.filter(o => o.settleAt !== null).map(o => o.settleAt))
@@ -124,9 +156,11 @@ class LatencyRecorder {
     const spanMs = firstSign !== null && lastSettle !== null ? lastSettle - firstSign : 0;
 
     const failures = [];
+    if (!this._runContext.againstMakerLadder) failures.push('not run against the protocol-maker ladder');
+    if (!this._runContext.monitoringGreen) failures.push('monitoring not green');
     if (included.length < MIN_ORDERS) failures.push(`fewer than ${MIN_ORDERS} orders (${included.length})`);
     if (spanMs < MIN_SPAN_MS) failures.push(`span ${spanMs} ms below 30 min (${MIN_SPAN_MS} ms)`);
-    if (!hasColdStart) failures.push('no cold-start order included');
+    if (!coldStart) failures.push('no cold-start order included');
     if (unaccepted.length) failures.push(`signed but never accepted: ${unaccepted.join(', ')}`);
     if (unsettled.length) failures.push(`signed but unsettled: ${unsettled.join(', ')}`);
     if (accepted.p95 !== null && accepted.p95 > ACCEPTED_P95_MAX_MS) {
@@ -146,15 +180,11 @@ class LatencyRecorder {
       settledCount: settled.count,
       accepted,
       settled,
-      acceptedP95Ms: accepted.p95,
-      settledP50Ms: settled.p50,
-      settledMaxMs: settled.max,
       spanMs,
-      hasColdStart,
-      coldStart: hasColdStart,
+      coldStart,
       unsettled,
       excluded,
-      pass,
+      runContext: { ...this._runContext },
       verdict: { pass, failures },
     };
   }
@@ -167,7 +197,5 @@ module.exports = {
   ACCEPTED_P95_MAX_MS,
   SETTLED_P50_MAX_MS,
   SETTLED_MAX_MS,
-  PERCENTILE_METHOD,
-  THRESHOLDS,
   percentile,
 };

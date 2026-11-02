@@ -10,20 +10,22 @@
 // wires observe/audit to the real chain (see observeDeployment):
 //   node tools/gate/soak.js [--rpc URL] [--deployment deployments/devnet.json]
 //                           [--duration-ms 7200000] [--poll-ms 5000]
-//                           [--stuck-cleared-ms 120000]
+//                           [--stuck-cleared-ms 120000] [--min-batches 700]
 // Prints a JSON verdict; exits 0 pass, 1 fail, 2 on usage or RPC errors.
+// The optional drive(pollIndex) hook runs on every poll so a caller can
+// supply workload (ticket #40's devnet run drives maker/taker activity
+// through it); the CLI itself only observes, so a bare CLI run needs
+// externally driven activity to reach --min-batches.
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
-const { readProtocolState, programsFrom } = require('../runtime/invariants');
+const { readProtocolState, programsFrom, BATCH_STATUS } = require('../runtime/invariants');
 const { auditDeployment } = require('../runtime/audit');
 const { jsonRpc } = require('../runtime/rpc');
 
 const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_POLL_MS = 5000;
 const DEFAULT_STUCK_CLEARED_MS = 120000;
-// On-chain Batch.status values (tools/runtime/invariants.js BATCH_STATUS).
-const BATCH_STATUS = Object.freeze({ settled: 3, cleared: 4 });
 const DEVNET = 'https://api.devnet.solana.com';
 const DEFAULT_DEPLOYMENT = resolve(__dirname, '../../deployments/devnet.json');
 
@@ -63,18 +65,22 @@ async function runSoak({
   durationMs = DEFAULT_DURATION_MS,
   pollMs = DEFAULT_POLL_MS,
   stuckClearedMs = DEFAULT_STUCK_CLEARED_MS,
+  minBatches = 0,
   now = Date.now,
   sleep = ms => new Promise(done => setTimeout(done, ms)),
   observe,
   audit,
+  drive,
 } = {}) {
   assert.ok(Number.isFinite(durationMs) && durationMs > 0, 'durationMs must be positive (duration)');
   assert.ok(Number.isFinite(pollMs) && pollMs > 0, 'pollMs must be positive');
   assert.ok(Number.isFinite(stuckClearedMs) && stuckClearedMs >= 0, 'stuckClearedMs must be nonnegative');
+  assert.ok(Number.isFinite(minBatches) && minBatches >= 0, 'minBatches must be nonnegative');
   assert.equal(typeof observe, 'function', 'observe function required');
   assert.equal(typeof audit, 'function', 'audit function required');
   assert.equal(typeof now, 'function', 'now clock function required');
   assert.equal(typeof sleep, 'function', 'sleep function required');
+  if (drive !== undefined) assert.equal(typeof drive, 'function', 'drive must be a function');
 
   const failures = [];
   const seen = new Set();
@@ -89,6 +95,13 @@ async function runSoak({
   for (;;) {
     if (polls > 0 && now() - start >= durationMs) break;
     polls++;
+    if (drive) {
+      try {
+        await drive(polls);
+      } catch (error) {
+        failures.push(`drive failed: ${error.message}`);
+      }
+    }
     try {
       const snapshot = await observe();
       const at = now();
@@ -147,6 +160,9 @@ async function runSoak({
   }
 
   const batchesSeen = seen.size;
+  if (batchesSeen < minBatches) {
+    failures.push(`batchesSeen ${batchesSeen} below minBatches ${minBatches}`);
+  }
   return {
     pass: failures.length === 0,
     failures,
@@ -164,6 +180,7 @@ function parseArgs(argv) {
     durationMs: DEFAULT_DURATION_MS,
     pollMs: DEFAULT_POLL_MS,
     stuckClearedMs: DEFAULT_STUCK_CLEARED_MS,
+    minBatches: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -174,9 +191,12 @@ function parseArgs(argv) {
     else if (flag === '--duration-ms') options.durationMs = Number(value);
     else if (flag === '--poll-ms') options.pollMs = Number(value);
     else if (flag === '--stuck-cleared-ms') options.stuckClearedMs = Number(value);
+    else if (flag === '--min-batches') options.minBatches = Number(value);
     else throw new Error(`unknown argument ${flag}`);
     i++;
   }
+  // About 700 batches at the 2 h default: one batch per 10 s of run.
+  if (options.minBatches === null) options.minBatches = Math.floor(options.durationMs / 10000);
   return options;
 }
 
@@ -185,10 +205,13 @@ async function main(argv) {
   // Startup probe: an unreachable RPC is a usage/RPC error (exit 2, like
   // audit.js), not a soak failure. Mid-run observe errors stay failures.
   await observeDeployment({ rpcUrl: options.rpc, deployment: options.deployment });
+  // No drive hook here: ticket #40's devnet run supplies maker/taker
+  // activity programmatically through runSoak's drive option.
   const verdict = await runSoak({
     durationMs: options.durationMs,
     pollMs: options.pollMs,
     stuckClearedMs: options.stuckClearedMs,
+    minBatches: options.minBatches,
     observe: () => observeDeployment({ rpcUrl: options.rpc, deployment: options.deployment }),
     audit: () => auditDeployment({ rpcUrl: options.rpc, deployment: options.deployment }),
   });

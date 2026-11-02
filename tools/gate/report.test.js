@@ -68,19 +68,22 @@ test('a pass at the required tier is recorded; L rows can pass locally while D r
   assert.ok(d1.includes('not run'), d1);
 });
 
-test('a pass at any tier other than the required tier throws (no tier substitution)', () => {
-  assert.throws(
-    () => buildReport({ ...PIN, rows: [{ id: 'P0-1', status: 'pass', tier: 'L' }] }),
-    /P0-1.*tier|tier.*P0-1/,
-  );
-  assert.throws(
-    () => buildReport({ ...PIN, rows: [{ id: 'P0-8', status: 'pass', tier: 'D' }] }),
-    /P0-8/,
-  );
-  assert.throws(
-    () => buildReport({ ...PIN, rows: [{ id: 'P0-8', status: 'pass' }] }),
-    /P0-8/,
-  );
+test('a pass or fail at any tier other than the required tier renders as not run (no tier substitution)', () => {
+  const wrongPass = buildReport({ ...PIN, rows: [{ id: 'P0-1', status: 'pass', tier: 'L' }] });
+  const line1 = wrongPass.split('\n').find(l => l.includes('P0-1'));
+  assert.ok(line1.includes('not run'), line1);
+  assert.ok(line1.includes('recorded tier L, requires D'), line1);
+  const wrongFail = buildReport({ ...PIN, rows: [{ id: 'P0-8', status: 'fail', tier: 'D' }] });
+  const line8 = wrongFail.split('\n').find(l => l.includes('P0-8'));
+  assert.ok(line8.includes('not run'), line8);
+  assert.ok(line8.includes('recorded tier D, requires L'), line8);
+  const noTier = buildReport({ ...PIN, rows: [{ id: 'P0-8', status: 'pass' }] });
+  const lineNoTier = noTier.split('\n').find(l => l.includes('P0-8'));
+  assert.ok(lineNoTier.includes('not run'), lineNoTier);
+  assert.ok(lineNoTier.includes('requires L'), lineNoTier);
+  // Prime-spelling variants of the required tier still count.
+  const prime = buildReport({ ...PIN, rows: [{ id: 'P0-31', status: 'pass', tier: "D'" }] });
+  assert.ok(prime.split('\n').find(l => l.includes('P0-31')).includes('pass'));
 });
 
 test('missing pin fields, unknown and duplicate row ids throw', () => {
@@ -119,11 +122,38 @@ test('fail rows render as fail and evidence fields are carried into the report',
   assert.ok(md.includes('boom'));
 });
 
-test('checked-in TEMPLATE.md contains every GATE_ROWS id, all not run', () => {
+test('pre/post snapshots and expected vs observed render in Evidence as pre:/post:/expected:/observed:', () => {
+  const md = buildReport({
+    ...PIN,
+    rows: [{
+      id: 'P0-8', status: 'pass', tier: 'L', batchIds: [3], signatures: ['sigABC'],
+      preSnapshot: 'before.json', postSnapshot: 'after.json',
+      expected: '200000000', observed: '200000000', notes: 'boom',
+    }],
+  });
+  const line = md.split('\n').find(l => l.includes('P0-8'));
+  assert.ok(line.includes('pre: before.json'), line);
+  assert.ok(line.includes('post: after.json'), line);
+  assert.ok(line.includes('expected: 200000000'), line);
+  assert.ok(line.includes('observed: 200000000'), line);
+});
+
+test('checked-in TEMPLATE.md matches every GATE_ROWS id, title and tier, all not run', () => {
   const template = readFileSync(join(__dirname, '../../docs/acceptance/TEMPLATE.md'), 'utf8');
   const ids = [...template.matchAll(/P[01]-\d+/g)].map(m => m[0]);
   assert.deepEqual([...new Set(ids)], GATE_ROWS.map(r => r.id));
   const lines = template.split('\n').filter(l => /P[01]-\d+/.test(l));
   assert.equal(lines.length, GATE_ROWS.length);
-  for (const line of lines) assert.ok(line.includes('not run'), line);
+  const byId = new Map(GATE_ROWS.map(r => [r.id, r]));
+  const normTier = t => t.trim().replace(/′/g, "'").replace(/\s+/g, ' ');
+  for (const line of lines) {
+    assert.ok(line.includes('not run'), line);
+    const cells = line.split('|').map(c => c.trim());
+    // | Row | Scenario | Required tier | Result | Evidence |
+    const [, id, title, tier] = cells;
+    const gate = byId.get(id);
+    assert.ok(gate, id);
+    assert.equal(title, gate.title, id);
+    assert.equal(normTier(tier), normTier(gate.tier), id);
+  }
 });

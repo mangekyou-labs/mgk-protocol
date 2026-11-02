@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { runSoak, observeDeployment, DEFAULT_DURATION_MS, DEFAULT_STUCK_CLEARED_MS } = require('./soak');
+const { runSoak, observeDeployment, parseArgs, DEFAULT_DURATION_MS, DEFAULT_STUCK_CLEARED_MS } = require('./soak');
 
 function fakeClock() {
   let t = 0;
@@ -141,6 +141,56 @@ test('an observe error is a failure and the end-of-run audit still runs once', a
   assert.equal(verdict.pass, false);
   assert.ok(verdict.failures.some(f => /RPC down/.test(f)), JSON.stringify(verdict.failures));
   assert.equal(audits, 1);
+});
+
+test('drive hook runs on every poll; a drive error fails the verdict', async () => {
+  const clock = fakeClock();
+  const driven = [];
+  const verdict = await runSoak({
+    durationMs: 1000, pollMs: 250, now: clock.now, sleep: clock.sleep,
+    observe: async () => CLEAN,
+    audit: async () => ({ violations: [] }),
+    drive: async pollIndex => { driven.push(pollIndex); },
+  });
+  assert.equal(verdict.pass, true, JSON.stringify(verdict));
+  assert.equal(driven.length, verdict.polls);
+  assert.deepEqual(driven, verdict.polls ? Array.from({ length: verdict.polls }, (_, i) => i + 1) : []);
+
+  const clock2 = fakeClock();
+  const failed = await runSoak({
+    durationMs: 500, pollMs: 250, now: clock2.now, sleep: clock2.sleep,
+    observe: async () => CLEAN,
+    audit: async () => ({ violations: [] }),
+    drive: async () => { throw new Error('taker script died'); },
+  });
+  assert.equal(failed.pass, false);
+  assert.ok(failed.failures.some(f => /taker script died/.test(f)), JSON.stringify(failed.failures));
+});
+
+test('verdict fails when fewer than minBatches batches are seen', async () => {
+  const clock = fakeClock();
+  const short = await runSoak({
+    durationMs: 500, pollMs: 250, now: clock.now, sleep: clock.sleep, minBatches: 5,
+    observe: async () => CLEAN,
+    audit: async () => ({ violations: [] }),
+  });
+  assert.equal(short.pass, false);
+  assert.ok(short.failures.some(f => /minBatches|batches/.test(f)), JSON.stringify(short.failures));
+
+  const clock2 = fakeClock();
+  const enough = await runSoak({
+    durationMs: 500, pollMs: 250, now: clock2.now, sleep: clock2.sleep, minBatches: 1,
+    observe: async () => CLEAN,
+    audit: async () => ({ violations: [] }),
+  });
+  assert.equal(enough.pass, true, JSON.stringify(enough));
+});
+
+test('CLI min-batches defaults to about one batch per 10 s of duration', () => {
+  assert.equal(parseArgs([]).minBatches, Math.floor(DEFAULT_DURATION_MS / 10000));
+  assert.equal(parseArgs([]).minBatches, 720);
+  assert.equal(parseArgs(['--min-batches', '12']).minBatches, 12);
+  assert.equal(parseArgs(['--duration-ms', '100000']).minBatches, 10);
 });
 
 test('runSoak requires observe and audit and a positive duration', async () => {

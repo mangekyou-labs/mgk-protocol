@@ -448,5 +448,5 @@ async function audit(rpc, programs) {
   };
 }
 
-module.exports = { INVARIANTS, CHECKS, InvariantChecker, InvariantViolation, readProtocolState, checkSnapshot,
-  checkTransition, audit, readOnly, programsFrom, pda, u64 };
+module.exports = { INVARIANTS, CHECKS, BATCH_STATUS, InvariantChecker, InvariantViolation, readProtocolState,
+  checkSnapshot, checkTransition, audit, readOnly, programsFrom, pda, u64 };
