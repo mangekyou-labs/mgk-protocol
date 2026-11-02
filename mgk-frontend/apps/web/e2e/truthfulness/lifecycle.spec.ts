@@ -57,6 +57,10 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await expect(page.getByTestId('open-order-row')).toHaveCount(1);
   await expect(page.getByTestId('order-lifecycle')).not.toContainText('Filled');
   await evidence('05-posted-resting');
+  await expect(page.getByTestId('tx-toast-status')).toHaveText('Transaction Confirmed');
+  // The fixed confirmation toast can cover Cancel with CI's font metrics.
+  await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(page.getByTestId('tx-toast')).toHaveCount(0, { timeout: 2_000 });
   await page.getByTestId('open-order-cancel').click();
   await expect(page.getByTestId('open-orders-empty')).toBeVisible();
   await evidence('06-cancelled');
