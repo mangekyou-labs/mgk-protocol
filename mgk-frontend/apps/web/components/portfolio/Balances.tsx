@@ -78,7 +78,7 @@ export function Balances({ data, loading, className }: BalancesProps) {
           <NumberDisplay value={data.equity} kind="lamports" />
           <span className="ml-1 text-text-faint text-[11px]">SOL</span>
         </Row>
-        <Row label="Free Collateral" testid="balances-free">
+        <Row label="Withdrawable collateral" testid="balances-free">
           <NumberDisplay value={data.freeCollateral} kind="lamports" />
           <span className="ml-1 text-text-faint text-[11px]">SOL</span>
         </Row>

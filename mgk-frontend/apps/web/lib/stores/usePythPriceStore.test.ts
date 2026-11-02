@@ -56,8 +56,6 @@ describe('usePythPrices', () => {
   });
 
   it('returns defaults for unknown feedIds', () => {
-    // Direct store check — the hook is exercised end-to-end in
-    // TickerBar.test.tsx ("renders a price once the first fetch resolves").
     expect(usePythPriceStore.getState().feeds['unknown']).toBeUndefined();
   });
 });

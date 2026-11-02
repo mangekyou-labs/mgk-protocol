@@ -1,138 +1,181 @@
 'use client';
 
-import { useMemo } from 'react';
 import * as sdk from '@mgk/sdk';
 
 import { NumberDisplay } from '@/components/common/NumberDisplay';
-import { DepthRow, type LevelRow } from './DepthRow';
-import { OrderBookImbalance } from './OrderBookImbalance';
+import type { ClearPrice, OrderBookStatus } from '@/lib/marketBar';
 
 type BookLevel = sdk.state.BookLevel;
 
+/** Levels shown per side. The batch auction only needs the top of book. */
+export const BOOK_LEVELS_PER_SIDE = 5;
+
 export interface OrderBookProps {
+  status: OrderBookStatus;
   bids: BookLevel[];
   asks: BookLevel[];
+  /** Seconds since the last successful book read. null = unknown. */
+  ageSeconds?: number | null;
+  /** Most recent cleared batch. null/undefined = no clear known yet. */
+  lastClear?: ClearPrice | null;
+  /** Prices of the connected wallet's own orders on the book, per side. */
+  ownPrices?: { bids: bigint[]; asks: bigint[] };
+  onSelectPrice?: (price: bigint) => void;
   className?: string;
 }
 
-export function OrderBook({ bids, asks, className }: OrderBookProps) {
-  const { bidRows, askRows, totalBidSize, totalAskSize } = useMemo(() => {
-    const buildRows = (levels: BookLevel[]): { rows: LevelRow[]; total: bigint } => {
-      let cum = 0n;
-      let total = 0n;
-      const rows: LevelRow[] = [];
-      for (const level of levels) {
-        cum += level.totalQty;
-        total += level.totalQty;
-        rows.push({ level, cumulative: cum, barPct: 0 });
-      }
-      return { rows, total };
-    };
-    const { rows: bidRows, total: totalBidSize } = buildRows(bids);
-    const { rows: askRows, total: totalAskSize } = buildRows(asks);
-    const maxSize =
-      bidRows.reduce(
-        (m, r) => (r.level.totalQty > m ? r.level.totalQty : m),
-        0n,
-      ) ||
-      askRows.reduce(
-        (m, r) => (r.level.totalQty > m ? r.level.totalQty : m),
-        0n,
-      );
-    for (const r of bidRows) {
-      r.barPct = maxSize > 0n ? Number((r.level.totalQty * 100n) / maxSize) : 0;
-    }
-    for (const r of askRows) {
-      r.barPct = maxSize > 0n ? Number((r.level.totalQty * 100n) / maxSize) : 0;
-    }
-    return { bidRows, askRows, totalBidSize, totalAskSize };
-  }, [bids, asks]);
-
-  const isEmpty = bids.length === 0 && asks.length === 0;
-
-  if (isEmpty) {
+export function OrderBook({
+  status,
+  bids,
+  asks,
+  ageSeconds = null,
+  lastClear = null,
+  ownPrices,
+  onSelectPrice,
+  className,
+}: OrderBookProps) {
+  if (status === 'loading') {
     return (
       <div
-        data-testid="orderbook-empty"
-        className={`text-text-faint px-4 py-8 text-center font-mono text-xs ${className ?? ''}`}
+        data-testid="orderbook-loading"
+        className={`px-4 py-8 text-center font-mono text-xs text-text-faint ${className ?? ''}`}
       >
-        No resting orders.
+        Loading book…
       </div>
     );
   }
 
-  // Asks sorted ASC by price; for display we want best ask at the BOTTOM
-  // (closest to the spread). Reverse the source array so the best ask is
-  // the last row, and let flex-col lay them out top-to-bottom as
-  // [ask_high … ask_best].
-  const displayAsks = [...askRows].reverse();
+  if (status === 'unavailable') {
+    return (
+      <div
+        data-testid="orderbook-unavailable"
+        className={`px-4 py-8 text-center font-mono text-xs text-text-muted ${className ?? ''}`}
+      >
+        Order book unavailable: data source not responding.
+        <br />
+        <span className="text-text-faint">
+          Your orders still submit; prices here are unknown, not empty.
+        </span>
+      </div>
+    );
+  }
+
+  const topBids = bids.slice(0, BOOK_LEVELS_PER_SIDE);
+  // Asks arrive best (lowest) first; show the best ask at the bottom,
+  // next to the last clear line.
+  const topAsks = asks.slice(0, BOOK_LEVELS_PER_SIDE).reverse();
+  const ownBids = new Set((ownPrices?.bids ?? []).map(String));
+  const ownAsks = new Set((ownPrices?.asks ?? []).map(String));
+  const delayed = status === 'delayed';
 
   return (
     <div
       data-testid="orderbook"
-      data-has-bids={bids.length > 0 ? 'true' : 'false'}
-      data-has-asks={asks.length > 0 ? 'true' : 'false'}
+      data-delayed={delayed ? 'true' : 'false'}
       className={`flex flex-col font-mono text-xs ${className ?? ''}`}
     >
-      <Header />
-      <div data-testid="orderbook-asks" className="flex flex-col">
-        {displayAsks.map((r, i) => (
-          <DepthRow key={`ask-${i}`} row={r} side="ask" data-index={displayAsks.length - 1 - i} />
-        ))}
+      <div className="flex flex-col gap-0.5 border-b border-border px-2 py-1.5">
+        <p data-testid="orderbook-note" className="text-[11px] text-text-muted">
+          Batch clears at one price. Levels are not fills.
+        </p>
+        {delayed ? (
+          <p data-testid="orderbook-freshness" className="text-[11px] text-warn">
+            {ageSeconds == null ? 'Delayed · age unknown' : `Delayed · last update ${ageSeconds}s ago`}
+          </p>
+        ) : null}
       </div>
-      <Spread
-        bestBid={bids[0]?.price ?? null}
-        bestAsk={asks[0]?.price ?? null}
-      />
-      <div data-testid="orderbook-bids" className="flex flex-col">
-        {bidRows.map((r, i) => (
-          <DepthRow key={`bid-${i}`} row={r} side="bid" data-index={i} />
-        ))}
+      <div className="grid grid-cols-2 px-2 py-1 text-[10px] uppercase tracking-wider text-text-faint">
+        <span>Price</span>
+        <span className="text-right">Size (SOL)</span>
       </div>
-      <OrderBookImbalance
-        totalBidSize={totalBidSize}
-        totalAskSize={totalAskSize}
-      />
+      {topBids.length === 0 && topAsks.length === 0 ? (
+        <div
+          data-testid="orderbook-empty"
+          className="px-4 py-8 text-center text-text-faint"
+        >
+          No orders on the book.
+        </div>
+      ) : (
+        <div className={delayed ? 'opacity-60' : undefined}>
+          <div data-testid="orderbook-asks" className="flex flex-col">
+            {topAsks.map((l) => (
+              <LevelButton
+                key={`ask-${l.price}`}
+                level={l}
+                side="ask"
+                own={ownAsks.has(String(l.price))}
+                onSelectPrice={onSelectPrice}
+              />
+            ))}
+          </div>
+          <LastClear lastClear={lastClear} />
+          <div data-testid="orderbook-bids" className="flex flex-col">
+            {topBids.map((l) => (
+              <LevelButton
+                key={`bid-${l.price}`}
+                level={l}
+                side="bid"
+                own={ownBids.has(String(l.price))}
+                onSelectPrice={onSelectPrice}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function Header() {
-  return (
-    <div
-      data-testid="orderbook-header"
-      className="text-text-faint grid grid-cols-3 border-b border-border px-2 py-1 text-[10px] uppercase tracking-wider"
-    >
-      <div>Price</div>
-      <div className="text-right">Size</div>
-      <div className="text-right">Total</div>
-    </div>
-  );
-}
-
-function Spread({
-  bestBid,
-  bestAsk,
+function LevelButton({
+  level,
+  side,
+  own,
+  onSelectPrice,
 }: {
-  bestBid: bigint | null;
-  bestAsk: bigint | null;
+  level: BookLevel;
+  side: 'bid' | 'ask';
+  own: boolean;
+  onSelectPrice?: (price: bigint) => void;
 }) {
-  if (bestBid === null || bestAsk === null) return null;
-  const spread = bestAsk - bestBid;
-  const spreadBps = bestBid > 0n ? Number((spread * 10000n) / bestBid) / 100 : 0;
+  return (
+    <button
+      type="button"
+      data-price={level.price.toString()}
+      data-side={side}
+      onClick={() => onSelectPrice?.(level.price)}
+      className="grid min-h-6 grid-cols-2 px-2 py-0.5 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      <span className={side === 'bid' ? 'text-bull' : 'text-bear'}>
+        <NumberDisplay value={level.price} kind="scaled-usd" className="text-inherit" />
+        {own ? <span className="ml-1.5 text-[10px] text-text">● you</span> : null}
+      </span>
+      <span className="text-right">
+        <NumberDisplay value={level.totalQty} kind="lots" />
+      </span>
+    </button>
+  );
+}
+
+function LastClear({ lastClear }: { lastClear: OrderBookProps['lastClear'] }) {
   return (
     <div
-      data-testid="orderbook-spread"
-      data-spread={spread.toString()}
-      data-spread-bps={spreadBps.toFixed(2)}
-      className="text-text-muted grid grid-cols-3 border-y border-border bg-surface-1 px-2 py-1"
+      data-testid="orderbook-last-clear"
+      className="border-y border-border bg-surface-1 px-2 py-1 text-text-muted"
     >
-      <div className="col-span-3 flex justify-between">
-        <span>Spread</span>
-        <span>
-          <NumberDisplay value={spread} kind="scaled-usd" /> ({spreadBps.toFixed(2)}%)
-        </span>
-      </div>
+      {lastClear ? (
+        <>
+          Last clear ${formatUsd(lastClear.price)} · b{lastClear.batchId.toString()}
+        </>
+      ) : (
+        'Last clear --'
+      )}
     </div>
   );
+}
+
+function formatUsd(micro: bigint): string {
+  return (Number(micro) / 1_000_000).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }

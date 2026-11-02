@@ -20,6 +20,11 @@ describe('NumberDisplay', () => {
     expect(screen.getByTestId('number-display')).toHaveTextContent('150.40');
   });
 
+  it('converts 0.001-SOL lots to SOL with 3 decimals', () => {
+    render(<NumberDisplay value={1_250n} kind="lots" />);
+    expect(screen.getByTestId('number-display')).toHaveTextContent('1.250');
+  });
+
   it('honors an explicit decimal override', () => {
     render(<NumberDisplay value={150.4} decimals={4} />);
     expect(screen.getByTestId('number-display')).toHaveTextContent('150.4000');

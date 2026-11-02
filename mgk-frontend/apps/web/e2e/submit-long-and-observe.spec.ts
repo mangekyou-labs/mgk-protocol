@@ -20,15 +20,14 @@ test.describe('Submit Long Order & Observe DFBA Progress', () => {
     ).toHaveAttribute('data-state', 'connected', { timeout: 10_000 });
 
     console.log('3. Filling Long Order (Price: 150.00, Size: 1.5) ...');
-    await page.locator('[data-testid="order-form-price-input"]').fill('150.00');
-    await page.locator('[data-testid="order-form-qty-input"]').fill('1.5');
-    await page.getByRole('checkbox', { name: /post as maker/i }).check();
+    await page.getByLabel('Price (USD)').fill('150.00');
+    await page.getByLabel('Size (SOL)').fill('1.5');
 
     // Take screenshot before submit
     await page.screenshot({ path: '/Users/kyler/.gemini/antigravity/brain/12c9a6bc-e006-49c7-8fe0-3faed72e2757/order_form_filled.png', fullPage: true });
 
     console.log('4. Submitting Long Order ...');
-    const submitBtn = page.locator('[data-testid="order-form-submit-buy"]');
+    const submitBtn = page.getByTestId('order-form-submit');
     await expect(submitBtn).toBeVisible();
     await submitBtn.click();
 

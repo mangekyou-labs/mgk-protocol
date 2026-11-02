@@ -9,7 +9,7 @@ export interface Trade {
   timestamp: number;
   /** Fill price, scaled 1e6 (UI/USD). */
   price: bigint;
-  /** Fill qty, scaled 1e6 (UI/base units). */
+  /** Fill qty in lots of 0.001 SOL. */
   qty: bigint;
   /** Taker side: 'buy' = aggressor bought, 'sell' = aggressor sold. */
   side: 'buy' | 'sell';
@@ -109,7 +109,7 @@ function Row({ trade }: { trade: Trade }) {
         data-testid="recent-trades-size"
         className="text-text text-right"
       >
-        <NumberDisplay value={trade.qty} kind="scaled-base" />
+        <NumberDisplay value={trade.qty} kind="lots" />
       </div>
       <div
         data-testid="recent-trades-side"

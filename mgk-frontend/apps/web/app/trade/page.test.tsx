@@ -65,4 +65,17 @@ describe('app/trade page', () => {
     render(<TradePage />);
     expect(screen.getByTestId('bottom-tabs')).toBeInTheDocument();
   });
+
+  it('labels the chart as an external, non-executable reference and drops the removed extras', async () => {
+    await mockUseWallet();
+    render(<TradePage />);
+    expect(screen.getByTestId('price-chart-label')).toHaveTextContent(
+      'external reference · not executable',
+    );
+    expect(screen.queryByTestId('ticker-bar')).toBeNull();
+    expect(screen.queryByTestId('chart-toolbar')).toBeNull();
+    expect(screen.queryByTestId('orderbook-imbalance')).toBeNull();
+    expect(screen.queryByRole('tab', { name: /market/i })).toBeNull();
+    expect(screen.queryByText(/commit/i)).toBeNull();
+  });
 });

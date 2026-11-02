@@ -24,8 +24,11 @@ export interface PostOrderParams {
   price: bigint;
   qty: bigint;
   reduceOnly: boolean;
-  /** false = taker (default), true = maker */
-  isMaker?: boolean;
+}
+
+export interface PostOrderOptions {
+  /** Called once the wallet has signed and the transaction is sent. */
+  onSigned?: () => void;
 }
 
 const CU_LIMIT_POST = 300_000;
@@ -78,6 +81,11 @@ export interface DecodedProgramError {
   message: string;
 }
 
+/** Program errors whose SDK copy predates the glossary. Keyed by error code. */
+const GLOSSARY_MESSAGES: Readonly<Record<number, string>> = {
+  107: 'Your withdrawable collateral is not enough for this order.',
+};
+
 export function decodeProgramError(err: unknown): DecodedProgramError {
   const code = extractErrorCode(err);
   if (code === null) {
@@ -86,7 +94,7 @@ export function decodeProgramError(err: unknown): DecodedProgramError {
     return { code: null, severity: 'unknown', message };
   }
   const severity = sdk.classifyError(code);
-  const human = sdk.humanizeError(code);
+  const human = GLOSSARY_MESSAGES[code] ?? sdk.humanizeError(code);
   return { code, severity, message: human };
 }
 
@@ -101,7 +109,7 @@ function applySeverity(
 }
 
 /**
- * DFBA PostOrder: single-tx open limit post onto the resting book.
+ * DFBA PostOrder: single-tx open limit post onto the book.
  * Replaces the commit-reveal two-tx flow.
  */
 export function usePostOrder() {
@@ -113,7 +121,7 @@ export function usePostOrder() {
   const clear = useOrderFormStore((s) => s.clear);
 
   const post = useCallback(
-    async (params: PostOrderParams) => {
+    async (params: PostOrderParams, options: PostOrderOptions = {}) => {
       if (!publicKey || !sendTransaction) {
         throw new Error('Wallet not connected');
       }
@@ -173,11 +181,10 @@ export function usePostOrder() {
         // Committing == open collection window for DFBA posts (checked in resolveOpenBatch).
 
         const sideByte = params.side === 'buy' ? sdk.Side.Buy : sdk.Side.Sell;
-        const isMaker = params.isMaker ?? false;
-
         const ixData = sdk.programs.encodePostOrder({
           side: sideByte,
-          isMaker,
+          // The trade screen only posts taker limit orders.
+          isMaker: false,
           price: params.price,
           qty: params.qty,
           instrumentId: params.instrumentId,
@@ -213,7 +220,7 @@ export function usePostOrder() {
           batchId,
           salt: 0n,
           hash: '',
-          isMaker,
+          isMaker: false,
         });
         setStatus('submitting');
 
@@ -223,12 +230,15 @@ export function usePostOrder() {
         );
 
         const sig = await safeSend(tx);
+        options.onSigned?.();
+        // Throws on a failed, expired or unconfirmed transaction: resolving
+        // here means the program accepted the order.
         await sdk.confirmSignature(connection, sig);
 
         setStatus('done');
         clear();
 
-        return { sig, batchId, isMaker };
+        return { sig, batchId };
       } catch (e) {
         const decoded = decodeProgramError(e);
         applySeverity(decoded.severity, { setStatus, clear });

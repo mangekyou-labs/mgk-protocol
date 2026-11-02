@@ -8,7 +8,6 @@ import { WalletButton } from '@/components/wallet/WalletButton';
 
 const NAV_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: '/trade', label: 'Trade' },
-  { href: '/portfolio', label: 'Portfolio' },
 ];
 
 const FAUCET_URL = 'https://faucet.solana.com';

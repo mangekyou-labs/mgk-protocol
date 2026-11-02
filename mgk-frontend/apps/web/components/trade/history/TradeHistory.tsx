@@ -100,7 +100,7 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
               data-testid="trade-history-row"
               data-slot={f.slot}
               data-role={f.role}
-              className="hover:bg-surface-2 grid grid-cols-[100px_70px_70px_1fr_1fr_80px] items-center gap-2 border-b border-border px-2 py-0.5"
+              className="fade-in hover:bg-surface-2 grid grid-cols-[100px_70px_70px_1fr_1fr_80px] items-center gap-2 border-b border-border px-2 py-0.5"
               style={{ minHeight: '22px' }}
             >
               <div
@@ -127,7 +127,7 @@ export function TradeHistory({ instrumentId = 0, className }: TradeHistoryProps)
                 data-testid="trade-history-qty"
                 className="text-text text-right"
               >
-                <NumberDisplay value={f.qty} kind="scaled-base" />
+                <NumberDisplay value={f.qty} kind="lots" />
               </div>
               <a
                 data-testid="trade-history-tx-link"

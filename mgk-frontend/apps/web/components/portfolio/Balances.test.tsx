@@ -60,6 +60,8 @@ describe('Balances', () => {
     expect(root).toHaveAttribute('data-state', 'ready');
     expect(screen.getByTestId('balances-equity')).toBeInTheDocument();
     expect(screen.getByTestId('balances-free')).toBeInTheDocument();
+    expect(screen.getByText('Withdrawable collateral')).toBeInTheDocument();
+    expect(screen.queryByText(/free collateral/i)).not.toBeInTheDocument();
     expect(screen.getByTestId('balances-locked')).toBeInTheDocument();
     expect(screen.getByTestId('balances-pnl')).toBeInTheDocument();
     expect(screen.getByTestId('balances-mm')).toBeInTheDocument();

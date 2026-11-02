@@ -117,6 +117,12 @@ const nextConfig: NextConfig = {
   // controls visible but prevents React hydration (wallet/chart clicks inert).
   allowedDevOrigins: ["127.0.0.1"],
 
+  // v1 has one screen. Balances, positions and open orders live in the trade
+  // screen's bottom tabs; old /portfolio links land there.
+  async redirects() {
+    return [{ source: "/portfolio", destination: "/trade", permanent: false }];
+  },
+
   async headers() {
     const csp = buildCsp(isProd);
     return [

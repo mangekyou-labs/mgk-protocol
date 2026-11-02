@@ -1,408 +1,253 @@
 vi.mock('@/lib/hooks/useReadiness', () => ({ useReadiness: () => ({ walletLamports: 1000000000n, signingBlockedReason: null, error: null, refresh: vi.fn(), getDevnetSol: vi.fn() }) }));
 vi.mock('@/lib/hooks/useAccountActions', () => ({ useAccountActions: () => ({ deposit: vi.fn(), withdraw: vi.fn() }) }));
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-
-import { OrderForm } from './OrderForm';
-
-// Mock useAutoConnect so AccountActions renders (returns null when not connected).
 vi.mock('@/components/wallet/useAutoConnect', () => ({
   useAutoConnect: () => ({ connected: true }),
 }));
 
-import { useOrderFormStore } from '@/lib/stores/useOrderFormStore';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
-describe('OrderForm', () => {
-  it('renders the side tabs (Buy/Long active by default)', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const buyTab = screen.getByTestId('order-form-side-buy');
-    const sellTab = screen.getByTestId('order-form-side-sell');
-    expect(buyTab.getAttribute('data-active')).toBe('true');
-    expect(sellTab.getAttribute('data-active')).toBe('false');
+import { OrderForm, type OrderFormProps } from './OrderForm';
+
+const SOL = 1_000_000_000n;
+
+function setup(over: Partial<OrderFormProps> = {}) {
+  const onSubmit = over.onSubmit ?? vi.fn(async () => {});
+  const props: OrderFormProps = {
+    oracle: { state: 'valid', price: 150_000_000n, ageSeconds: 2 },
+    newExposurePaused: false,
+    withdrawableCollateral: 10n * SOL,
+    batchGate: null,
+    market: { openInterestLong: 0n, openInterestShort: 0n, insuranceFund: 100n * SOL },
+    positionLots: 0n,
+    portfolio: null,
+    portfolioLoading: false,
+    ...over,
+    onSubmit,
+  };
+  const utils = render(<OrderForm {...props} />);
+  return { ...utils, onSubmit, props };
+}
+
+const price = () => screen.getByLabelText('Price (USD)');
+const size = () => screen.getByLabelText(/Size \(SOL\)/);
+const submit = () => screen.getByTestId('order-form-submit');
+
+function fill(p: string, s: string) {
+  fireEvent.change(price(), { target: { value: p } });
+  fireEvent.change(size(), { target: { value: s } });
+}
+
+describe('<OrderForm />', () => {
+  it('offers only Buy/Sell limit good-till-cancelled orders', () => {
+    setup();
+    expect(screen.getByRole('button', { name: 'Buy / Long' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Sell / Short' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('order-form')).toHaveTextContent('Limit · good-till-cancelled');
+    const form = screen.getByTestId('order-form');
+    const controls = [...form.querySelectorAll('button, input, [role="tab"], [role="slider"]')]
+      .map(el => el.getAttribute('aria-label') ?? el.textContent ?? '')
+      .join(' | ');
+    expect(controls).not.toMatch(/market|IOC|TP\/SL|take profit|stop loss|maker|cross|isolated|commit|reveal/i);
+    expect(form.querySelector('input[type="range"]')).toBeNull();
   });
 
-  it('switches side when clicking the Sell tab', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    fireEvent.click(screen.getByTestId('order-form-side-sell'));
-    expect(screen.getByTestId('order-form-side-buy').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('order-form-side-sell').getAttribute('data-active')).toBe('true');
+  it('sizes in 0.001-SOL lots and offers reduce-only', () => {
+    setup();
+    expect(screen.getByTestId('order-form')).toHaveTextContent('lots of 0.001');
+    expect(screen.getByLabelText('Reduce only')).not.toBeChecked();
   });
 
-  it('renders the price input with a placeholder default', () => {
-    render(<OrderForm bestBid={150_000_000n} bestAsk={null} />);
-    const input = screen.getByTestId('order-form-price-input');
-    expect((input as HTMLInputElement).placeholder).toBe('150.00');
+  it('submits the order in lots and micro-USD', async () => {
+    const { onSubmit } = setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+    fill('150.25', '1.25');
+    await act(async () => { fireEvent.click(submit()); });
+    expect(onSubmit).toHaveBeenCalledWith(
+      { side: 'sell', price: 150_250_000n, qty: 1_250n, reduceOnly: false },
+      expect.any(Function),
+    );
   });
 
-  it('renders the qty input', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    expect(screen.getByTestId('order-form-qty-input')).toBeInTheDocument();
+  it('labels the button with the order it will place', () => {
+    setup();
+    fill('150', '1.25');
+    expect(submit()).toHaveTextContent('Buy 1.250 SOL');
+    expect(submit()).toBeEnabled();
   });
 
-  it('accepts valid price input', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const input = screen.getByTestId('order-form-price-input');
-    fireEvent.change(input, { target: { value: '150.50' } });
-    expect((input as HTMLInputElement).value).toBe('150.50');
+  it('shows order value, initial margin, withdrawable collateral and fee', () => {
+    setup({ withdrawableCollateral: 3n * SOL });
+    fill('150', '1');
+    const summary = screen.getByTestId('order-form-summary');
+    expect(summary).toHaveTextContent('Order value$150.00');
+    expect(summary).toHaveTextContent('Initial margin0.2 SOL');
+    expect(summary).toHaveTextContent('Withdrawable collateral3 SOL');
+    expect(summary).not.toHaveTextContent('Available');
+    expect(summary).toHaveTextContent('Fee≤ 5 bps · 0.0005 SOL');
   });
 
-  it('rejects non-numeric price input', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const input = screen.getByTestId('order-form-price-input');
-    fireEvent.change(input, { target: { value: 'abc' } });
-    expect((input as HTMLInputElement).value).toBe('');
+  it('renders unknown summary values as "--", never 0', () => {
+    setup({ withdrawableCollateral: null });
+    const summary = screen.getByTestId('order-form-summary');
+    expect(summary).toHaveTextContent('Order value--');
+    expect(summary).toHaveTextContent('Initial margin--');
+    expect(summary).toHaveTextContent('Withdrawable collateral--');
+    expect(summary).not.toHaveTextContent(/\b0(\.00)? /);
   });
 
-  it('accepts valid qty input', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const input = screen.getByTestId('order-form-qty-input');
-    fireEvent.change(input, { target: { value: '10.5' } });
-    expect((input as HTMLInputElement).value).toBe('10.5');
-  });
+  describe('disabled button states its reason', () => {
+    const cases: [string, Partial<OrderFormProps>, [string, string], string][] = [
+      ['pause', { newExposurePaused: true }, ['150', '1'], 'New exposure paused'],
+      ['oracle', { oracle: { state: 'stale', price: 150_000_000n, ageSeconds: 74 } }, ['150', '1'], 'Oracle stale (74 s > 60 s)'],
+      ['price', {}, ['', '1'], 'Enter a price.'],
+      ['lot', {}, ['150', '0.0005'], 'Size must be a multiple of 0.001 SOL.'],
+      ['portfolio exposure limit', {}, ['150', '11'], 'Portfolio exposure limit is 10 SOL.'],
+      [
+        'market exposure limit',
+        { market: { openInterestLong: 49_500n, openInterestShort: 0n, insuranceFund: 100n * SOL } },
+        ['150', '1'],
+        'Market exposure limit: long open interest 49.5 of 50 SOL.',
+      ],
+      [
+        'insurance fund floor',
+        { market: { openInterestLong: 1_000n, openInterestShort: 0n, insuranceFund: SOL / 10n } },
+        ['150', '1'],
+        'Risk-off: insurance fund below reserve.',
+      ],
+      ['margin', { withdrawableCollateral: SOL / 10n }, ['150', '1'], 'Needs 0.2005 SOL margin, 0.1 SOL withdrawable.'],
+      ['clearing batch', { batchGate: { phase: 'clearing', batchId: 41n } }, ['150', '1'], 'Batch 41 clearing. Orders reopen after settlement.'],
+      ['cleared batch', { batchGate: { phase: 'cleared', batchId: 41n } }, ['150', '1'], 'Batch 41 cleared, awaiting settlement.'],
+    ];
 
-  it('renders the 5-tick qty slider buttons', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    for (const pct of [20, 40, 60, 80, 100]) {
-      expect(screen.getByTestId(`qty-slider-${pct}`)).toBeInTheDocument();
-    }
-  });
-
-  it('sets qty when clicking a slider step', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    fireEvent.click(screen.getByTestId('qty-slider-20'));
-    const input = screen.getByTestId('order-form-qty-input');
-    expect((input as HTMLInputElement).value).toBeTruthy();
-  });
-
-  it('renders the Reduce Only checkbox', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    expect(screen.getByTestId('order-form-checkbox-reduce-only')).toBeInTheDocument();
-    expect(screen.getByTestId('order-form-checkbox-input-reduce-only')).not.toBeChecked();
-  });
-
-  it('toggles Reduce Only checkbox', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const cb = screen.getByTestId('order-form-checkbox-input-reduce-only');
-    fireEvent.click(cb);
-    expect(cb).toBeChecked();
-  });
-
-  it('renders the TP/SL checkbox disabled', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const cb = screen.getByTestId('order-form-checkbox-input-tp-sl') as HTMLInputElement;
-    expect(cb).toBeDisabled();
-    expect(cb).not.toBeChecked();
-  });
-
-  it('renders Buy/Long and Sell/Short submit buttons', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    expect(screen.getByTestId('order-form-submit-buy')).toBeInTheDocument();
-    expect(screen.getByTestId('order-form-submit-sell')).toBeInTheDocument();
-  });
-
-  it('calls onSubmit with buy params when Buy is active and clicked', () => {
-    const onSubmit = vi.fn();
-    render(<OrderForm bestBid={null} bestAsk={null} onSubmit={onSubmit} />);
-
-    fireEvent.change(screen.getByTestId('order-form-price-input'), {
-      target: { value: '150' },
+    it('names an unknown position for reduce-only', () => {
+      setup({ positionLots: null });
+      fireEvent.click(screen.getByLabelText('Reduce only'));
+      fill('150', '1');
+      expect(submit()).toBeDisabled();
+      expect(submit()).toHaveTextContent('Position unknown.');
     });
-    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
-      target: { value: '100' },
+    it.each(cases)('%s', async (_name, props, [p, s], reason) => {
+      const { onSubmit } = setup(props);
+      fill(p, s);
+      expect(submit()).toBeDisabled();
+      expect(submit()).toHaveTextContent(reason);
+      await act(async () => { fireEvent.click(submit()); });
+      expect(onSubmit).not.toHaveBeenCalled();
     });
-    fireEvent.click(screen.getByTestId('order-form-submit-buy'));
 
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-    const params = onSubmit.mock.calls[0][0];
-    expect(params.side).toBe('buy');
-    expect(params.price).toBe(150_000_000n);
-    expect(params.qty).toBe(100_000_000n);
-    expect(params.reduceOnly).toBe(false);
+    it('asks to connect a wallet when there is nowhere to submit', () => {
+      render(
+        <OrderForm
+          oracle={{ state: 'valid', price: 150_000_000n, ageSeconds: 1 }}
+          newExposurePaused={false}
+          batchGate={null}
+          withdrawableCollateral={SOL}
+          market={{ openInterestLong: 0n, openInterestShort: 0n, insuranceFund: 100n * SOL }}
+          positionLots={0n}
+          portfolio={null}
+          portfolioLoading={false}
+        />,
+      );
+      fill('150', '1');
+      expect(submit()).toBeDisabled();
+      expect(submit()).toHaveTextContent('Connect a wallet');
+    });
   });
 
-  it('calls onSubmit with sell params when Sell is active and clicked', () => {
-    const onSubmit = vi.fn();
-    render(<OrderForm bestBid={null} bestAsk={null} onSubmit={onSubmit} />);
-
-    fireEvent.click(screen.getByTestId('order-form-side-sell'));
-    fireEvent.change(screen.getByTestId('order-form-price-input'), {
-      target: { value: '200.50' },
-    });
-    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
-      target: { value: '50' },
-    });
-    fireEvent.click(screen.getByTestId('order-form-checkbox-input-reduce-only'));
-    fireEvent.click(screen.getByTestId('order-form-submit-sell'));
-
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-    const params = onSubmit.mock.calls[0][0];
-    expect(params.side).toBe('sell');
-    expect(params.price).toBe(200_500_000n);
-    expect(params.qty).toBe(50_000_000n);
-    expect(params.reduceOnly).toBe(true);
+  it('lets reduce-only close a long while new exposure is paused', () => {
+    setup({ newExposurePaused: true, positionLots: 2_000n });
+    fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+    fireEvent.click(screen.getByLabelText('Reduce only'));
+    fill('150', '2');
+    expect(submit()).toBeEnabled();
+    expect(screen.getByTestId('order-form-summary')).toHaveTextContent('Initial margin0 SOL');
   });
 
-  it('does not call onSubmit when price is zero', () => {
-    const onSubmit = vi.fn();
-    render(<OrderForm bestBid={null} bestAsk={null} onSubmit={onSubmit} />);
+  it('lets reduce-only close a long at the market exposure limit and insurance fund floor', () => {
+    setup({ positionLots: 2_000n, market: { openInterestLong: 50_000n, openInterestShort: 50_000n, insuranceFund: 0n } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+    fireEvent.click(screen.getByLabelText('Reduce only'));
+    fill('150', '2');
+    expect(submit()).toBeEnabled();
+  });
 
-    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
-      target: { value: '10' },
+  it('blocks reduce-only when its fee exceeds withdrawable collateral', () => {
+    setup({ positionLots: 2_000n, withdrawableCollateral: 0n });
+    fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+    fireEvent.click(screen.getByLabelText('Reduce only'));
+    fill('150', '2');
+    expect(submit()).toBeDisabled();
+    expect(submit()).toHaveTextContent('Needs 0.001 SOL fee, 0 SOL withdrawable.');
+  });
+
+  describe('lifecycle', () => {
+    it('shows approve then confirming, and submits once on double-click', async () => {
+      let markSigned: () => void = () => {};
+      let finish: () => void = () => {};
+      const onSubmit = vi.fn((_params, onSigned: () => void) => {
+        markSigned = onSigned;
+        return new Promise<void>((resolve) => { finish = resolve; });
+      });
+      setup({ onSubmit });
+      fill('150', '1');
+      fireEvent.click(submit());
+      fireEvent.click(submit());
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(submit()).toBeDisabled();
+      expect(submit()).toHaveTextContent('Approve in wallet…');
+
+      act(() => markSigned());
+      expect(submit()).toHaveTextContent('Confirming…');
+
+      await act(async () => finish());
+      expect(submit()).toHaveTextContent('Buy 1.000 SOL');
     });
-    fireEvent.click(screen.getByTestId('order-form-submit-buy'));
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
 
-  it('does not call onSubmit when qty is zero', () => {
-    const onSubmit = vi.fn();
-    render(<OrderForm bestBid={null} bestAsk={null} onSubmit={onSubmit} />);
-
-    fireEvent.change(screen.getByTestId('order-form-price-input'), {
-      target: { value: '150' },
+    it('returns to a submittable state after a failure, without claiming success', async () => {
+      const onSubmit = vi.fn(async () => { throw new Error('rejected'); });
+      setup({ onSubmit, lifecycle: null });
+      fill('150', '1');
+      await act(async () => { fireEvent.click(submit()); });
+      expect(submit()).toBeEnabled();
+      expect(screen.queryByTestId('order-lifecycle')).toBeNull();
     });
-    fireEvent.click(screen.getByTestId('order-form-submit-buy'));
-    expect(onSubmit).not.toHaveBeenCalled();
+
+    it('renders the lifecycle state it is given', () => {
+      setup({ lifecycle: { kind: 'accepted', batchId: 42n } });
+      expect(screen.getByTestId('order-lifecycle')).toHaveTextContent('Accepted · on the book in batch 42');
+    });
+
+    it('shows a partial fill with the remainder on the book', () => {
+      setup({ lifecycle: { kind: 'partiallyFilled', filledLots: 400n, remainingLots: 600n, awaitingSettlement: false } });
+      expect(screen.getByTestId('order-lifecycle')).toHaveTextContent('Partially filled · 0.4 SOL filled, 0.6 SOL on the book');
+    });
   });
 
-  it('renders the summary panel', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    expect(screen.getByTestId('order-form-summary')).toBeInTheDocument();
+  it('takes a price clicked on the book', () => {
+    const { rerender, props } = setup();
+    rerender(<OrderForm {...props} priceOverride={{ price: 149_900_000n, nonce: 1 }} />);
+    expect(price()).toHaveValue('149.9');
+    fireEvent.change(price(), { target: { value: '150' } });
+    rerender(<OrderForm {...props} priceOverride={{ price: 149_900_000n, nonce: 2 }} />);
+    expect(price()).toHaveValue('149.9');
   });
 
-  it('renders the account actions footer with init portfolio button when no portfolio', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
+  it('prepares a reduce-only close of an open short', () => {
+    setup({ positionLots: -1_500n });
+    fireEvent.click(screen.getByRole('button', { name: 'Close short 1.500 SOL' }));
+    expect(screen.getByRole('button', { name: 'Buy / Long' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Reduce only')).toBeChecked();
+    expect(size()).toHaveValue('1.500');
+  });
+
+  it('keeps the account actions footer', () => {
+    setup();
     expect(screen.getByTestId('order-form-account-actions')).toBeInTheDocument();
-    expect(screen.getByTestId('account-actions-deposit')).toBeInTheDocument();
   });
 
-  it('renders deposit/withdraw buttons when portfolio exists', () => {
-    render(
-      <OrderForm
-        bestBid={null}
-        bestAsk={null}
-        portfolio={null}
-        portfolioLoading={false}
-      />,
-    );
-    // No portfolio data → init button is shown
-    expect(screen.getByTestId('account-actions-deposit')).toBeInTheDocument();
-  });
-
-  it('applies className to the root', () => {
-    const { container } = render(
-      <OrderForm bestBid={null} bestAsk={null} className="custom-class" />,
-    );
-    expect(container.firstChild).toHaveClass('custom-class');
-  });
-
-  it('uses bestBid as default price on buy side', () => {
-    render(<OrderForm bestBid={150_000_000n} bestAsk={null} />);
-    const priceLabel = screen.getByTestId('order-form-price-label');
-    expect(priceLabel.className).toContain('text-bull');
-    expect((screen.getByTestId('order-form-price-input') as HTMLInputElement).placeholder).toBe('150.00');
-  });
-
-  it('uses bestAsk as default price on sell side', () => {
-    render(<OrderForm bestBid={null} bestAsk={151_000_000n} />);
-    fireEvent.click(screen.getByTestId('order-form-side-sell'));
-    const priceLabel = screen.getByTestId('order-form-price-label');
-    expect(priceLabel.className).toContain('text-bear');
-    expect((screen.getByTestId('order-form-price-input') as HTMLInputElement).placeholder).toBe('151.00');
-  });
-
-  it('does not default to a price from a crossed book', () => {
-    render(<OrderForm bestBid={150_000_000n} bestAsk={100_000_000n} />);
-
-    const price = screen.getByTestId('order-form-price-input') as HTMLInputElement;
-    expect(price.placeholder).toBe('0.00');
-
-    fireEvent.click(screen.getByTestId('order-form-side-sell'));
-    expect(price.placeholder).toBe('0.00');
-  });
-
-  it('shows base-asset size availability and margin capacity from free collateral', () => {
-    render(
-      <OrderForm
-        bestBid={100_000_000n}
-        bestAsk={101_000_000n}
-        freeCollateral={300_000_000n}
-      />,
-    );
-
-    expect(screen.getByTestId('order-form-size-available')).toHaveTextContent('3.00 SOL');
-
-    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
-      target: { value: '1' },
-    });
-    expect(screen.getByTestId('order-form-margin-available')).toHaveTextContent('$30.00');
-  });
-
-  it('renders the locked Cross margin mode tab', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const el = screen.getByTestId('margin-mode-cross');
-    expect(el).toBeInTheDocument();
-    expect(el).toHaveTextContent('Cross');
-    expect(el.dataset.active).toBe('true');
-  });
-
-  it('renders the locked Limit order type tab', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    const el = screen.getByTestId('order-type-limit');
-    expect(el).toBeInTheDocument();
-    expect(el).toHaveTextContent('Limit');
-    expect(el.dataset.active).toBe('true');
-  });
-
-  it('renders the risk panel below the summary', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} />);
-    expect(screen.getByTestId('order-form-risk-panel')).toBeInTheDocument();
-  });
-
-  it('does not render a slashed or reveal banner for live DFBA statuses', () => {
-    for (const status of ['idle', 'submitting', 'done', 'failed'] as const) {
-      useOrderFormStore.setState({ status, salt: 0n, hash: '' });
-      const { unmount } = render(<OrderForm bestBid={null} bestAsk={null} />);
-      expect(screen.queryByTestId('order-form-slashed-banner')).toBeNull();
-      expect(screen.queryByText(/order slashed/i)).toBeNull();
-      expect(screen.queryByText(/awaiting reveal/i)).toBeNull();
-      unmount();
-    }
-    useOrderFormStore.setState({ status: 'idle', salt: 0n, hash: '' });
-  });
-
-  // =====================================================================
-  // T9.10.7: Prepare-close + position display tests
-  // =====================================================================
-
-  it('shows zero position when positionQty is 0n', () => {
-    render(<OrderForm bestBid={null} bestAsk={null} positionQty={0n} />);
-    const pos = screen.getByTestId('order-form-position-display');
-    expect(pos).toHaveTextContent('0 SOL');
-  });
-
-  it('shows signed long position', () => {
-    render(<OrderForm bestBid={100_000_000n} bestAsk={101_000_000n} positionQty={5_000_000n} />);
-    const pos = screen.getByTestId('order-form-position-display');
-    expect(pos).toHaveTextContent('5 SOL');
-  });
-
-  it('shows signed short position', () => {
-    render(<OrderForm bestBid={100_000_000n} bestAsk={101_000_000n} positionQty={-3_500_000n} />);
-    const pos = screen.getByTestId('order-form-position-display');
-    expect(pos).toHaveTextContent('-3.5 SOL');
-  });
-
-  it('does not show prepare-close button when positionQty is 0n', () => {
-    render(<OrderForm bestBid={100_000_000n} bestAsk={101_000_000n} positionQty={0n} />);
-    expect(screen.queryByTestId('order-form-prepare-close')).toBeNull();
-  });
-
-  it('shows prepare-close button for long position', () => {
-    render(<OrderForm bestBid={100_000_000n} bestAsk={101_000_000n} positionQty={2_500_000n} />);
-    const btn = screen.getByTestId('order-form-prepare-close');
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveTextContent('Close Long (2.5 SOL)');
-    expect(btn).not.toBeDisabled();
-  });
-
-  it('shows prepare-close button for short position', () => {
-    render(<OrderForm bestBid={100_000_000n} bestAsk={101_000_000n} positionQty={-1_000_000n} />);
-    const btn = screen.getByTestId('order-form-prepare-close');
-    expect(btn).toHaveTextContent('Close Short (1 SOL)');
-    expect(btn).not.toBeDisabled();
-  });
-
-  it('disables prepare-close when book is crossed', () => {
-    // bid > ask = crossed
-    render(<OrderForm bestBid={101_000_000n} bestAsk={100_000_000n} positionQty={1_000_000n} />);
-    const btn = screen.getByTestId('order-form-prepare-close');
-    expect(btn).toBeDisabled();
-    expect(btn).toHaveTextContent('Book crossed');
-  });
-
-  it('disables prepare-close when opposing quote is absent', () => {
-    // Long position needs bestBid for sell
-    render(<OrderForm bestBid={null} bestAsk={101_000_000n} positionQty={1_000_000n} />);
-    const btn = screen.getByTestId('order-form-prepare-close');
-    expect(btn).toBeDisabled();
-    expect(btn).toHaveTextContent('No opposing quote');
-  });
-
-  it('prepare-close sets sell side, reduce-only, qty, and price for long', () => {
-    const onSubmit = vi.fn();
-    render(
-      <OrderForm
-        bestBid={99_500_000n}
-        bestAsk={100_500_000n}
-        positionQty={3_000_000n}
-        onSubmit={onSubmit}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('order-form-prepare-close'));
-
-    // Should be on sell side
-    expect(screen.getByTestId('order-form-side-sell').getAttribute('data-active')).toBe('true');
-    // Reduce-only checked
-    expect(screen.getByTestId('order-form-checkbox-input-reduce-only')).toBeChecked();
-    // Maker unchecked (taker mode)
-    expect(screen.getByTestId('order-form-checkbox-input-post-as-maker')).not.toBeChecked();
-    // Qty set to position size
-    expect((screen.getByTestId('order-form-qty-input') as HTMLInputElement).value).toBe('3');
-    // Price set to best bid (opposing quote for sell)
-    expect((screen.getByTestId('order-form-price-input') as HTMLInputElement).value).toBe('99.5');
-  });
-
-  it('prepare-close sets buy side, reduce-only, qty, and price for short', () => {
-    render(
-      <OrderForm
-        bestBid={99_500_000n}
-        bestAsk={100_500_000n}
-        positionQty={-2_000_000n}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('order-form-prepare-close'));
-
-    // Should be on buy side
-    expect(screen.getByTestId('order-form-side-buy').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('order-form-checkbox-input-reduce-only')).toBeChecked();
-    expect((screen.getByTestId('order-form-qty-input') as HTMLInputElement).value).toBe('2');
-    expect((screen.getByTestId('order-form-price-input') as HTMLInputElement).value).toBe('100.5');
-  });
-
-  it('fixed-point parsing: fractional amounts parse correctly', () => {
-    const onSubmit = vi.fn();
-    render(
-      <OrderForm bestBid={null} bestAsk={null} onSubmit={onSubmit} positionQty={0n} />,
-    );
-    fireEvent.change(screen.getByTestId('order-form-price-input'), {
-      target: { value: '150.25' },
-    });
-    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
-      target: { value: '0.123456' },
-    });
-    fireEvent.click(screen.getByTestId('order-form-submit-buy'));
-
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-    const params = onSubmit.mock.calls[0][0];
-    expect(params.price).toBe(150_250_000n);
-    expect(params.qty).toBe(123_456n);
-  });
-
-  it('fixed-point parsing: whole numbers parse correctly', () => {
-    const onSubmit = vi.fn();
-    render(
-      <OrderForm bestBid={null} bestAsk={null} onSubmit={onSubmit} positionQty={0n} />,
-    );
-    fireEvent.change(screen.getByTestId('order-form-price-input'), {
-      target: { value: '100' },
-    });
-    fireEvent.change(screen.getByTestId('order-form-qty-input'), {
-      target: { value: '50' },
-    });
-    fireEvent.click(screen.getByTestId('order-form-submit-buy'));
-
-    const params = onSubmit.mock.calls[0][0];
-    expect(params.price).toBe(100_000_000n);
-    expect(params.qty).toBe(50_000_000n);
+  it('uses the press-feedback class on the submit button', () => {
+    setup();
+    expect(submit()).toHaveClass('cta');
   });
 });

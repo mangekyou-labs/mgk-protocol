@@ -27,11 +27,11 @@ test.describe('Live Website Navigation & Verification', () => {
 
     console.log('5. Verifying Market Header SOL-USD Perp ...');
     await expect(page.locator('[data-testid="market-header"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'SOL-USD Perp' })).toBeVisible();
+    await expect(page.getByTestId('market-selector')).toHaveText('SOL-USD Perp');
 
     console.log('6. Verifying Order Form inputs ...');
-    const priceInput = page.locator('[data-testid="order-form-price-input"]');
-    const qtyInput = page.locator('[data-testid="order-form-qty-input"]');
+    const priceInput = page.getByLabel('Price (USD)');
+    const qtyInput = page.getByLabel('Size (SOL)');
     await expect(priceInput).toBeVisible();
     await priceInput.fill('150.50');
     await qtyInput.fill('2.0');
@@ -39,15 +39,9 @@ test.describe('Live Website Navigation & Verification', () => {
     expect(await qtyInput.inputValue()).toBe('2.0');
 
     console.log('7. Switching Order Form side to Sell ...');
-    const sellTab = page.locator('[data-testid="order-form-side-sell"]');
+    const sellTab = page.getByRole('button', { name: 'Sell / Short' });
     await sellTab.click();
-    await expect(sellTab).toHaveAttribute('data-active', 'true');
-
-    console.log('8. Testing DFBA post-as-maker checkbox ...');
-    const makerCheckbox = page.getByRole('checkbox', { name: /post as maker/i });
-    await expect(makerCheckbox).toBeVisible();
-    await makerCheckbox.check();
-    await expect(makerCheckbox).toBeChecked();
+    await expect(sellTab).toHaveAttribute('aria-pressed', 'true');
 
     console.log('9. Testing Bottom Tabs ...');
     await page.locator('button[data-tab-id="balances"]').click();

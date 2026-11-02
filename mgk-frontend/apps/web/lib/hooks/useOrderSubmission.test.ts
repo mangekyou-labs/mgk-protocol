@@ -44,7 +44,7 @@ describe('G12 — decodeProgramError', () => {
     );
     expect(decoded.code).toBe(107);
     expect(decoded.severity).toBe('retryable');
-    expect(decoded.message).toMatch(/free collateral/i);
+    expect(decoded.message).toBe('Your withdrawable collateral is not enough for this order.');
   });
 
   it('returns severity: fatal for OperationPaused (602)', () => {

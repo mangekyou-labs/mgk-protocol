@@ -14,7 +14,7 @@ const FILLS_BODY = {
       instrument_id: 0,
       taker_side: 0,
       price: 150_400_000,
-      qty: 5_000_000,
+      qty: 5_000, // lots of 0.001 SOL
       role: 'taker',
       tx_signature: 'YWFhYWE=',
       ts_estimate: 1700000000400,
@@ -25,7 +25,7 @@ const FILLS_BODY = {
       instrument_id: 0,
       taker_side: 1,
       price: 151_000_000,
-      qty: 3_000_000,
+      qty: 250,
       role: 'maker',
       tx_signature: 'YmJiYmI=',
       ts_estimate: 1700000000800,
@@ -108,6 +108,17 @@ describe('TradeHistory', () => {
     expect(first.getAttribute('data-slot')).toBe('1001');
     expect(first.getAttribute('data-role')).toBe('taker');
     expect(within(first).getByTestId('trade-history-role')).toHaveTextContent('taker');
+  });
+
+  it('shows fill size in SOL from 0.001-SOL lots', async () => {
+    globalThis.fetch = mockFetchOnce(FILLS_BODY);
+    render(<TradeHistory />);
+    await waitFor(() => {
+      expect(screen.getByTestId('trade-history')).toBeInTheDocument();
+    });
+    const qtys = screen.getAllByTestId('trade-history-qty');
+    expect(qtys[0]).toHaveTextContent('5.000');
+    expect(qtys[1]).toHaveTextContent('0.250');
   });
 
   it('renders the explorer link for each fill', async () => {

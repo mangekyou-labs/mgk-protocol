@@ -5,6 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 
 import { Pill } from '@/components/common/Pill';
 import { StatusDot } from '@/components/common/StatusDot';
+import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 import { useBatchPolling } from '@/lib/stores/useBatchStore';
 import { useIndexerHealth } from '@/lib/stores/useIndexerHealthStore';
 import { useSlotPolling } from '@/lib/stores/useSlotPolling';
@@ -16,7 +17,7 @@ import {
 
 export function StatusBar() {
   const { connected, publicKey } = useWallet();
-  const { data, registry } = useBatchPolling(3000);
+  const { data, registry } = useBatchPolling(TRADE_POLL_INTERVAL_MS);
   const { slot: currentSlot } = useSlotPolling(1000);
   const indexerHealth = useIndexerHealth();
 

@@ -9,6 +9,7 @@ import {
 import * as sdk from '@mgk/sdk';
 
 import { Pill } from '@/components/common/Pill';
+import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 import { useBatchPolling } from '@/lib/stores/useBatchStore';
 import { useSlotPolling } from '@/lib/stores/useSlotPolling';
 import { useDevtools } from '@/lib/hooks/useDevtools';
@@ -24,7 +25,7 @@ import {
 } from '@/lib/trade/batchDisplay';
 
 export function BatchTimeline() {
-  const { data, registry, currentBatchId } = useBatchPolling(3000);
+  const { data, registry, currentBatchId } = useBatchPolling(TRADE_POLL_INTERVAL_MS);
   const { slot: currentSlot } = useSlotPolling(1000);
   const devtools = useDevtools();
   const { publicKey, connected } = useWallet();

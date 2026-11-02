@@ -14,12 +14,12 @@ type RestingOrder = sdk.state.RestingOrder;
 
 interface OrderRowProps {
   order: RestingOrder;
+  busy: boolean;
   onCancel: (orderId: bigint) => void;
-  onModify: (orderId: bigint, newQty: bigint) => void;
 }
 
 function formatSide(side: number): { label: string; tone: 'bull' | 'bear' } {
-  return side === 0 ? { label: 'Long', tone: 'bull' } : { label: 'Short', tone: 'bear' };
+  return side === sdk.Side.Buy ? { label: 'Long', tone: 'bull' } : { label: 'Short', tone: 'bear' };
 }
 
 export interface OpenOrdersProps {
@@ -30,16 +30,11 @@ export interface OpenOrdersProps {
 
 const CU_LIMIT = 200_000;
 
-/**
- * Cancel takes [portfolio, user, book, matcher, registry]. ModifyResting also
- * needs [instrument, conversion oracle, vault] for the risk-off gate, passed as
- * `extraKeys`.
- */
-function buildCancelOrModifyIx(
+/** CancelResting takes [portfolio, user, book, matcher, registry]. */
+function buildCancelIx(
   ixData: Uint8Array,
   publicKey: PublicKey,
   instrumentId: number,
-  extraKeys: PublicKey[] = [],
 ): TransactionInstruction {
   const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId);
   const bookPda =
@@ -52,7 +47,6 @@ function buildCancelOrModifyIx(
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: config.matcherProgramId, isSigner: false, isWritable: false },
       { pubkey: config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0], isSigner: false, isWritable: false },
-      ...extraKeys.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })),
     ],
     programId: config.coreProgramId,
     data: Buffer.from(ixData),
@@ -115,40 +109,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
       setBusyOrderId(orderId);
       try {
         const ixData = sdk.programs.encodeCancelRestingOrder(orderId);
-        const ix = buildCancelOrModifyIx(ixData, publicKey, instrumentId);
-        const tx = new Transaction().add(
-          ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
-          ix,
-        );
-        const sig = await safeSend(tx);
-        await sdk.confirmSignature(connection, sig);
-        await fetchOrders();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setBusyOrderId(null);
-      }
-    },
-    [publicKey, sendTransaction, safeSend, connection, fetchOrders, instrumentId],
-  );
-
-  const handleModify = useCallback(
-    async (orderId: bigint, newQty: bigint) => {
-      if (!publicKey || !sendTransaction) return;
-      if (newQty <= 0n) return;
-      setBusyOrderId(orderId);
-      try {
-        const ixData = sdk.programs.encodeModifyRestingOrder(orderId, newQty);
-        const instrumentPda = config.instrumentAddress ?? sdk.deriveInstrumentPda(instrumentId, config.coreProgramId)[0];
-        const instrumentAcc = await connection.getAccountInfo(instrumentPda);
-        if (!instrumentAcc) throw new Error('Instrument not found on-chain.');
-        const oraclePda = sdk.state.readInstrumentOracle(new Uint8Array(instrumentAcc.data));
-        const vaultPda = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
-        const ix = buildCancelOrModifyIx(ixData, publicKey, instrumentId, [
-          instrumentPda,
-          oraclePda,
-          vaultPda,
-        ]);
+        const ix = buildCancelIx(ixData, publicKey, instrumentId);
         const tx = new Transaction().add(
           ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
           ix,
@@ -198,7 +159,6 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
             order={order}
             busy={busyOrderId === order.orderId}
             onCancel={handleCancel}
-            onModify={handleModify}
           />
         ))}
       </div>
@@ -206,135 +166,32 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
   );
 }
 
-function OrderRow({
-  order,
-  busy,
-  onCancel,
-  onModify,
-}: Omit<OrderRowProps, '_onModify'> & { busy: boolean }) {
+function OrderRow({ order, busy, onCancel }: OrderRowProps) {
   const { label, tone } = formatSide(order.side);
   const remaining = order.qty - order.filledQty;
-  const [editing, setEditing] = useState(false);
-  const [editQty, setEditQty] = useState('');
-  const [editError, setEditError] = useState<string | null>(null);
-  const remainingStr = (Number(remaining) / 1_000_000).toString();
-
-  const handleModifySubmit = () => {
-    const parsed = parseFloat(editQty);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setEditError('Enter a quantity greater than 0.');
-      return;
-    }
-    const newQty = BigInt(Math.round(parsed * 1_000_000));
-    if (newQty <= 0n) {
-      setEditError('Quantity is below the minimum precision.');
-      return;
-    }
-    if (newQty === order.qty) {
-      setEditing(false);
-      setEditError(null);
-      return;
-    }
-    onModify(order.orderId, newQty);
-    setEditing(false);
-    setEditQty('');
-    setEditError(null);
-  };
 
   return (
     <div
       data-testid="open-order-row"
       data-order-id={order.orderId.toString()}
-      className="flex items-center gap-2 px-2 py-1 border-b border-border hover:bg-surface-2"
+      className="fade-in flex items-center gap-2 px-2 py-1 border-b border-border hover:bg-surface-2"
     >
       <Pill tone={tone}>{label}</Pill>
       <span data-testid="open-order-price" className="text-text min-w-[60px] text-right">
         <NumberDisplay value={order.price} kind="scaled-usd" />
       </span>
-
-      {editing ? (
-        <div className="flex items-center gap-1 min-w-[60px]">
-          <input
-            type="text"
-            inputMode="decimal"
-            data-testid="open-order-modify-input"
-            value={editQty}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === '' || /^\d*\.?\d*$/.test(v)) {
-                setEditQty(v);
-                setEditError(null);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleModifySubmit();
-              if (e.key === 'Escape') {
-                setEditing(false);
-                setEditError(null);
-              }
-            }}
-            aria-invalid={editError !== null}
-            placeholder={remainingStr}
-            className="w-full rounded border border-accent/40 bg-surface-2 px-1 py-0.5 text-right text-text text-xs outline-none"
-            autoFocus
-          />
-          {editError && (
-            <span data-testid="open-order-modify-error" className="text-bear text-[10px]">
-              {editError}
-            </span>
-          )}
-        </div>
-      ) : (
-        <span data-testid="open-order-qty" className="text-text min-w-[60px] text-right">
-          <NumberDisplay value={remaining} kind="scaled-base" />
-        </span>
-      )}
-
+      <span data-testid="open-order-qty" className="text-text min-w-[60px] text-right">
+        <NumberDisplay value={remaining} kind="lots" />
+      </span>
       <span className="flex-1" />
-      {editing ? (
-        <>
-          <button
-            data-testid="open-order-modify-confirm"
-            onClick={handleModifySubmit}
-            disabled={busy}
-            className="text-accent text-[10px] uppercase tracking-wider hover:underline disabled:opacity-40"
-          >
-            Confirm
-          </button>
-          <button
-            data-testid="open-order-modify-cancel-edit"
-            onClick={() => {
-              setEditing(false);
-              setEditError(null);
-            }}
-            className="text-text-muted text-[10px] uppercase tracking-wider hover:underline"
-          >
-            Cancel
-          </button>
-        </>
-      ) : (
-        <>
-          <button
-            data-testid="open-order-modify"
-            onClick={() => {
-              setEditQty('');
-              setEditing(true);
-            }}
-            disabled={busy}
-            className="text-text-muted text-[10px] uppercase tracking-wider hover:underline disabled:opacity-40"
-          >
-            Modify
-          </button>
-          <button
-            data-testid="open-order-cancel"
-            onClick={() => onCancel(order.orderId)}
-            disabled={busy}
-            className="text-bear text-[10px] uppercase tracking-wider hover:underline disabled:opacity-40"
-          >
-            Cancel
-          </button>
-        </>
-      )}
+      <button
+        data-testid="open-order-cancel"
+        onClick={() => onCancel(order.orderId)}
+        disabled={busy}
+        className="text-bear text-[10px] uppercase tracking-wider hover:underline disabled:opacity-40"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
