@@ -27,7 +27,7 @@ export interface UserFill {
   ts_estimate: number;
 }
 
-interface MyFillsData {
+export interface MyFillsData {
   fills: UserFill[];
   loading: boolean;
   error: string | null;
@@ -35,44 +35,51 @@ interface MyFillsData {
   isPolling: boolean;
 }
 
-interface MyFillsStore extends MyFillsData {
-  setState: (s: MyFillsData) => void;
-  reset: () => void;
-}
-
-export const useMyFillsStore = create<MyFillsStore>((set) => ({
+const EMPTY: MyFillsData = {
   fills: [],
   loading: false,
   error: null,
   lastFetchedAt: null,
   isPolling: false,
-  setState: (s) => set(s),
-  reset: () =>
-    set({
-      fills: [],
-      loading: false,
-      error: null,
-      lastFetchedAt: null,
-      isPolling: false,
-    }),
-}));
+};
 
-interface PollParams {
-  pubkey: string;
-  instrumentId: number;
-  intervalMs: number;
-  timeoutMs: number;
+interface MyFillsStore {
+  /** Poll results, one entry per (wallet, instrument, interval). */
+  byKey: Record<string, MyFillsData>;
 }
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
-let currentParams: PollParams | null = null;
-/** Mounted useMyFills consumers sharing the single poller. */
-let subscribers = 0;
+export const useMyFillsStore = create<MyFillsStore>(() => ({ byKey: {} }));
+
+/** Identifies one poller. Consumers with equal params share it. */
+export function myFillsKey(pubkey: string, instrumentId: number, intervalMs: number): string {
+  return `${pubkey}:${instrumentId}:${intervalMs}`;
+}
+
+/** Store entry for a key; unknown keys read as the empty state. */
+export function myFillsFor(key: string): MyFillsData {
+  return useMyFillsStore.getState().byKey[key] ?? EMPTY;
+}
+
+interface Poller {
+  pubkey: string;
+  instrumentId: number;
+  timeoutMs: number;
+  handle: ReturnType<typeof setInterval> | null;
+  /** Mounted useMyFills consumers sharing this poller. */
+  subscribers: number;
+}
+
+const pollers = new Map<string, Poller>();
+
+function patch(key: string, next: Partial<MyFillsData>): void {
+  useMyFillsStore.setState((s) => ({
+    byKey: { ...s.byKey, [key]: { ...(s.byKey[key] ?? EMPTY), ...next } },
+  }));
+}
 
 async function fetchFills(
   pubkey: string,
   instrumentId: number,
-  timeoutMs: number,
   signal: AbortSignal,
 ): Promise<UserFill[]> {
   const url = `${config.indexerUrl}/api/users/${pubkey}/fills?instrumentId=${instrumentId}&limit=200`;
@@ -84,29 +91,19 @@ async function fetchFills(
   return body.fills;
 }
 
-async function tick(): Promise<void> {
-  const params = currentParams;
-  if (!params) return;
-  const store = useMyFillsStore.getState();
-  if (!store.isPolling) {
-    store.setState({ ...store, loading: true });
-  }
+async function tick(key: string, poller: Poller): Promise<void> {
+  if (!myFillsFor(key).isPolling) patch(key, { loading: true });
   try {
     const fills = await fetchFills(
-      params.pubkey,
-      params.instrumentId,
-      params.timeoutMs,
+      poller.pubkey,
+      poller.instrumentId,
       new AbortController().signal,
     );
-    useMyFillsStore.setState({
-      fills,
-      loading: false,
-      error: null,
-      lastFetchedAt: Date.now(),
-      isPolling: true,
-    });
+    if (pollers.get(key) !== poller) return;
+    patch(key, { fills, loading: false, error: null, lastFetchedAt: Date.now(), isPolling: true });
   } catch (err) {
-    useMyFillsStore.setState({
+    if (pollers.get(key) !== poller) return;
+    patch(key, {
       loading: false,
       error: err instanceof Error ? err.message : 'unknown',
       lastFetchedAt: Date.now(),
@@ -114,78 +111,86 @@ async function tick(): Promise<void> {
   }
 }
 
+function stopPoller(key: string): void {
+  const poller = pollers.get(key);
+  if (poller?.handle != null) clearInterval(poller.handle);
+  pollers.delete(key);
+  useMyFillsStore.setState((s) => {
+    const rest = { ...s.byKey };
+    delete rest[key];
+    return { byKey: rest };
+  });
+}
+
+/**
+ * Starts (or restarts) the poller for these params and resolves after the
+ * first fetch. Pollers for other params keep running.
+ */
 export function startMyFillsPolling(
   pubkey: string,
   instrumentId = 0,
   intervalMs = 5000,
   timeoutMs = 4000,
 ): Promise<void> {
-  const params: PollParams = { pubkey, instrumentId, intervalMs, timeoutMs };
-  currentParams = params;
-  if (pollHandle != null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
-  }
-  return tick().then(() => {
-    if (currentParams !== params) return;
-    pollHandle = setInterval(() => {
-      void tick();
+  const key = myFillsKey(pubkey, instrumentId, intervalMs);
+  const previous = pollers.get(key);
+  if (previous?.handle != null) clearInterval(previous.handle);
+  const poller: Poller = {
+    pubkey,
+    instrumentId,
+    timeoutMs,
+    handle: null,
+    subscribers: previous?.subscribers ?? 0,
+  };
+  pollers.set(key, poller);
+  return tick(key, poller).then(() => {
+    if (pollers.get(key) !== poller) return;
+    poller.handle = setInterval(() => {
+      void tick(key, poller);
     }, intervalMs);
   });
 }
 
+/** Stops every poller and clears the store. */
 export function stopMyFillsPolling(): void {
-  if (pollHandle != null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
-  }
-  currentParams = null;
-  useMyFillsStore.getState().reset();
+  for (const key of [...pollers.keys()]) stopPoller(key);
+  useMyFillsStore.setState({ byKey: {} });
 }
 
 /**
  * React hook: polls the indexer's `GET /api/users/:pubkey/fills` endpoint
- * for the connected wallet and the given instrument. Returns the live store
- * state. Auto-starts on mount + wallet-connect, auto-stops on unmount +
- * disconnect.
+ * for the connected wallet and the given instrument. Consumers with the same
+ * params share one poller; consumers with different params each get their
+ * own. Starts on mount + wallet-connect, stops when its last consumer leaves.
  */
-export function useMyFills(
-  instrumentId = 0,
-  intervalMs = 5000,
-): MyFillsData {
-  const state = useMyFillsStore();
+export function useMyFills(instrumentId = 0, intervalMs = 5000): MyFillsData {
   const { publicKey, connected } = useWallet();
+  const pubkey = connected && publicKey ? publicKey.toBase58() : null;
+  const key = pubkey ? myFillsKey(pubkey, instrumentId, intervalMs) : null;
+  const state = useMyFillsStore((s) => (key ? s.byKey[key] : undefined)) ?? EMPTY;
 
   useEffect(() => {
-    if (!connected || !publicKey) {
-      if (subscribers === 0) stopMyFillsPolling();
-      return;
-    }
-    subscribers += 1;
-    const pubkey = publicKey.toBase58();
-    if (
-      currentParams?.pubkey !== pubkey ||
-      currentParams.instrumentId !== instrumentId ||
-      currentParams.intervalMs !== intervalMs
-    ) {
+    if (!pubkey || !key) return;
+    const existing = pollers.get(key);
+    if (existing) {
+      existing.subscribers += 1;
+    } else {
       void startMyFillsPolling(pubkey, instrumentId, intervalMs);
+      const started = pollers.get(key);
+      if (started) started.subscribers = 1;
     }
     return () => {
-      subscribers -= 1;
-      if (subscribers === 0) stopMyFillsPolling();
+      const poller = pollers.get(key);
+      if (!poller) return;
+      poller.subscribers -= 1;
+      if (poller.subscribers <= 0) stopPoller(key);
     };
-  }, [publicKey, connected, instrumentId, intervalMs]);
+  }, [pubkey, key, instrumentId, intervalMs]);
 
-  return {
-    fills: state.fills,
-    loading: state.loading,
-    error: state.error,
-    lastFetchedAt: state.lastFetchedAt,
-    isPolling: state.isPolling,
-  };
+  return state;
 }
 
-/** Test-only: reset the store + clear the polling handle. */
+/** Test-only: stop all pollers and clear the store. */
 export function __resetMyFillsStore(): void {
   stopMyFillsPolling();
 }

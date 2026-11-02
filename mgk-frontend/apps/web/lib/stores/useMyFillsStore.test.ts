@@ -6,11 +6,13 @@ import {
   startMyFillsPolling,
   stopMyFillsPolling,
   useMyFills,
-  useMyFillsStore,
+  myFillsFor,
+  myFillsKey,
 } from './useMyFillsStore';
 
 const PUBKEY = 'DdqGmK5uamYN5vmuZrzpQhKeehLdwtPLVJdhu5P2iJKC';
 const INSTRUMENT = 0;
+const KEY = myFillsKey(PUBKEY, INSTRUMENT, 60_000);
 const FILLS_RESPONSE = {
   fills: [
     {
@@ -69,7 +71,7 @@ describe('useMyFillsStore', () => {
   });
 
   it('starts empty and not polling', () => {
-    const s = useMyFillsStore.getState();
+    const s = myFillsFor(KEY);
     expect(s.fills).toEqual([]);
     expect(s.loading).toBe(false);
     expect(s.isPolling).toBe(false);
@@ -78,7 +80,7 @@ describe('useMyFillsStore', () => {
   it('fetches fills and populates the store', async () => {
     globalThis.fetch = mockFetchOnce(FILLS_RESPONSE);
     await startMyFillsPolling(PUBKEY, INSTRUMENT, 60_000);
-    const s = useMyFillsStore.getState();
+    const s = myFillsFor(KEY);
     expect(s.fills).toEqual(FILLS_RESPONSE.fills);
     expect(s.error).toBeNull();
     expect(s.lastFetchedAt).toBeGreaterThan(0);
@@ -98,7 +100,7 @@ describe('useMyFillsStore', () => {
   it('records an error when the indexer returns non-OK', async () => {
     globalThis.fetch = mockFetchOnce({ error: 'no' }, 500);
     await startMyFillsPolling(PUBKEY, INSTRUMENT, 60_000);
-    const s = useMyFillsStore.getState();
+    const s = myFillsFor(KEY);
     expect(s.error).toMatch(/500/);
     expect(s.fills).toEqual([]);
   });
@@ -106,7 +108,7 @@ describe('useMyFillsStore', () => {
   it('records an error string on network failure', async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('connection refused'));
     await startMyFillsPolling(PUBKEY, INSTRUMENT, 60_000);
-    const s = useMyFillsStore.getState();
+    const s = myFillsFor(KEY);
     expect(s.error).toMatch(/connection refused/);
   });
 
@@ -124,8 +126,28 @@ describe('useMyFillsStore', () => {
     globalThis.fetch = mockFetchOnce(FILLS_RESPONSE);
     renderHook(() => useMyFills(INSTRUMENT, 60_000));
     await waitFor(() => {
-      expect(useMyFillsStore.getState().fills.length).toBe(2);
+      expect(myFillsFor(KEY).fills.length).toBe(2);
     });
+  });
+
+  it('gives each consumer the fills for its own params, whichever mounted last', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const instrument = url.includes('instrumentId=1') ? 1 : 0;
+      const fills = FILLS_RESPONSE.fills
+        .slice(0, instrument === 1 ? 1 : 2)
+        .map((f) => ({ ...f, instrument_id: instrument }));
+      return new Response(JSON.stringify({ fills }), { status: 200 });
+    });
+    const sol = renderHook(() => useMyFills(0, 60_000));
+    const other = renderHook(() => useMyFills(1, 60_000));
+    await waitFor(() => {
+      expect(sol.result.current.fills.length).toBe(2);
+      expect(other.result.current.fills.length).toBe(1);
+    });
+    expect(sol.result.current.fills.every((f) => f.instrument_id === 0)).toBe(true);
+    expect(other.result.current.fills.every((f) => f.instrument_id === 1)).toBe(true);
+    other.unmount();
+    sol.unmount();
   });
 
   it('keeps polling for the remaining consumer when another one unmounts', async () => {
@@ -135,11 +157,11 @@ describe('useMyFillsStore', () => {
     const page = renderHook(() => useMyFills(INSTRUMENT, 60_000));
     const tab = renderHook(() => useMyFills(INSTRUMENT, 60_000));
     await waitFor(() => {
-      expect(useMyFillsStore.getState().fills.length).toBe(2);
+      expect(myFillsFor(KEY).fills.length).toBe(2);
     });
     tab.unmount();
-    expect(useMyFillsStore.getState().fills.length).toBe(2);
+    expect(myFillsFor(KEY).fills.length).toBe(2);
     page.unmount();
-    expect(useMyFillsStore.getState().fills.length).toBe(0);
+    expect(myFillsFor(KEY).fills.length).toBe(0);
   });
 });
