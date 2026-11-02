@@ -1,0 +1,61 @@
+name: Browser UI truthfulness
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'mgk-frontend/**'
+      - 'deployments/**'
+      - '.github/workflows/browser-truthfulness.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'mgk-frontend/**'
+      - 'deployments/**'
+      - '.github/workflows/browser-truthfulness.yml'
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: 'Optional reviewed Vercel candidate URL; blank runs the isolated local fixture build'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mgk-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.9 # pnpm-lock.yaml uses lockfile version 6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: mgk-frontend/pnpm-lock.yaml
+      - run: NO_DNA=1 pnpm install --frozen-lockfile
+      - run: NO_DNA=1 pnpm -F @mgk/sdk build
+      - run: NO_DNA=1 pnpm -F web exec playwright install --with-deps chromium
+      - name: Exercise UI against controlled external boundaries
+        if: ${{ !inputs.preview_url }}
+        run: NO_DNA=1 pnpm -F web e2e:truthfulness:local
+      - name: Exercise reviewed Vercel candidate UI
+        if: ${{ inputs.preview_url != '' }}
+        run: NO_DNA=1 pnpm -F web e2e:truthfulness
+        env:
+          E2E_BASE_URL: ${{ inputs.preview_url }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-ui-truthfulness
+          path: |
+            mgk-frontend/apps/web/test-results/truthfulness/
+            mgk-frontend/apps/web/playwright-report/
+          retention-days: 7
