@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "e2e:wallet": "playwright test e2e/wallet-flow.spec.ts --project=chromium --workers=1"
+    "e2e:wallet": "playwright test e2e/wallet-flow.spec.ts --project=chromium --workers=1",
+    "e2e:truthfulness": "playwright test --config playwright.truthfulness.config.ts",
+    "e2e:truthfulness:local": "node scripts/truthfulness-local.cjs"
   },
   "dependencies": {
     "@mgk/sdk": "workspace:*",
