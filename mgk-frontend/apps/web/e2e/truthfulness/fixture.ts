@@ -1,5 +1,6 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { PublicKey } from '@solana/web3.js';
+import { state } from '@mgk/sdk';
 import { layouts } from '../../../../packages/layout/index.js';
 import instructions from '../../../../packages/layout/instruction-fixtures.json';
 
@@ -38,10 +39,10 @@ export class ControlledMarket {
   position = false;
   order: 'buy' | 'sell' | null = null;
   batchId = 0;
-  phases = new Map<number, number>([[0, 0]]);
+  phases = new Map<number, state.BatchStatus>([[0, state.BatchStatus.Collecting]]);
   settledBatches: number[] = [];
   get phase() { return this.phases.get(this.batchId)!; }
-  set phase(value: number) { this.phases.set(this.batchId, value); }
+  set phase(value: state.BatchStatus) { this.phases.set(this.batchId, value); }
   paused = false;
   staleOracle = false;
   missingOracle = false;
@@ -80,7 +81,7 @@ export class ControlledMarket {
     } else if ([...this.phases.keys()].some(id => address === this.batchAddress(id))) {
       const id = [...this.phases.keys()].find(id => address === this.batchAddress(id))!;
       const phase = this.phases.get(id)!;
-      data = bytes('Batch', { batchId: BigInt(id), status: phase, closeSlot: 10000n, markValid: phase === 3 || phase === 4 ? 1 : 0, clearingPrice: 100_000_000n });
+      data = bytes('Batch', { batchId: BigInt(id), status: phase, closeSlot: 10000n, markValid: phase === state.BatchStatus.Settled || phase === state.BatchStatus.Cleared ? 1 : 0, clearingPrice: 100_000_000n });
     }
     else if (address === this.book) {
       owner = m.programs.perps_matcher;
@@ -100,10 +101,10 @@ export class ControlledMarket {
       else if (d !== code('InitPortfolioForUser')) throw new Error(`Unscripted synthetic wallet instruction ${d}`);
     }
   }
-  clear() { this.order = null; this.phase = 4; }
+  clear() { this.order = null; this.phase = state.BatchStatus.Cleared; }
   settle(close = false) {
-    this.phase = 3; this.position = !close; this.settledBatches.push(this.batchId);
-    this.batchId++; this.phase = 0;
+    this.phase = state.BatchStatus.Settled; this.position = !close; this.settledBatches.push(this.batchId);
+    this.batchId++; this.phase = state.BatchStatus.Collecting;
   }
   rpc(method: string, params: unknown[] = []): unknown {
     const context = { slot: 42 };
