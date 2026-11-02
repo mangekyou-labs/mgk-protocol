@@ -56,18 +56,12 @@ services:
         sync: false  # set in Render dashboard
       - key: KEEPER_KEYPAIR
         sync: false  # mounted as Render secret file
-      - key: BOOK_ADDRESS
-        sync: false  # set in Render dashboard
-      - key: PORTFOLIO_ADDRESSES
-        value: ""  # optional; keeper discovers dynamically
-      - key: INTERVAL
-        value: "5000"
-      - key: MAX_CONSECUTIVE_ERRORS
-        value: "5"
-      - key: LOG_LEVEL
-        value: "info"
-    buildCommand: cd tools && npm install @solana/web3.js
-    startCommand: node tools/ops-keeper.js --loop --interval 5000
+      - key: DEPLOYMENT_MANIFEST
+        value: "deployments/devnet.json"
+      - key: MONITORING_CONFIG
+        value: "deployments/monitoring.json"
+    buildCommand: cd tools && npm install --ignore-scripts --no-audit --no-fund
+    startCommand: node tools/ops-keeper.js --loop
 
   # -----------------------------------------------------------------------
   # Oracle — price oracle background worker (no HTTP server)
