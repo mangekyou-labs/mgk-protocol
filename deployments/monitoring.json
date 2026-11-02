@@ -1,5 +1,15 @@
 {
   "feePayers": {"keeper": null, "oracle": null, "maker": null},
   "feeFloorLamports": "10000000",
-  "insuranceFloorLamports": "1000000000"
+  "insuranceFloorLamports": "1000000000",
+  "uptime": {
+    "provider": "UptimeRobot",
+    "type": "keyword",
+    "path": "/api/status",
+    "intervalSeconds": 60,
+    "keyword": "\"severity\":\"critical\"",
+    "alertChannel": "email + Slack #mgk-ops (webhook provisioned outside the repo)",
+    "alertOn": ["endpoint unreachable", "response contains the keyword"],
+    "warnHandling": "severity warn is logged and paged only after 5 consecutive polls"
+  }
 }

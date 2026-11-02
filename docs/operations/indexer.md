@@ -45,5 +45,7 @@ seconds warns. Cleared longer than 120 seconds is critical, measured from the
 successful clear transaction. Missing either maker side, fee balances below the
 floor, and active pause flags are critical. Insurance below its floor and replay
 lag over 150 slots warn. The status route performs only RPC reads and does not
-pause, trade, fund, settle, or resolve incidents. Point the operator's external
-monitor at this endpoint; this repository does not provision an alert channel.
+pause, trade, fund, settle, or resolve incidents. The external uptime monitor
+and alert channel are configured in the `uptime` block of
+`deployments/monitoring.json` (UptimeRobot, 60 s polls of `/api/status`,
+email + Slack #mgk-ops). Incident response lives in `docs/runbooks/`.

@@ -5,8 +5,11 @@
 #   mgk-indexer  — read-only sync/API (Node 22, SQLite disk, no embedded writer)
 #   mgk-keeper   — batch lifecycle cranker (Node 22 background worker)
 #   mgk-oracle   — price oracle publisher (Node 22 background worker)
+#   mgk-maker    — protocol maker / liquidator of last resort (Node 22 worker)
 #
-# ⚠️  Keepers and oracles have autoDeploy: false to prevent uncontrolled cutovers.
+# ⚠️  All background workers have autoDeploy: false. A push never changes
+#     production: cut over by manually deploying the recorded pinned commit
+#     for that service (see docs/runbooks/rollback.md).
 
 services:
   # -----------------------------------------------------------------------
@@ -89,3 +92,28 @@ services:
         value: "info"
     buildCommand: cd tools && npm install --ignore-scripts --no-audit --no-fund
     startCommand: node tools/ops-oracle.js --loop
+
+  # -----------------------------------------------------------------------
+  # Protocol maker — two-sided GTC ladder + liquidator of last resort
+  # -----------------------------------------------------------------------
+  - name: mgk-maker
+    type: worker
+    runtime: node
+    plan: starter
+    region: oregon
+    autoDeploy: false  # manual cutover only; pinned commit, see rollback runbook
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: RPC_URL
+        sync: false  # set in Render dashboard
+      - key: MAKER_KEYPAIR
+        sync: false  # mounted as Render secret file
+      - key: DEPLOYMENT_MANIFEST
+        value: "deployments/devnet.json"
+      - key: MONITORING_CONFIG
+        value: "deployments/monitoring.json"
+      - key: LOG_LEVEL
+        value: "info"
+    buildCommand: cd tools && npm install --ignore-scripts --no-audit --no-fund
+    startCommand: node tools/maker-worker-cli.js --loop
