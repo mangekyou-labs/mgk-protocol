@@ -8,11 +8,29 @@
     "oracle": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm"
   },
   "accounts": {
-    "registry": { "status": "pending" },
-    "instrument": { "status": "pending" },
-    "oracle": { "status": "pending" },
-    "insurance": { "status": "pending" },
-    "maker": { "status": "pending" }
+    "registry": {
+      "status": "deployed",
+      "address": "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH"
+    },
+    "instrument": {
+      "status": "deployed",
+      "address": "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+    },
+    "oracle": {
+      "status": "deployed",
+      "address": "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp"
+    },
+    "insurance": {
+      "status": "deployed",
+      "address": "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV"
+    },
+    "maker": {
+      "status": "deployed",
+      "address": "DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o"
+    }
   },
-  "start_slot": { "status": "pending" }
+  "start_slot": {
+    "status": "set",
+    "slot": 517959329
+  }
 }

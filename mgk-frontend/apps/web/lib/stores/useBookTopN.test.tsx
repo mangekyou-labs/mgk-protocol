@@ -12,13 +12,19 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import { useBookTopN, useBookStore } from './useBookStore';
 
 const MATCHER_PK = new PublicKey('9o2vTBBhEp6CYxNsDPsX79Euhzh8TtoLTSHR5R3jXebZ');
-const BOOK_PDA = new PublicKey('A6qbhK9mPRpFhX7D1kZsBpr2xNy8mfgU5J7Vu9xLE5Rp');
+// Hoisted: config.ts derives the book PDA while the store module loads.
+const { BOOK_PDA_ADDRESS } = vi.hoisted(() => ({
+  BOOK_PDA_ADDRESS: 'A6qbhK9mPRpFhX7D1kZsBpr2xNy8mfgU5J7Vu9xLE5Rp',
+}));
+const BOOK_PDA = new PublicKey(BOOK_PDA_ADDRESS);
 
 vi.mock('@mgk/sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof sdk>();
+  const { PublicKey } = await import('@solana/web3.js');
+  const bookPda = new PublicKey(BOOK_PDA_ADDRESS);
   return {
     ...actual,
-    deriveBookPda: vi.fn(() => [BOOK_PDA, 255] as const),
+    deriveBookPda: vi.fn(() => [bookPda, 255] as const),
   };
 });
 
