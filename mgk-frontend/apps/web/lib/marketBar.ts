@@ -1,13 +1,35 @@
-import type { state } from '@mgk/sdk';
+import { state } from '@mgk/sdk';
 
-import type { OracleReading } from '@/components/trade/MarketHeader';
-import type { OrderBookStatus } from '@/components/trade/OrderBook';
+import { ORACLE_MAX_AGE_SECONDS } from '@/lib/protocol';
 
-/** Oracle readings older than this block new exposure on-chain. */
-export const ORACLE_MAX_AGE_SECONDS = 60;
+export type OracleReading =
+  | { state: 'valid'; price: bigint; ageSeconds: number }
+  | { state: 'stale'; price: bigint; ageSeconds: number }
+  | { state: 'unavailable'; price: null; ageSeconds: null };
 
-/** Pause bits that block new exposure: PAUSE_TRADING | PAUSE_POST. */
-export const NEW_EXPOSURE_PAUSE_MASK = 1 | 16;
+export type OrderBookStatus = 'loading' | 'ok' | 'delayed' | 'unavailable';
+
+/** Clearing price of a batch, labelled with that batch. */
+export interface ClearPrice {
+  price: bigint;
+  batchId: bigint;
+}
+
+/**
+ * Why order entry is closed by the batch cycle. `clearing`: the auction is
+ * still running. `cleared`: results are fixed and await settlement.
+ */
+export interface BatchGate {
+  phase: 'clearing' | 'cleared';
+  batchId: bigint;
+}
+
+/** Vault figures that gate new exposure. Open interest in lots, fund in lamports. */
+export interface MarketExposure {
+  openInterestLong: bigint;
+  openInterestShort: bigint;
+  insuranceFund: bigint;
+}
 
 export function readOracle(
   oracle: { isActive: boolean; price: bigint; timestamp: bigint } | null,
@@ -52,10 +74,23 @@ export function bookStatus({
   return { status: error || stale ? 'delayed' : 'ok', ageSeconds };
 }
 
-export function lastClearOf(
-  batch: state.BatchState | null,
-  batchId: bigint,
-): { price: bigint; batchId: bigint } | null {
+export function lastClearOf(batch: state.BatchState | null, batchId: bigint): ClearPrice | null {
   if (!batch || !batch.markValid || batch.clearingPrice <= 0n) return null;
   return { price: batch.clearingPrice, batchId };
+}
+
+/** Posting is blocked from the moment a batch stops collecting until it settles. */
+export function batchGate(status: state.BatchStatus, batchId: bigint): BatchGate | null {
+  if (status === state.BatchStatus.Clearing) return { phase: 'clearing', batchId };
+  if (status === state.BatchStatus.Cleared) return { phase: 'cleared', batchId };
+  return null;
+}
+
+export function marketExposure(vault: MarketExposure | null): MarketExposure | null {
+  if (!vault) return null;
+  return {
+    openInterestLong: vault.openInterestLong,
+    openInterestShort: vault.openInterestShort,
+    insuranceFund: vault.insuranceFund,
+  };
 }

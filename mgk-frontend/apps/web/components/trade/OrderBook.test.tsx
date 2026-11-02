@@ -99,9 +99,9 @@ describe('OrderBook', () => {
     expect(onSelectPrice).toHaveBeenCalledWith(usd(99.5));
   });
 
-  it('shows the empty state when there are no resting orders', () => {
+  it('shows the empty state when no orders are on the book', () => {
     render(<OrderBook status="ok" bids={[]} asks={[]} />);
-    expect(screen.getByTestId('orderbook-empty')).toHaveTextContent('No resting orders.');
+    expect(screen.getByTestId('orderbook-empty')).toHaveTextContent('No orders on the book.');
   });
 
   it('shows the book as unavailable, not empty, when the source is down', () => {

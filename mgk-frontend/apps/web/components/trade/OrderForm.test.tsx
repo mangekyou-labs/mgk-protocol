@@ -16,8 +16,9 @@ function setup(over: Partial<OrderFormProps> = {}) {
   const props: OrderFormProps = {
     oracle: { state: 'valid', price: 150_000_000n, ageSeconds: 2 },
     newExposurePaused: false,
-    unsettledBatchId: null,
-    freeCollateral: 10n * SOL,
+    withdrawableCollateral: 10n * SOL,
+    batchGate: null,
+    market: { openInterestLong: 0n, openInterestShort: 0n, insuranceFund: 100n * SOL },
     positionLots: 0n,
     portfolio: null,
     portfolioLoading: false,
@@ -75,22 +76,23 @@ describe('<OrderForm />', () => {
     expect(submit()).toBeEnabled();
   });
 
-  it('shows order value, initial margin, available and fee', () => {
-    setup({ freeCollateral: 3n * SOL });
+  it('shows order value, initial margin, withdrawable collateral and fee', () => {
+    setup({ withdrawableCollateral: 3n * SOL });
     fill('150', '1');
     const summary = screen.getByTestId('order-form-summary');
     expect(summary).toHaveTextContent('Order value$150.00');
     expect(summary).toHaveTextContent('Initial margin0.2 SOL');
-    expect(summary).toHaveTextContent('Available3 SOL');
+    expect(summary).toHaveTextContent('Withdrawable collateral3 SOL');
+    expect(summary).not.toHaveTextContent('Available');
     expect(summary).toHaveTextContent('Fee≤ 5 bps · 0.0005 SOL');
   });
 
   it('renders unknown summary values as "--", never 0', () => {
-    setup({ freeCollateral: null });
+    setup({ withdrawableCollateral: null });
     const summary = screen.getByTestId('order-form-summary');
     expect(summary).toHaveTextContent('Order value--');
     expect(summary).toHaveTextContent('Initial margin--');
-    expect(summary).toHaveTextContent('Available--');
+    expect(summary).toHaveTextContent('Withdrawable collateral--');
     expect(summary).not.toHaveTextContent(/\b0(\.00)? /);
   });
 
@@ -100,10 +102,31 @@ describe('<OrderForm />', () => {
       ['oracle', { oracle: { state: 'stale', price: 150_000_000n, ageSeconds: 74 } }, ['150', '1'], 'Oracle stale (74 s > 60 s)'],
       ['price', {}, ['', '1'], 'Enter a price.'],
       ['lot', {}, ['150', '0.0005'], 'Size must be a multiple of 0.001 SOL.'],
-      ['cap', {}, ['150', '11'], 'Max 10 SOL per portfolio.'],
-      ['margin', { freeCollateral: SOL / 10n }, ['150', '1'], 'Needs 0.2005 SOL margin, 0.1 available.'],
-      ['unsettled batch', { unsettledBatchId: 41n }, ['150', '1'], 'Batch 41 cleared, awaiting settlement.'],
+      ['portfolio exposure limit', {}, ['150', '11'], 'Portfolio exposure limit is 10 SOL.'],
+      [
+        'market exposure limit',
+        { market: { openInterestLong: 49_500n, openInterestShort: 0n, insuranceFund: 100n * SOL } },
+        ['150', '1'],
+        'Market exposure limit: long open interest 49.5 of 50 SOL.',
+      ],
+      [
+        'insurance fund floor',
+        { market: { openInterestLong: 1_000n, openInterestShort: 0n, insuranceFund: SOL / 10n } },
+        ['150', '1'],
+        'Risk-off: insurance fund below reserve.',
+      ],
+      ['margin', { withdrawableCollateral: SOL / 10n }, ['150', '1'], 'Needs 0.2005 SOL margin, 0.1 SOL withdrawable.'],
+      ['clearing batch', { batchGate: { phase: 'clearing', batchId: 41n } }, ['150', '1'], 'Batch 41 clearing. Orders reopen after settlement.'],
+      ['cleared batch', { batchGate: { phase: 'cleared', batchId: 41n } }, ['150', '1'], 'Batch 41 cleared, awaiting settlement.'],
     ];
+
+    it('names an unknown position for reduce-only', () => {
+      setup({ positionLots: null });
+      fireEvent.click(screen.getByLabelText('Reduce only'));
+      fill('150', '1');
+      expect(submit()).toBeDisabled();
+      expect(submit()).toHaveTextContent('Position unknown.');
+    });
     it.each(cases)('%s', async (_name, props, [p, s], reason) => {
       const { onSubmit } = setup(props);
       fill(p, s);
@@ -118,8 +141,9 @@ describe('<OrderForm />', () => {
         <OrderForm
           oracle={{ state: 'valid', price: 150_000_000n, ageSeconds: 1 }}
           newExposurePaused={false}
-          unsettledBatchId={null}
-          freeCollateral={SOL}
+          batchGate={null}
+          withdrawableCollateral={SOL}
+          market={{ openInterestLong: 0n, openInterestShort: 0n, insuranceFund: 100n * SOL }}
           positionLots={0n}
           portfolio={null}
           portfolioLoading={false}
@@ -138,6 +162,23 @@ describe('<OrderForm />', () => {
     fill('150', '2');
     expect(submit()).toBeEnabled();
     expect(screen.getByTestId('order-form-summary')).toHaveTextContent('Initial margin0 SOL');
+  });
+
+  it('lets reduce-only close a long at the market exposure limit and insurance fund floor', () => {
+    setup({ positionLots: 2_000n, market: { openInterestLong: 50_000n, openInterestShort: 50_000n, insuranceFund: 0n } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+    fireEvent.click(screen.getByLabelText('Reduce only'));
+    fill('150', '2');
+    expect(submit()).toBeEnabled();
+  });
+
+  it('blocks reduce-only when its fee exceeds withdrawable collateral', () => {
+    setup({ positionLots: 2_000n, withdrawableCollateral: 0n });
+    fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+    fireEvent.click(screen.getByLabelText('Reduce only'));
+    fill('150', '2');
+    expect(submit()).toBeDisabled();
+    expect(submit()).toHaveTextContent('Needs 0.001 SOL fee, 0 SOL withdrawable.');
   });
 
   describe('lifecycle', () => {
@@ -172,9 +213,14 @@ describe('<OrderForm />', () => {
       expect(screen.queryByTestId('order-lifecycle')).toBeNull();
     });
 
-    it('shows the lifecycle tag it is given', () => {
-      setup({ lifecycle: 'Accepted · resting in batch 42' });
-      expect(screen.getByTestId('order-lifecycle')).toHaveTextContent('Accepted · resting in batch 42');
+    it('renders the lifecycle state it is given', () => {
+      setup({ lifecycle: { kind: 'accepted', batchId: 42n } });
+      expect(screen.getByTestId('order-lifecycle')).toHaveTextContent('Accepted · on the book in batch 42');
+    });
+
+    it('shows a partial fill with the remainder on the book', () => {
+      setup({ lifecycle: { kind: 'partiallyFilled', filledLots: 400n, remainingLots: 600n, awaitingSettlement: false } });
+      expect(screen.getByTestId('order-lifecycle')).toHaveTextContent('Partially filled · 0.4 SOL filled, 0.6 SOL on the book');
     });
   });
 

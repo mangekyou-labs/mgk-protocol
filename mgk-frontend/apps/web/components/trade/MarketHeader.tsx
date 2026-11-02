@@ -6,15 +6,12 @@
  * unknown; unknown renders as "--" or "unavailable", never as 0.
  */
 
-export type OracleReading =
-  | { state: 'valid'; price: bigint; ageSeconds: number }
-  | { state: 'stale'; price: bigint; ageSeconds: number }
-  | { state: 'unavailable'; price: null; ageSeconds: null };
+import type { ClearPrice, OracleReading } from '@/lib/marketBar';
 
 export interface MarketHeaderProps {
   oracle: OracleReading;
   /** Mark from the most recent cleared batch. null = no valid mark known. */
-  mark: { price: bigint; batchId: bigint } | null;
+  mark: ClearPrice | null;
   /** Batch currently collecting orders. null = unknown. */
   collectingBatchId: bigint | null;
 }

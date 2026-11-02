@@ -3,13 +3,12 @@
 import * as sdk from '@mgk/sdk';
 
 import { NumberDisplay } from '@/components/common/NumberDisplay';
+import type { ClearPrice, OrderBookStatus } from '@/lib/marketBar';
 
 type BookLevel = sdk.state.BookLevel;
 
 /** Levels shown per side. The batch auction only needs the top of book. */
 export const BOOK_LEVELS_PER_SIDE = 5;
-
-export type OrderBookStatus = 'loading' | 'ok' | 'delayed' | 'unavailable';
 
 export interface OrderBookProps {
   status: OrderBookStatus;
@@ -18,8 +17,8 @@ export interface OrderBookProps {
   /** Seconds since the last successful book read. null = unknown. */
   ageSeconds?: number | null;
   /** Most recent cleared batch. null/undefined = no clear known yet. */
-  lastClear?: { price: bigint; batchId: bigint } | null;
-  /** Prices of the connected wallet's own resting orders, per side. */
+  lastClear?: ClearPrice | null;
+  /** Prices of the connected wallet's own orders on the book, per side. */
   ownPrices?: { bids: bigint[]; asks: bigint[] };
   onSelectPrice?: (price: bigint) => void;
   className?: string;
@@ -94,7 +93,7 @@ export function OrderBook({
           data-testid="orderbook-empty"
           className="px-4 py-8 text-center text-text-faint"
         >
-          No resting orders.
+          No orders on the book.
         </div>
       ) : (
         <div className={delayed ? 'opacity-60' : undefined}>

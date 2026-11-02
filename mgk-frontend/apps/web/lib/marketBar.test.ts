@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { state } from '@mgk/sdk';
 
-import { bookStatus, lastClearOf, readOracle } from './marketBar';
+import { batchGate, bookStatus, lastClearOf, marketExposure, readOracle } from './marketBar';
 
 const oracle = (over: Partial<{ isActive: boolean; price: bigint; timestamp: bigint }> = {}) => ({
   isActive: true,
@@ -78,5 +78,42 @@ describe('bookStatus', () => {
       .toBe('unavailable');
     expect(bookStatus({ hasData: false, error: null, lastFetchedAt: NOW - 1_000, nowMs: NOW, intervalMs: 5_000 }).status)
       .toBe('unavailable');
+  });
+});
+
+describe('batchGate', () => {
+  it('is open while the batch collects orders', () => {
+    expect(batchGate(state.BatchStatus.Collecting, 41n)).toBeNull();
+  });
+
+  it('separates an auction still clearing from a cleared batch awaiting settlement', () => {
+    expect(batchGate(state.BatchStatus.Clearing, 41n)).toEqual({ phase: 'clearing', batchId: 41n });
+    expect(batchGate(state.BatchStatus.Cleared, 41n)).toEqual({ phase: 'cleared', batchId: 41n });
+  });
+
+  it('is open once settled', () => {
+    expect(batchGate(state.BatchStatus.Settled, 41n)).toBeNull();
+  });
+});
+
+describe('marketExposure', () => {
+  it('reads open interest per side and the insurance fund from the vault', () => {
+    const vault = {
+      balance: 9n,
+      bump: 1,
+      insuranceFund: 5_000_000_000n,
+      openInterestLong: 1_200n,
+      openInterestShort: 800n,
+      uncoveredBadDebt: 0n,
+    };
+    expect(marketExposure(vault)).toEqual({
+      openInterestLong: 1_200n,
+      openInterestShort: 800n,
+      insuranceFund: 5_000_000_000n,
+    });
+  });
+
+  it('is unknown without a vault', () => {
+    expect(marketExposure(null)).toBeNull();
   });
 });

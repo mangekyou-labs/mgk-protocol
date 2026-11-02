@@ -69,7 +69,7 @@ test.describe('DFBA wallet flow without an extension', () => {
       'Orders open',
     );
     await expect(page.getByTestId('order-lifecycle')).toHaveText(
-      /Accepted · resting in batch \d+/,
+      /Accepted · on the book in batch \d+/,
     );
 
     rpc.setBatchPhase('clearing');

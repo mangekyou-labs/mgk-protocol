@@ -4,10 +4,11 @@ import { useRef, useState } from 'react';
 
 import type * as sdk from '@mgk/sdk';
 import { AccountActions } from '@/components/orderform/AccountActions';
-import type { OracleReading } from '@/components/trade/MarketHeader';
+import type { BatchGate, MarketExposure, OracleReading } from '@/lib/marketBar';
+import { lifecycleLabel, type OrderLifecycle } from '@/lib/orderLifecycle';
+import { abs, LOTS_PER_SOL } from '@/lib/protocol';
 import { formatSol } from '@/lib/solAmount';
 import {
-  LOTS_PER_SOL,
   orderBlockReason,
   parseLots,
   parsePriceMicro,
@@ -32,10 +33,12 @@ export interface OrderFormProps {
   oracle: OracleReading;
   /** null = pause flags unknown. */
   newExposurePaused: boolean | null;
-  /** Batch that cleared and is awaiting settlement, if any. */
-  unsettledBatchId: bigint | null;
-  /** Free collateral in lamports; null = unknown. */
-  freeCollateral: bigint | null;
+  /** Set while the current batch is clearing or cleared but not settled. */
+  batchGate: BatchGate | null;
+  /** Withdrawable collateral in lamports; null = unknown. */
+  withdrawableCollateral: bigint | null;
+  /** Vault open interest and insurance fund; null = unknown. */
+  market: MarketExposure | null;
   /** Signed position in lots; null = unknown. */
   positionLots: bigint | null;
   /**
@@ -43,8 +46,8 @@ export interface OrderFormProps {
    * when the program accepted the order, reject otherwise.
    */
   onSubmit?: (params: OrderFormParams, onSigned: () => void) => Promise<void>;
-  /** Lifecycle tag of the last accepted order, e.g. "Accepted · resting in batch 42". */
-  lifecycle?: string | null;
+  /** Lifecycle of the last accepted order. */
+  lifecycle?: OrderLifecycle | null;
   /** Price picked on the book; a new nonce re-applies the same price. */
   priceOverride?: { price: bigint; nonce: number } | null;
   portfolio: PortfolioState | null;
@@ -81,8 +84,9 @@ const inputClass =
 export function OrderForm({
   oracle,
   newExposurePaused,
-  unsettledBatchId,
-  freeCollateral,
+  batchGate,
+  withdrawableCollateral,
+  market,
   positionLots,
   onSubmit,
   lifecycle = null,
@@ -116,9 +120,10 @@ export function OrderForm({
     reduceOnly,
     oracle,
     newExposurePaused,
-    unsettledBatchId,
-    freeCollateral,
+    batchGate,
+    withdrawableCollateral,
     positionLots,
+    market,
   });
   const costs =
     lots != null && priceMicro != null && oracle.price != null
@@ -127,12 +132,13 @@ export function OrderForm({
   const orderValue = lots != null && priceMicro != null ? (lots * priceMicro) / LOTS_PER_SOL : null;
 
   const busy = phase !== 'idle';
+  function idleLabel(): string {
+    if (reason) return reason;
+    if (!onSubmit) return 'Connect a wallet to trade.';
+    return `${side === 'buy' ? 'Buy' : 'Sell'} ${lots != null ? formatLots(lots) : ''} SOL`;
+  }
   const label =
-    phase === 'approve'
-      ? 'Approve in wallet…'
-      : phase === 'confirming'
-        ? 'Confirming…'
-        : reason ?? (!onSubmit ? 'Connect a wallet to trade.' : `${side === 'buy' ? 'Buy' : 'Sell'} ${formatLots(lots!)} SOL`);
+    phase === 'approve' ? 'Approve in wallet…' : phase === 'confirming' ? 'Confirming…' : idleLabel();
   const disabled = busy || reason != null || !onSubmit;
 
   async function submit() {
@@ -153,10 +159,10 @@ export function OrderForm({
     if (positionLots == null || positionLots === 0n) return;
     setSide(positionLots > 0n ? 'sell' : 'buy');
     setReduceOnly(true);
-    setSize(formatLots(positionLots > 0n ? positionLots : -positionLots));
+    setSize(formatLots(abs(positionLots)));
   }
 
-  const open = positionLots != null && positionLots !== 0n;
+  const openPosition = positionLots != null && positionLots !== 0n ? positionLots : null;
 
   return (
     <section
@@ -216,13 +222,13 @@ export function OrderForm({
           <input type="checkbox" checked={reduceOnly} onChange={e => setReduceOnly(e.target.checked)} />
           Reduce only
         </label>
-        {open && (
+        {openPosition != null && (
           <button
             type="button"
             onClick={prepareClose}
             className="cta rounded border border-border px-2 py-1 text-xs text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
-            {`Close ${positionLots! > 0n ? 'long' : 'short'} ${formatLots(positionLots! > 0n ? positionLots! : -positionLots!)} SOL`}
+            {`Close ${openPosition > 0n ? 'long' : 'short'} ${formatLots(abs(openPosition))} SOL`}
           </button>
         )}
       </div>
@@ -232,8 +238,8 @@ export function OrderForm({
         <dd className="text-right font-mono tabular-nums text-text">{orderValue != null ? formatUsd(orderValue) : '--'}</dd>
         <dt className="text-text-muted">Initial margin</dt>
         <dd className="text-right font-mono tabular-nums text-text">{costs ? `${formatSol(costs.initialMargin)} SOL` : '--'}</dd>
-        <dt className="text-text-muted">Available</dt>
-        <dd className="text-right font-mono tabular-nums text-text">{freeCollateral != null ? `${formatSol(freeCollateral)} SOL` : '--'}</dd>
+        <dt className="text-text-muted">Withdrawable collateral</dt>
+        <dd className="text-right font-mono tabular-nums text-text">{withdrawableCollateral != null ? `${formatSol(withdrawableCollateral)} SOL` : '--'}</dd>
         <dt className="text-text-muted">Fee</dt>
         <dd className="text-right font-mono tabular-nums text-text">{`≤ 5 bps · ${costs ? `${formatSol(costs.fee)} SOL` : '--'}`}</dd>
       </dl>
@@ -253,7 +259,7 @@ export function OrderForm({
 
       {lifecycle && (
         <p data-testid="order-lifecycle" role="status" className="fade-in text-xs text-text">
-          {lifecycle}
+          {lifecycleLabel(lifecycle)}
         </p>
       )}
 
