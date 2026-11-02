@@ -1,8 +1,15 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { PublicKey } from '@solana/web3.js';
-import { state } from '@mgk/sdk';
+import type { state } from '@mgk/sdk';
 import { layouts } from '../../../../packages/layout/index.js';
 import instructions from '../../../../packages/layout/instruction-fixtures.json';
+
+// Keep the CommonJS Playwright fixture loadable; typecheck wire values against the ESM SDK.
+const BatchStatus = {
+  Collecting: 0,
+  Settled: 3,
+  Cleared: 4,
+} as const satisfies Pick<typeof state.BatchStatus, 'Collecting' | 'Settled' | 'Cleared'>;
 
 const walletBytes = Array.from({ length: 32 }, (_, i) => i + 1);
 const walletKey = new PublicKey(walletBytes);
@@ -39,7 +46,7 @@ export class ControlledMarket {
   position = false;
   order: 'buy' | 'sell' | null = null;
   batchId = 0;
-  phases = new Map<number, state.BatchStatus>([[0, state.BatchStatus.Collecting]]);
+  phases = new Map<number, state.BatchStatus>([[0, BatchStatus.Collecting]]);
   settledBatches: number[] = [];
   get phase() { return this.phases.get(this.batchId)!; }
   set phase(value: state.BatchStatus) { this.phases.set(this.batchId, value); }
@@ -81,7 +88,7 @@ export class ControlledMarket {
     } else if ([...this.phases.keys()].some(id => address === this.batchAddress(id))) {
       const id = [...this.phases.keys()].find(id => address === this.batchAddress(id))!;
       const phase = this.phases.get(id)!;
-      data = bytes('Batch', { batchId: BigInt(id), status: phase, closeSlot: 10000n, markValid: phase === state.BatchStatus.Settled || phase === state.BatchStatus.Cleared ? 1 : 0, clearingPrice: 100_000_000n });
+      data = bytes('Batch', { batchId: BigInt(id), status: phase, closeSlot: 10000n, markValid: phase === BatchStatus.Settled || phase === BatchStatus.Cleared ? 1 : 0, clearingPrice: 100_000_000n });
     }
     else if (address === this.book) {
       owner = m.programs.perps_matcher;
@@ -101,10 +108,10 @@ export class ControlledMarket {
       else if (d !== code('InitPortfolioForUser')) throw new Error(`Unscripted synthetic wallet instruction ${d}`);
     }
   }
-  clear() { this.order = null; this.phase = state.BatchStatus.Cleared; }
+  clear() { this.order = null; this.phase = BatchStatus.Cleared; }
   settle(close = false) {
-    this.phase = state.BatchStatus.Settled; this.position = !close; this.settledBatches.push(this.batchId);
-    this.batchId++; this.phase = state.BatchStatus.Collecting;
+    this.phase = BatchStatus.Settled; this.position = !close; this.settledBatches.push(this.batchId);
+    this.batchId++; this.phase = BatchStatus.Collecting;
   }
   rpc(method: string, params: unknown[] = []): unknown {
     const context = { slot: 42 };
