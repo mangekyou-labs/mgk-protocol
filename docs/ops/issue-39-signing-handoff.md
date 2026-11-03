@@ -100,3 +100,31 @@ dump. The wizard also needs the current-capacity guard before extending.
 The PR stays draft and issue #39 stays open until those gates pass with live
 evidence. Design approval recorded earlier is not approval of these
 transactions.
+
+## D′ provisioning (unsigned, separately approved)
+
+Builder: `node tools/build-dprime-txs.js --out <dir> --oracle-account <pubkey>`
+(never signs/sends/loads keypairs). Pending manifest:
+`deployments/devnet-dprime.json` (schema 2, market seed = admin). Derived
+accounts match the upgrade review (registry `CbwTpmDg…`, vault `D1qhB6uN…`,
+instrument `8AofYA4N…`, book `7bbMK7jC…`, batch 0 `9cmuzYfC…`, maker portfolio
+`6e1YB5TK…`). Simulations against the upgraded programs: oracle
+create+Initialize+Activate and scoped Initialize both return `err: null`;
+later steps depend on the registry/funding in order.
+
+| # | Action | Signers | Amount |
+| --- | --- | --- | ---: |
+| 1 | Create + Initialize + Activate D′ PriceOracle (128 B) | admin, oracle account (new), oracle authority `72dFyhGo…` | 1,781,760 rent from admin |
+| 2 | Scoped Initialize (registry, instrument, vault) | admin (governance + identity) | account rents from admin |
+| 3 | InitializeBook ×3 (grow book) | admin | book rent from admin |
+| 4 | CreateBatch 0 | admin | batch rent from admin |
+| 5 | TopUp insurance | admin | 3,000,000,000 to D′ vault |
+| 6 | InitPortfolio (maker) | admin (fee), maker `DPs1NM3T…` | portfolio rent from maker |
+| 7 | Deposit maker collateral | maker | 3,000,000,000 from maker |
+
+Funding top-ups the operator sends first, from a separate wallet they
+control: **+5.1 SOL to `GBz4U7gb…`** (→ ≈6.599 SOL) and **+3 SOL to
+`DPs1NM3T…`** (→ 4.0 SOL). The operator also generates the D′ oracle account
+keypair (`solana-keygen new`) and shares only its public key for the build.
+D′ provisioning requires its own explicit approval; the upgrade approval
+does not cover it.
