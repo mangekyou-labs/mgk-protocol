@@ -307,3 +307,21 @@ adverse oracle move make the short taker unhealthy; the maker cancels its
 quotes and takes over the entire short against its opposite position. Both
 portfolios finish flat, conserving signed base quantity. Worker transitions
 and harness transactions run the invariant checker. This is local evidence only.
+
+## Market isolation
+
+`LocalRuntime.start` accepts `marketSeeds: [null, seedA, seedB]`, where `null`
+selects the legacy market and each seed is a base58 public key. Every send checks
+invariants separately for each configured context. The standalone audit reads
+`market_seed` from schema-2 deployment manifests; schema 1 selects legacy state.
+
+```sh
+MGK_CANDIDATE_MANIFEST=/path/to/candidate.json \
+node --test tools/runtime/market-isolation.test.js
+```
+
+The two scenarios load actual SBF bytes: default and two scoped markets settle
+independently and reject substituted accounts; real insurance exhaustion pauses
+only its market and requires debt repayment and withdrawals-before-trading
+recovery. Keeper and maker CLI tests each run both legacy and scoped manifests.
+These are local tests, not public D′ gate evidence.

@@ -79,3 +79,12 @@ test('the audit CLI accepts a candidate manifest as the program source', async (
   assert.deepEqual(programsFrom({ programs: { perps_core: CORE, perps_matcher: MATCHER } }), { core: CORE, matcher: MATCHER });
   assert.throws(() => programsFrom({ programs: [] }), /perps core/);
 });
+
+test('audit program selection preserves the scoped manifest namespace', () => {
+  const { programsFrom } = require('./invariants');
+  const { PublicKey } = require('@solana/web3.js');
+  const raw = structuredClone(require('../../deployments/devnet.json'));
+  raw.schema_version = 2;
+  raw.market_seed = new PublicKey(Buffer.alloc(32, 42)).toBase58();
+  assert.equal(programsFrom(raw).marketSeed, raw.market_seed);
+});

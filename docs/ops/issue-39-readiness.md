@@ -1,9 +1,12 @@
 # Issue #39 rollout readiness — 2026-11-03
 
-Issue #39 is **not complete**. This record covers read-only investigation and the
-public monitoring configuration prerequisite. No D′ market was provisioned, no
-transactions were sent, no secrets were read, and no service was deployed as part
-of this change. The required D′ rows remain **not run**.
+Issue #39 is **not complete**. Market isolation is implemented locally across
+programs, clients, workers, and auditing. No public transaction was sent and no
+hosted service was deployed. Tests signed only with generated local wallets;
+operator secrets were not read. The required D′ rows remain **not run**.
+
+The concrete candidate, upgrade costs, and remaining signing requirements are in
+[the upgrade review](issue-39-upgrade-review.md).
 
 ## Source and evidence boundary
 
@@ -84,31 +87,21 @@ provisioning and actual email/Slack alert delivery remain unverified.
 ## D′ isolation blocker and selected direction
 
 R3 in [the rollout plan](../plans/sol-devnet-demo-rollout.md) requires an isolated
-D′ under the **same program IDs**. The current implementation cannot provide an
-independent registry/vault/fund/pause domain under those IDs:
-
-- Core [Initialize](../../programs/perps-core/src/instructions/initialize.rs)
-  requires the canonical `[registry]` PDA and rejects initialized registry data.
-  The vault uses the singleton `[vault]` seed.
-- Registry owns the global batch counter and pause flags. Vault owns insurance,
-  debt, collateral balance, and open interest. Batch derivation uses
-  `[batch, counter]`; adding an instrument shares that state rather than isolating
-  it. [Keeper validation](../../tools/keeper-worker.js) enforces the canonical
-  registry and vault, so alternate random manifest accounts cannot bypass this.
-- Running fault or exhaustion scenarios on the existing singleton affects the
-  demo's real fund and global pauses. The legacy `tools/init-protocol.js` is not
-  an isolated D′ provisioner and must not be used as a substitute.
+D′ under the **same program IDs**. The deployed candidate observed above has a
+singleton registry and vault: its batch counter, insurance fund, debt, and pause
+flags cannot isolate D′ from the demo. Adding another instrument is insufficient.
+The legacy `tools/init-protocol.js` is not an isolated D′ provisioner.
 
 The user selected **market isolation under the same program IDs**, accepting a
-program upgrade and rerunning all gate evidence. Add market namespaces throughout
-the programs and dependent tooling, upgrade the candidate, then rerun the gate.
-This changes the frozen candidate and invalidates existing gate evidence; prior
-results cannot qualify the upgraded candidate. Isolation design exploration is
-in progress; this configuration/documentation change does not implement it.
+program upgrade and rerunning all gate evidence. The local implementation follows
+[ADR 0005](../adr/0005-isolate-markets-under-shared-program-ids.md): an explicit
+market identity scopes registry, child accounts, instructions, workers, and
+indexer storage while preserving legacy addresses and layouts. Real local SBF
+tests exercise isolated settlement, insurance exhaustion, and pause recovery.
 
-The alternative would be an explicit specification exception allowing separate
-program IDs for D′, with a separately recorded deployment. That alternative was
-not selected and does not satisfy the existing same-ID requirement.
+This candidate is **not deployed**. Upgrading changes the frozen executable bytes
+and invalidates every prior gate result. Rerun all gate evidence against the
+upgraded candidate, including default-market compatibility and every D′ row.
 
 ## Remaining rollout work and evidence
 
@@ -141,17 +134,23 @@ where applicable. Run `tools/runtime/audit.js` after recovery; settlement
 invariant 5 also needs paired pre/post snapshots. Gate reporting must keep D′
 rows unrun until that evidence exists; local test tier L cannot replace D′.
 
-## Local validation of this prerequisite change
+## Local validation of the isolation candidate
 
-`node --test tools/render-blueprint.test.js` passed all five existing tests.
-A read-only configuration check validated each public address as a 32-byte base58
-key, matched the three captured system accounts and maker manifest address,
-checked observed fee balances against the configured floor, and confirmed the
-floor values were unchanged. All local Markdown links resolved.
+Fresh integrated verification passed:
 
-The existing `/api/status` route coverage is in
-`mgk-frontend/apps/indexer/src/cpiReplay.test.ts`. It was inspected but not rerun:
-this worktree lacks frontend dependencies, and this change adds no route logic.
-No new behavior tests or frontend bootstrap were needed for static configuration
-and documentation. Rust clippy, cargo tests, and SBF builds were not run because
-no Rust source changed. These checks do not qualify rollout or gate completion.
+- Rust clippy with all targets/features and warnings denied, followed by all-feature
+  tests: 524 passed, six existing tests ignored. Candidate SBF artifacts built.
+- Two real-SBF market-isolation scenarios: default plus two scoped markets,
+  cross-market substitution and replay rejection, real insurance exhaustion,
+  debt repayment, and withdrawals-before-trading recovery.
+- Real keeper and maker CLI scenarios in both default and scoped contexts:
+  four passed. Default lifecycle smoke, book growth, and indexer startup passed.
+- Harness/audit/context tests: 47 passed; worker/layout tests: 54 passed.
+- Indexer: 115 tests passed and TypeScript build passed. Web: 488 tests passed
+  and typecheck passed. SDK build and 156 tests passed.
+- Both standards and spec reviews completed; all three findings were fixed and
+  rechecked, including regression coverage for cross-market storage/configuration
+  and failed malformed CPI handling.
+
+The web production build could not fetch Google Fonts in this environment.
+These local checks do not qualify any public rollout or D′ gate row.

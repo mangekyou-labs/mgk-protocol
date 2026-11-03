@@ -59,12 +59,12 @@ async function stopProcess(child) {
 }
 
 class LocalRuntime {
-  static async start({ candidates, port = 18899, wsPort = port + 1, surfpool = 'surfpool', reportPath }) {
+  static async start({ candidates, port = 18899, wsPort = port + 1, surfpool = 'surfpool', reportPath, marketSeeds }) {
     const artifacts = verifyArtifacts(candidates);
     assert.ok(Number.isInteger(port) && port > 1024 && port < 65535);
     // The invariants watch the programs actually loaded, not a fixed deployment file.
     const protocol = ['mgk_perps_core', 'mgk_perps_matcher'].every(name => artifacts.some(a => a.name === name));
-    const runtime = new LocalRuntime(port, reportPath, protocol ? programsFrom(artifacts) : undefined);
+    const runtime = new LocalRuntime(port, reportPath, protocol ? programsFrom(artifacts) : undefined, marketSeeds);
     runtime.directory = mkdtempSync(join(tmpdir(), 'mgk-runtime-'));
     try {
       // Do not connect to an existing validator, or accidentally reuse another run's ledger.
@@ -107,14 +107,24 @@ class LocalRuntime {
 
   // `programs` ({ core, matcher }) enables the six gate invariants around every
   // confirmed harness transaction; without it no invariants are checked.
-  constructor(port, reportPath, programs) {
+  constructor(port, reportPath, programs, marketSeeds = [null]) {
     this.url = `http://127.0.0.1:${port}`;
     this.connection = new Connection(this.url, 'confirmed');
     this.transport = jsonRpc(this.url, { timeout: 5000 });
     this.reportPath = reportPath;
     this.report = { cluster: 'localnet', rpcUrl: this.url, programs: [], transactions: [], controls: [] };
     this.workers = new Set();
-    this.invariants = programs ? new InvariantChecker({ rpc: (method, params) => this.rpc(method, params), ...programs }) : null;
+    assert.ok(Array.isArray(marketSeeds) && marketSeeds.length, 'at least one invariant market context required');
+    assert.equal(new Set(marketSeeds).size, marketSeeds.length, 'duplicate invariant market context');
+    const checkers = programs ? marketSeeds.map(marketSeed => new InvariantChecker({
+      rpc: (method, params) => this.rpc(method, params), ...programs, marketSeed,
+    })) : [];
+    this.invariants = programs ? {
+      before: () => Promise.all(checkers.map(checker => checker.before())),
+      after: (before, transaction) => Promise.all(checkers.map((checker, index) =>
+        checker.after(before?.[index], transaction))),
+    } : null;
+    this.report.marketSeeds = marketSeeds;
   }
 
   flushReport() {

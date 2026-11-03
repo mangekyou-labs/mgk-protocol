@@ -30,21 +30,13 @@ const u64 = (n) => {
   b.writeBigUInt64LE(BigInt(n));
   return b;
 };
-const pda = (seeds, owner = CORE) =>
-  PublicKey.findProgramAddressSync(seeds, owner);
 const meta = (pubkey, isWritable = true, isSigner = false) => ({
   pubkey,
   isWritable,
   isSigner,
 });
-const ix = (name, params, keys) =>
-  new TransactionInstruction({
-    programId: CORE,
-    keys,
-    data: Buffer.from(encodeInstruction("core", name, params)),
-  });
-test(
-  "maker CLI: GTC ladder, taker settlement, invalid-price cancellation recovery and last-resort takeover",
+for (const identity of [null, Keypair.generate()]) test(
+  `maker CLI: GTC ladder, taker settlement, invalid-price cancellation recovery and last-resort takeover (${identity ? "scoped" : "default"})`,
   { timeout: 150000 },
   async (t) => {
     assert.ok(
@@ -54,9 +46,15 @@ test(
     const candidate = JSON.parse(
       readFileSync(process.env.MGK_CANDIDATE_MANIFEST, "utf8"),
     );
+    const marketSeed = identity?.publicKey.toBase58();
+    const context = require('../market-context').createMarketContext(CORE, marketSeed);
+    const pda = (seeds, owner = CORE) => context.pda(seeds, owner);
+    const ix = (name, params, keys) => new TransactionInstruction({programId: CORE, keys,
+      data: Buffer.from(encodeInstruction('core', name, params, marketSeed))});
     const runtime = await LocalRuntime.start({
       candidates: candidate.programs,
-      port: Number(process.env.MGK_MAKER_PORT ?? 20019),
+      port: Number(process.env.MGK_MAKER_PORT ?? 20019) + (identity ? 400 : 0),
+      marketSeeds: [marketSeed ?? null],
       reportPath: process.env.MGK_MAKER_REPORT,
     });
     t.after(() => runtime.close());
@@ -150,10 +148,11 @@ test(
             meta(instrument),
             meta(SystemProgram.programId, false),
             meta(vault),
+            ...(identity ? [meta(identity.publicKey, false, true)] : []),
           ],
         ),
       ],
-      [payer],
+      identity ? [payer, identity] : [payer],
     );
     await runtime.send(
       "initialize maker book",
@@ -212,6 +211,7 @@ test(
     }
     const manifest = {
       ...deployment,
+      ...(marketSeed ? {schema_version: 2, market_seed: marketSeed} : {}),
       cluster: "localnet",
       name: "maker-runtime",
       accounts: Object.fromEntries(
@@ -230,6 +230,11 @@ test(
     };
     const manifestPath = join(directory, "deployment.json"),
       payerPath = join(directory, "payer.json");
+    const monitoringPath = join(directory, "monitoring.json");
+    const monitoring = structuredClone(require('../../deployments/monitoring.json'));
+    monitoring.feePayers.keeper = payer.publicKey.toBase58();
+    monitoring.feePayers.maker = maker.publicKey.toBase58();
+    writeFileSync(monitoringPath, JSON.stringify(monitoring));
     writeFileSync(manifestPath, JSON.stringify(manifest));
     writeFileSync(payerPath, JSON.stringify([...payer.secretKey]), {
       mode: 0o600,
@@ -243,10 +248,7 @@ test(
             [entry.startsWith("maker") ? "MAKER_KEYPAIR" : "KEEPER_KEYPAIR"]:
               keypairPath,
             DEPLOYMENT_MANIFEST: manifestPath,
-            MONITORING_CONFIG: resolve(
-              __dirname,
-              "../../deployments/monitoring.json",
-            ),
+            MONITORING_CONFIG: monitoringPath,
           },
         },
       );
