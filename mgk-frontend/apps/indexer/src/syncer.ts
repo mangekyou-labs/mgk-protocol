@@ -92,7 +92,16 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
       for (const txResp of block.transactions) {
         if (!txResp.meta) throw new Error('Transaction metadata unavailable');
         if (txResp.meta.err) continue;
-        for (const ix of coreInvocations(txResp.transaction.message, txResp.meta, corePk, params.marketSeed)) {
+        // Cheap prefilter: a core invocation requires the core program among
+        // the message keys (static or lookup-loaded). Skipping the rest avoids
+        // full invocation-log parsing for every devnet transaction in the block.
+        const msg = txResp.transaction.message;
+        const involvesCore =
+          msg.staticAccountKeys.some((k) => k.equals(corePk)) ||
+          (txResp.meta.loadedAddresses?.writable ?? []).some((k) => k.equals(corePk)) ||
+          (txResp.meta.loadedAddresses?.readonly ?? []).some((k) => k.equals(corePk));
+        if (!involvesCore) continue;
+        for (const ix of coreInvocations(msg, txResp.meta, corePk, params.marketSeed)) {
           if (!ix.success || ix.data[0] !== instructions.core.SettleBatch.disc) continue;
           const staticKeys = Array.from({length: ix.keys.length}, (_, i) => ix.keys.get(i)!);
 

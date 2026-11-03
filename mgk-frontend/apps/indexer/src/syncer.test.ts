@@ -85,6 +85,7 @@ describe('syncer - gap-aware slot synchronization', () => {
           transaction: {
             signatures: [txSig],
             message: {
+              staticAccountKeys: [batchPk, corePk, matcherPk, resultsPk],
               getAccountKeys: () => ({length: 4, get: (i: number) => [batchPk, corePk, matcherPk, resultsPk][i]}),
               compiledInstructions: [
                 {
