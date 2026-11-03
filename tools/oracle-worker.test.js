@@ -354,3 +354,26 @@ test('oracle publication rejects a namespace paired with legacy state before rea
  await assert.rejects(createOracleWorker({...f.options,manifest:{...manifest,schema_version:2,market_seed:Keypair.generate().publicKey.toBase58()},customFetch:async()=>{fetched=true;}}),/Noncanonical/);
  assert.equal(fetched,false);
 });
+
+// Real devnet getGenesisHash value (44 chars). A truncated constant here made
+// every devnet worker fail startup validation against a live RPC.
+const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+test("devnet worker accepts the real genesis hash and rejects a foreign cluster", async () => {
+  const f = fixture();
+  const connection = { ...f.connection, getGenesisHash: async () => DEVNET_GENESIS };
+  const worker = await createOracleWorker({
+    ...f.options,
+    manifest: { ...manifest, cluster: "devnet" },
+    connection,
+  });
+  assert.equal((await worker.tick()).status, "published");
+  const foreign = fixture();
+  await assert.rejects(
+    createOracleWorker({
+      ...foreign.options,
+      manifest: { ...manifest, cluster: "devnet" },
+      connection: { ...foreign.connection, getGenesisHash: async () => "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" },
+    }),
+    /RPC cluster differs/,
+  );
+});

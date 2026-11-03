@@ -52,7 +52,7 @@ async function createMakerWorker({
     throw Error("Invalid maker limits");
   if (
     manifest.cluster === "devnet" &&
-    (await connection.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+    (await connection.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
   )
     throw Error("RPC cluster differs from manifest");
   const core = new PublicKey(manifest.programs.perps_core),

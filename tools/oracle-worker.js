@@ -161,7 +161,7 @@ async function createOracleWorker({
     throw new Error("Oracle worker supports devnet/localnet only");
   if (
     manifest.cluster === "devnet" &&
-    (await connection.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+    (await connection.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
   )
     throw new Error("RPC cluster differs from manifest");
   const oracleKey = new PublicKey(manifest.accounts.oracle);
