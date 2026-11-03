@@ -1,39 +1,56 @@
 //! Authenticated matcher CPI and batch-results envelope shared by both programs.
+use crate::market::MarketContext;
 use crate::{
     layout,
     program_ids::{PERPS_CORE_ID, PERPS_MATCHER_ID},
 };
-use pinocchio::{
-    account_info::AccountInfo,
-    program_error::ProgramError,
-    pubkey::{find_program_address, Pubkey},
-    ProgramResult,
-};
+use pinocchio::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey, ProgramResult};
 
 pub const RESULTS_ENVELOPE_LEN: usize = 9;
 /// At most twelve distinct portfolios plus the fixed settlement accounts.
 pub const MAX_SETTLEMENT_ORDERS: usize = 12;
 
 pub fn authority_pda() -> (Pubkey, u8) {
-    find_program_address(&[b"registry"], &PERPS_CORE_ID)
+    authority_pda_in(MarketContext::Legacy)
 }
 pub fn results_pda(batch_id: u64) -> (Pubkey, u8) {
-    find_program_address(&[b"results", &batch_id.to_le_bytes()], &PERPS_MATCHER_ID)
+    results_pda_in(MarketContext::Legacy, batch_id)
 }
 pub fn validate_authority(authority: &AccountInfo) -> ProgramResult {
+    validate_authority_in(MarketContext::Legacy, authority)
+}
+pub fn authority_pda_in(context: MarketContext) -> (Pubkey, u8) {
+    context.registry_pda(&PERPS_CORE_ID)
+}
+pub fn results_pda_in(context: MarketContext, batch_id: u64) -> (Pubkey, u8) {
+    context.child_pda(b"results", &[&batch_id.to_le_bytes()], &PERPS_MATCHER_ID)
+}
+pub fn validate_authority_in(context: MarketContext, authority: &AccountInfo) -> ProgramResult {
     if !authority.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    if authority.key() != &authority_pda().0 || authority.owner() != &PERPS_CORE_ID {
+    if authority.key() != &authority_pda_in(context).0 || authority.owner() != &PERPS_CORE_ID {
         return Err(ProgramError::InvalidSeeds);
     }
+    layout::check_header(
+        &authority.try_borrow_data()?,
+        layout::discriminator::REGISTRY,
+        layout::LAYOUT_VERSION_1,
+    )?;
     Ok(())
 }
 pub fn validate_results(account: &AccountInfo, batch_id: u64) -> ProgramResult {
+    validate_results_in(MarketContext::Legacy, account, batch_id)
+}
+pub fn validate_results_in(
+    context: MarketContext,
+    account: &AccountInfo,
+    batch_id: u64,
+) -> ProgramResult {
     if account.owner() != &PERPS_MATCHER_ID {
         return Err(ProgramError::IllegalOwner);
     }
-    if account.key() != &results_pda(batch_id).0 {
+    if account.key() != &results_pda_in(context, batch_id).0 {
         return Err(ProgramError::InvalidSeeds);
     }
     if !account.is_writable() {

@@ -26,6 +26,8 @@ pub fn process_instruction(
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
+    let (context, instruction_data) = mgk_common::market::decode(instruction_data, 29)?;
+    crate::pda::validate_context_accounts(context, program_id, accounts, instruction_data)?;
     if instruction_data.is_empty() {
         msg!("Error: Instruction data is empty");
         return Err(MgkError::InvalidInstruction.into());
@@ -70,119 +72,144 @@ pub fn process_instruction(
 
     match instruction {
         CoreInstruction::InitializeBook => {
-            process_initialize_book_inner(program_id, accounts, &instruction_data[1..])
+            process_initialize_book_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::Initialize => {
             msg!("Instruction: Initialize");
-            process_initialize_inner(program_id, accounts, &instruction_data[1..])
+            process_initialize_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::InitPortfolio => {
             msg!("Instruction: InitPortfolio");
-            process_init_portfolio_inner(program_id, accounts, &instruction_data[1..])
+            process_init_portfolio_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::Deposit => {
             msg!("Instruction: Deposit");
-            process_deposit_inner(program_id, accounts, &instruction_data[1..])
+            process_deposit_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::Withdraw => {
             msg!("Instruction: Withdraw");
-            process_withdraw_inner(program_id, accounts, &instruction_data[1..])
+            process_withdraw_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::CommitOrder => {
             msg!("Instruction: CommitOrder");
-            process_commit_order_inner(program_id, accounts, &instruction_data[1..])
+            process_commit_order_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::RevealOrder => {
             msg!("Instruction: RevealOrder");
-            process_reveal_order_inner(program_id, accounts, &instruction_data[1..])
+            process_reveal_order_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::CloseCommitting => {
             msg!("Instruction: CloseCommitting");
-            process_close_committing_inner(program_id, accounts, &instruction_data[1..])
+            process_close_committing_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::ClearBatch => {
             msg!("Instruction: ClearBatch");
-            process_clear_batch_inner(program_id, accounts, &instruction_data[1..])
+            process_clear_batch_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::SettleBatch => {
             msg!("Instruction: SettleBatch");
-            process_settle_batch_inner(program_id, accounts, &instruction_data[1..])
+            process_settle_batch_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::LiquidateUser => {
             msg!("Instruction: LiquidateUser");
-            process_liquidate_user_inner(program_id, accounts, &instruction_data[1..])
+            process_liquidate_user_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::AddInstrument => {
             msg!("Instruction: AddInstrument");
-            process_add_instrument_inner(program_id, accounts, &instruction_data[1..])
+            process_add_instrument_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::CancelRestingOrder => {
             msg!("Instruction: CancelRestingOrder");
-            process_cancel_resting_order_inner(program_id, accounts, &instruction_data[1..])
+            process_cancel_resting_order_inner(
+                context,
+                program_id,
+                accounts,
+                &instruction_data[1..],
+            )
         }
         CoreInstruction::ModifyRestingOrder => {
             msg!("Instruction: ModifyRestingOrder");
-            process_modify_resting_order_inner(program_id, accounts, &instruction_data[1..])
+            process_modify_resting_order_inner(
+                context,
+                program_id,
+                accounts,
+                &instruction_data[1..],
+            )
         }
         CoreInstruction::CancelAllRestingOrders => {
             msg!("Instruction: CancelAllRestingOrders");
-            process_cancel_all_resting_orders_inner(program_id, accounts, &instruction_data[1..])
+            process_cancel_all_resting_orders_inner(
+                context,
+                program_id,
+                accounts,
+                &instruction_data[1..],
+            )
         }
         CoreInstruction::SetPauseFlags => {
             msg!("Instruction: SetPauseFlags");
-            process_set_pause_flags_inner(program_id, accounts, &instruction_data[1..])
+            process_set_pause_flags_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::InitVault => {
             msg!("Instruction: InitVault");
-            process_init_vault_inner(program_id, accounts, &instruction_data[1..])
+            process_init_vault_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::CreateBatch => {
             msg!("Instruction: CreateBatch");
-            process_create_batch_inner(program_id, accounts, &instruction_data[1..])
+            process_create_batch_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::SetBatchCounter => {
             msg!("Instruction: SetBatchCounter");
-            process_set_batch_counter_inner(program_id, accounts, &instruction_data[1..])
+            process_set_batch_counter_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::CreatePortfolio => {
             msg!("Instruction: CreatePortfolio");
-            process_create_portfolio_inner(program_id, accounts, &instruction_data[1..])
+            process_create_portfolio_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::InitPortfolioForUser => {
             msg!("Instruction: InitPortfolioForUser");
-            process_init_portfolio_for_user(program_id, accounts, &instruction_data[1..])
+            process_init_portfolio_for_user(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::PostOrder => {
             msg!("Instruction: PostOrder");
-            process_post_order_inner(program_id, accounts, &instruction_data[1..])
+            process_post_order_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::SetBatchParams => {
             msg!("Instruction: SetBatchParams");
-            process_set_batch_params_inner(program_id, accounts, &instruction_data[1..])
+            process_set_batch_params_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::SetInstrumentFees => {
             msg!("Instruction: SetInstrumentFees");
-            process_set_instrument_fees_inner(program_id, accounts, &instruction_data[1..])
+            process_set_instrument_fees_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::SetInstrumentOracle => {
             msg!("Instruction: SetInstrumentOracle");
-            process_set_instrument_oracle_inner(program_id, accounts, &instruction_data[1..])
+            process_set_instrument_oracle_inner(
+                context,
+                program_id,
+                accounts,
+                &instruction_data[1..],
+            )
         }
         CoreInstruction::SetFundingParams => {
             msg!("Instruction: SetFundingParams");
-            process_set_funding_params_inner(program_id, accounts, &instruction_data[1..])
+            process_set_funding_params_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::TopUp => {
             msg!("Instruction: TopUp");
-            process_top_up_inner(program_id, accounts, &instruction_data[1..])
+            process_top_up_inner(context, program_id, accounts, &instruction_data[1..])
         }
         CoreInstruction::WithdrawInsuranceFund => {
             msg!("Instruction: WithdrawInsuranceFund");
-            process_withdraw_insurance_fund_inner(program_id, accounts, &instruction_data[1..])
+            process_withdraw_insurance_fund_inner(
+                context,
+                program_id,
+                accounts,
+                &instruction_data[1..],
+            )
         }
         CoreInstruction::Unpause => {
             msg!("Instruction: Unpause");
-            process_unpause_inner(program_id, accounts, &instruction_data[1..])
+            process_unpause_inner(context, program_id, accounts, &instruction_data[1..])
         }
     }
 }
@@ -196,6 +223,7 @@ pub fn process_instruction(
 ///
 /// Data: amount(8)
 fn process_top_up_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -213,7 +241,7 @@ fn process_top_up_inner(
     validate_writable(payer_account)?;
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
-    validate_vault(program_id, vault_account)?;
+    validate_vault(context, program_id, vault_account)?;
 
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
@@ -229,6 +257,7 @@ fn process_top_up_inner(
 ///
 /// Data: amount(8)
 fn process_withdraw_insurance_fund_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -247,8 +276,8 @@ fn process_withdraw_insurance_fund_inner(
     validate_writable(vault_account)?;
     validate_owner(registry_account, program_id)?;
     validate_writable(governance_account)?;
-    validate_vault(program_id, vault_account)?;
-    validate_registry(registry_account)?;
+    validate_vault(context, program_id, vault_account)?;
+    validate_registry(context, registry_account)?;
 
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
     let registry = unsafe { load_account::<Registry>(registry_account)? };
@@ -265,6 +294,7 @@ fn process_withdraw_insurance_fund_inner(
 ///
 /// Data: resume_withdrawals(1) + resume_trading(1)
 fn process_unpause_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -282,8 +312,8 @@ fn process_unpause_inner(
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
     validate_owner(vault_account, program_id)?;
-    validate_registry(registry_account)?;
-    validate_vault(program_id, vault_account)?;
+    validate_registry(context, registry_account)?;
+    validate_vault(context, program_id, vault_account)?;
 
     let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
     let vault = unsafe { load_account::<Vault>(vault_account)? };
@@ -305,6 +335,7 @@ fn process_unpause_inner(
 ///
 /// Data: side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1) = 21
 fn process_post_order_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -323,6 +354,7 @@ fn process_post_order_inner(
     let reduce_only = data[20] != 0;
 
     process_post_order(
+        context,
         program_id,
         &accounts[0],
         &accounts[1],
@@ -350,6 +382,7 @@ fn process_post_order_inner(
 ///
 /// Data: max_orders(1) + marginal_cap(1) + t_min(8) + t_max(8) + n_min(4) = 22 bytes
 fn process_set_batch_params_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -363,6 +396,7 @@ fn process_set_batch_params_inner(
 
     let registry_account = &accounts[0];
     let governance_account = &accounts[1];
+    validate_registry(context, registry_account)?;
 
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
@@ -394,6 +428,7 @@ fn process_set_batch_params_inner(
 ///
 /// Data: taker_fee_bps(2) + maker_fee_bps(2) = 4 bytes
 fn process_set_instrument_fees_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -408,6 +443,7 @@ fn process_set_instrument_fees_inner(
     let instrument_account = &accounts[0];
     let registry_account = &accounts[1];
     let governance_account = &accounts[2];
+    validate_registry(context, registry_account)?;
 
     validate_owner(instrument_account, program_id)?;
     validate_writable(instrument_account)?;
@@ -436,6 +472,7 @@ fn process_set_instrument_fees_inner(
 ///
 /// Data: none (discriminator only)
 fn process_set_instrument_oracle_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     _data: &[u8],
@@ -447,6 +484,7 @@ fn process_set_instrument_oracle_inner(
     let instrument_account = &accounts[0];
     let registry_account = &accounts[1];
     let governance_account = &accounts[2];
+    validate_registry(context, registry_account)?;
     let oracle_account = &accounts[3];
 
     process_set_instrument_oracle(
@@ -467,6 +505,7 @@ fn process_set_instrument_oracle_inner(
 ///
 /// Data: coefficient_bps(i64 LE) + max_rate_bps(i64 LE) + interval_slots(u64 LE) = 24 bytes
 fn process_set_funding_params_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -481,6 +520,7 @@ fn process_set_funding_params_inner(
     let instrument_account = &accounts[0];
     let registry_account = &accounts[1];
     let governance_account = &accounts[2];
+    validate_registry(context, registry_account)?;
 
     let coefficient_bps = i64::from_le_bytes(data[0..8].try_into().unwrap());
     let max_rate_bps = i64::from_le_bytes(data[8..16].try_into().unwrap());
@@ -512,6 +552,7 @@ fn process_set_funding_params_inner(
 ///       + oracle(32) + registry_bump(1) + instrument_bump(1)
 ///     = 140 bytes
 fn process_initialize_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -528,6 +569,16 @@ fn process_initialize_inner(
     let governance_account = &accounts[1];
     let instrument_account = &accounts[2];
     let system_program = &accounts[3];
+    if let mgk_common::market::MarketContext::Scoped { market_seed } = context {
+        let identity = accounts.get(5).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        if identity.key() != &market_seed {
+            return Err(ProgramError::InvalidSeeds);
+        }
+        if !identity.is_signer() {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+    }
+
     // Vault PDA (index 4) — created by Initialize if needed.
     // Optional: if not provided, vault creation is skipped (caller must pre-create).
     let vault_account = if accounts.len() > 4 {
@@ -578,6 +629,7 @@ fn process_initialize_inner(
     };
 
     process_initialize(
+        context,
         program_id,
         registry_account,
         governance_account,
@@ -614,7 +666,8 @@ fn process_initialize_inner(
 ///
 /// Data: user_pubkey(32) + bump(1)
 fn process_init_portfolio_inner(
-    _program_id: &Pubkey,
+    context: mgk_common::market::MarketContext,
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
@@ -635,7 +688,12 @@ fn process_init_portfolio_inner(
     validate_writable(portfolio_account)?;
 
     let user = Pubkey::from(<[u8; 32]>::try_from(&data[0..32]).unwrap());
-    let bump = data[32];
+    let bump = crate::pda::derive_portfolio_pda_in(context, &user, program_id).1;
+    validate_owner(portfolio_account, program_id)?;
+    if portfolio_account.key() != &crate::pda::derive_portfolio_pda_in(context, &user, program_id).0
+    {
+        return Err(ProgramError::InvalidSeeds);
+    }
 
     process_init_portfolio(portfolio_account, &user, bump)
 }
@@ -650,6 +708,7 @@ fn process_init_portfolio_inner(
 ///
 /// Data: amount(8)
 fn process_deposit_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -672,6 +731,7 @@ fn process_deposit_inner(
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
 
+    validate_vault(context, program_id, vault_account)?;
     let portfolio = unsafe { load_account_mut::<Portfolio>(portfolio_account)? };
     let vault = unsafe { load_account_mut::<Vault>(vault_account)? };
 
@@ -699,6 +759,7 @@ fn process_deposit_inner(
 ///
 /// Data: amount(8)
 fn process_withdraw_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -728,7 +789,7 @@ fn process_withdraw_inner(
         let instrument = accounts.get(4).ok_or(ProgramError::NotEnoughAccountKeys)?;
         let oracle = accounts.get(5).ok_or(ProgramError::NotEnoughAccountKeys)?;
         let id = unsafe { load_account::<crate::state::Instrument>(instrument)? }.instrument_id;
-        let price = crate::risk::conversion(program_id, instrument, oracle, id)?;
+        let price = crate::risk::conversion(context, program_id, instrument, oracle, id)?;
         crate::risk::refresh(portfolio, id, price)?;
     } else {
         portfolio.risk_pnl = 0;
@@ -740,6 +801,7 @@ fn process_withdraw_inner(
     let amount = u64::from_le_bytes(data[0..8].try_into().unwrap());
 
     process_withdraw(
+        context,
         portfolio_account,
         portfolio,
         user_account,
@@ -759,6 +821,7 @@ fn process_withdraw_inner(
 ///
 /// Data: instrument_id(2) + tick(8) + lot(8) + imr(2) + mmr(2) + taker_fee_bps(2) + maker_fee_bps(2) + oracle(32) + bump(1)
 fn process_add_instrument_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -773,15 +836,23 @@ fn process_add_instrument_inner(
 
     let registry_account = &accounts[0];
     let governance_account = &accounts[1];
+    validate_registry(context, registry_account)?;
     let instrument_account = &accounts[2];
 
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
     validate_writable(instrument_account)?;
 
+    let instrument_id = u16::from_le_bytes(data[0..2].try_into().unwrap());
+    validate_owner(instrument_account, program_id)?;
+    if instrument_account.key()
+        != &crate::pda::derive_instrument_pda_in(context, instrument_id, program_id).0
+    {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    crate::pda::require_uninitialized(instrument_account)?;
     let registry = unsafe { load_account_mut::<Registry>(registry_account)? };
 
-    let instrument_id = u16::from_le_bytes(data[0..2].try_into().unwrap());
     let tick_size = u64::from_le_bytes(data[2..10].try_into().unwrap());
     let lot_size = u64::from_le_bytes(data[10..18].try_into().unwrap());
     let imr_bps = u16::from_le_bytes(data[18..20].try_into().unwrap());
@@ -789,7 +860,7 @@ fn process_add_instrument_inner(
     let taker_fee_bps = u16::from_le_bytes(data[22..24].try_into().unwrap());
     let maker_fee_bps = i16::from_le_bytes(data[24..26].try_into().unwrap());
     let oracle_addr = Pubkey::from(<[u8; 32]>::try_from(&data[26..58]).unwrap());
-    let bump = data[58];
+    let bump = crate::pda::derive_instrument_pda_in(context, instrument_id, program_id).1;
 
     process_add_instrument(
         registry,
@@ -818,6 +889,7 @@ fn process_add_instrument_inner(
 ///
 /// Data (M6 6g): order_type(1) + instrument_id(2) + reduce_only(1) + side(1) + price(8) + qty(8) + salt(8) + batch_id(8) + commitment_bump(1) = 38
 fn process_commit_order_inner(
+    _context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -881,6 +953,7 @@ fn process_commit_order_inner(
 ///
 /// Data (M6 6g): order_type(1) + instrument_id(2) + reduce_only(1) + side(1) + price(8) + qty(8) + salt(8) + batch_id(8) = 37
 fn process_reveal_order_inner(
+    _context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -939,6 +1012,7 @@ fn process_reveal_order_inner(
 ///
 /// Data: none
 fn process_close_committing_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     _data: &[u8],
@@ -954,6 +1028,11 @@ fn process_close_committing_inner(
     validate_writable(batch_account)?;
     validate_owner(registry_account, program_id)?;
 
+    validate_registry(context, registry_account)?;
+    let batch = unsafe { load_account::<crate::state::Batch>(batch_account)? };
+    crate::pda::validate_current_batch(batch, unsafe {
+        load_account::<Registry>(registry_account)?
+    })?;
     process_close_committing(program_id, batch_account, registry_account)
 }
 
@@ -975,6 +1054,7 @@ fn process_close_committing_inner(
 ///
 /// Data (M7 7.6): num_commitments(2) + num_instruments(2) + num_portfolios(2)
 fn process_clear_batch_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1009,6 +1089,7 @@ fn process_clear_batch_inner(
     validate_writable(results_account)?;
 
     process_clear_batch(
+        context,
         program_id,
         batch_account,
         book_account,
@@ -1052,6 +1133,7 @@ fn process_clear_batch_inner(
 ///
 /// Data: num_commitments(2) + num_portfolios(2) [+ next_batch_bump(1) when creating]
 fn process_settle_batch_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1074,7 +1156,6 @@ fn process_settle_batch_inner(
 
     let num_commitments = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;
     let num_portfolios = u16::from_le_bytes(data[2..4].try_into().unwrap()) as usize;
-    let next_batch_bump = if data.len() > 4 { data[4] } else { 0 };
 
     validate_owner(batch_account, program_id)?;
     validate_writable(batch_account)?;
@@ -1098,6 +1179,22 @@ fn process_settle_batch_inner(
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     validate_writable(next_batch_account)?;
 
+    validate_registry(context, registry_account)?;
+    validate_vault(context, program_id, vault_account)?;
+    let current = unsafe { load_account::<crate::state::Batch>(batch_account)? };
+    crate::pda::validate_current_batch(current, unsafe {
+        load_account::<Registry>(registry_account)?
+    })?;
+    mgk_common::matcher::validate_results_in(context, results_account, current.batch_id)?;
+    let instrument_id =
+        unsafe { load_account::<crate::state::Instrument>(instrument_account)? }.instrument_id;
+    crate::matcher_cpi::validate_book(context, matcher_program, book_account, Some(instrument_id))?;
+    let next_id = current.batch_id.checked_add(1).ok_or(MgkError::Overflow)?;
+    if next_batch_account.key() != &crate::pda::derive_batch_pda_in(context, next_id, program_id).0
+    {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    crate::pda::require_uninitialized(next_batch_account)?;
     // Create next batch PDA if not yet allocated (CPI CreateAccount, 160 bytes).
     const BATCH_SPACE: usize = core::mem::size_of::<crate::state::Batch>();
     if next_batch_account.data_len() < BATCH_SPACE {
@@ -1118,14 +1215,12 @@ fn process_settle_batch_inner(
         let next_id = current_batch_id.saturating_add(1);
         let next_id_le = next_id.to_le_bytes();
 
-        use pinocchio::instruction::{AccountMeta, Instruction, Signer};
-        use pinocchio::program::invoke_signed;
-        use pinocchio::pubkey::find_program_address;
+        use pinocchio::instruction::{AccountMeta, Instruction};
         use pinocchio::sysvars::{rent::Rent, Sysvar};
 
         let rent = Rent::get()?;
         let lamports = rent.minimum_balance(BATCH_SPACE);
-        let (expected_pda, _) = find_program_address(&[b"batch", &next_id_le], program_id);
+        let (expected_pda, _) = context.child_pda(b"batch", &[&next_id_le], program_id);
         if next_batch_account.key() != &expected_pda {
             msg!("Error: next_batch PDA mismatch");
             return Err(ProgramError::InvalidSeeds);
@@ -1146,16 +1241,21 @@ fn process_settle_batch_inner(
             accounts: &metas,
             data: &ix_data,
         };
-        let bump_seed = [next_batch_bump];
-        let signer_seeds = pinocchio::seeds!(b"batch", next_id_le.as_slice(), &bump_seed);
-        let signer = Signer::from(&signer_seeds);
-        invoke_signed::<2>(&ix, &[payer, next_batch_account], &[signer])?;
+        crate::pda::invoke_pda(
+            context,
+            b"batch",
+            &[&next_id_le],
+            program_id,
+            &ix,
+            &[payer, next_batch_account],
+        )?;
         msg!("SettleBatch: next batch PDA created");
     } else {
         validate_owner(next_batch_account, program_id)?;
     }
 
     process_settle_batch(
+        context,
         program_id,
         batch_account,
         registry_account,
@@ -1186,6 +1286,7 @@ fn process_settle_batch_inner(
 ///
 /// Data: num_instruments (u16 LE), restricted to 1. No batch mark is required.
 fn process_liquidate_user_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1214,8 +1315,8 @@ fn process_liquidate_user_inner(
     if !signer.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    crate::risk::unlocked(registry_account)?;
-    crate::matcher_cpi::validate_vault(program_id, vault_account)?;
+    crate::risk::unlocked(context, registry_account)?;
+    crate::matcher_cpi::validate_vault(context, program_id, vault_account)?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_liquidations_paused() {
         return Err(MgkError::OperationPaused.into());
@@ -1229,15 +1330,16 @@ fn process_liquidate_user_inner(
         (victim_account, &victim.user),
         (liquidator_account, &liquidator.user),
     ] {
-        if account.key() != &crate::pda::derive_portfolio_pda(user, program_id).0 {
+        if account.key() != &crate::pda::derive_portfolio_pda_in(context, user, program_id).0 {
             return Err(ProgramError::InvalidSeeds);
         }
     }
     if liquidator.user != *signer.key() {
         return Err(MgkError::Unauthorized.into());
     }
-    let instrument_id = crate::matcher_cpi::validate_book(matcher, book_account, None)?;
+    let instrument_id = crate::matcher_cpi::validate_book(context, matcher, book_account, None)?;
     let price = crate::risk::conversion(
+        context,
         program_id,
         instrument_account,
         oracle_account,
@@ -1273,6 +1375,7 @@ fn process_liquidate_user_inner(
             AccountMeta::writable(book_account.key()),
         ];
         crate::matcher_cpi::signed(
+            context,
             registry_account,
             matcher,
             &metas,
@@ -1305,6 +1408,7 @@ fn process_liquidate_user_inner(
 ///
 /// Data: order_id(8)
 fn process_cancel_resting_order_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1324,6 +1428,7 @@ fn process_cancel_resting_order_inner(
     let order_id = u64::from_le_bytes(data[0..8].try_into().unwrap());
 
     process_cancel_resting_order(
+        context,
         program_id,
         portfolio_account,
         user_account,
@@ -1348,6 +1453,7 @@ fn process_cancel_resting_order_inner(
 ///
 /// Data: order_id(8) + new_qty(8) = 16
 fn process_modify_resting_order_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1368,6 +1474,7 @@ fn process_modify_resting_order_inner(
     let new_qty = u64::from_le_bytes(data[8..16].try_into().unwrap());
 
     process_modify_resting_order(
+        context,
         program_id,
         portfolio_account,
         user_account,
@@ -1394,6 +1501,7 @@ fn process_modify_resting_order_inner(
 /// Bits 4..7 of the flags byte are reserved and masked off inside
 /// `set_pause_flags` so a malformed instruction cannot set future flags.
 fn process_set_pause_flags_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1407,6 +1515,7 @@ fn process_set_pause_flags_inner(
 
     let registry_account = &accounts[0];
     let governance_account = &accounts[1];
+    validate_registry(context, registry_account)?;
 
     validate_owner(registry_account, program_id)?;
     validate_writable(registry_account)?;
@@ -1428,6 +1537,7 @@ fn process_set_pause_flags_inner(
 ///
 /// Data: bump(1)
 fn process_init_vault_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1443,7 +1553,11 @@ fn process_init_vault_inner(
     validate_owner(vault_account, program_id)?;
     validate_writable(vault_account)?;
 
-    let bump = data[0];
+    if vault_account.key() != &crate::pda::derive_vault_pda_in(context, program_id).0 {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    crate::pda::require_uninitialized(vault_account)?;
+    let bump = crate::pda::derive_vault_pda_in(context, program_id).1;
     process_init_vault(vault_account, bump)
 }
 
@@ -1456,6 +1570,7 @@ fn process_init_vault_inner(
 ///
 /// Data: bump(1)
 fn process_create_batch_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1477,6 +1592,7 @@ fn process_create_batch_inner(
 
     let bump = data[0];
     process_create_batch(
+        context,
         program_id,
         batch_account,
         registry_account,
@@ -1504,6 +1620,7 @@ fn process_create_batch_inner(
 /// resting order with that owner. Un-revealed commitments are NOT touched
 /// (they expire via `CloseCommitting` / `SettleBatch` slash flow, M7 7.2).
 fn process_cancel_all_resting_orders_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1527,6 +1644,7 @@ fn process_cancel_all_resting_orders_inner(
     let book_accounts = &accounts[3..3 + num_books];
 
     process_cancel_all_resting_orders(
+        context,
         program_id,
         portfolio_account,
         user_account,
@@ -1545,6 +1663,7 @@ fn process_cancel_all_resting_orders_inner(
 ///
 /// Data: none
 fn process_set_batch_counter_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     _data: &[u8],
@@ -1563,7 +1682,7 @@ fn process_set_batch_counter_inner(
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    process_set_batch_counter(registry_account, governance_account)
+    process_set_batch_counter(context, registry_account, governance_account)
 }
 
 /// Create and initialize a Portfolio PDA for a user.
@@ -1575,20 +1694,32 @@ fn process_set_batch_counter_inner(
 ///
 /// Data: disc(1) + bump(1) = 2 bytes total (full data passed to inner fn)
 fn process_create_portfolio_inner(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    data: &[u8],
+    _data: &[u8],
 ) -> ProgramResult {
     if accounts.len() < 3 {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
+    validate_owner(&accounts[0], program_id)?;
+    validate_writable(&accounts[0])?;
+    if accounts[0].key()
+        != &crate::pda::derive_portfolio_pda_in(context, accounts[1].key(), program_id).0
+    {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    crate::pda::require_uninitialized(&accounts[0])?;
     // data[0] = disc, data[1] = bump; inner reads bump from data[1]
-    process_create_portfolio(program_id, accounts, data)
+    let canonical_bump =
+        [crate::pda::derive_portfolio_pda_in(context, accounts[1].key(), program_id).1];
+    process_create_portfolio(program_id, accounts, &canonical_bump)
 }
 
 /// Initialize a matcher book through the authenticated program boundary.
 /// Accounts: registry, book(w), payer(signer,w), system, matcher.
 fn process_initialize_book_inner(
+    context: mgk_common::market::MarketContext,
     _program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -1602,7 +1733,9 @@ fn process_initialize_book_inner(
     let id = u16::from_le_bytes(data.try_into().unwrap());
     let registry = &accounts[0];
     let book = &accounts[1];
-    if book.key() != &mgk_common::book::book_pda(&mgk_common::program_ids::PERPS_MATCHER_ID, id).0 {
+    if book.key()
+        != &mgk_common::book::book_pda_in(context, &mgk_common::program_ids::PERPS_MATCHER_ID, id).0
+    {
         return Err(ProgramError::InvalidSeeds);
     }
     let metas = [
@@ -1613,12 +1746,28 @@ fn process_initialize_book_inner(
     ];
     let mut cpi_data = [7u8; 4];
     cpi_data[1..3].copy_from_slice(data);
-    cpi_data[3] = mgk_common::book::book_pda(&mgk_common::program_ids::PERPS_MATCHER_ID, id).1;
+    cpi_data[3] =
+        mgk_common::book::book_pda_in(context, &mgk_common::program_ids::PERPS_MATCHER_ID, id).1;
     crate::matcher_cpi::signed(
+        context,
         registry,
         &accounts[4],
         &metas,
         &[registry, book, &accounts[2], &accounts[3]],
         &cpi_data,
     )
+}
+
+#[cfg(test)]
+mod market_tests {
+    use super::*;
+    #[test]
+    fn malformed_market_envelopes_are_rejected_before_dispatch() {
+        for data in [vec![29], vec![29; 33], vec![29; 34]] {
+            assert_eq!(
+                process_instruction(&[0; 32], &[], &data),
+                Err(ProgramError::InvalidInstructionData)
+            );
+        }
+    }
 }

@@ -29,6 +29,7 @@ pub(crate) fn check_added_exposure(
 }
 
 pub fn conversion(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     instrument_account: &AccountInfo,
     oracle_account: &AccountInfo,
@@ -38,7 +39,7 @@ pub fn conversion(
     let instrument = unsafe { load_account::<Instrument>(instrument_account)? };
     if instrument.instrument_id != instrument_id
         || instrument_account.key()
-            != &crate::pda::derive_instrument_pda(instrument_id, program_id).0
+            != &crate::pda::derive_instrument_pda_in(context, instrument_id, program_id).0
     {
         return Err(MgkError::InvalidAccount.into());
     }
@@ -226,8 +227,11 @@ pub fn open(p: &mut Portfolio, order: crate::state::portfolio::OrderReservation)
     Ok(())
 }
 
-pub fn unlocked(registry_account: &AccountInfo) -> ProgramResult {
-    crate::matcher_cpi::validate_registry(registry_account)?;
+pub fn unlocked(
+    context: mgk_common::market::MarketContext,
+    registry_account: &AccountInfo,
+) -> ProgramResult {
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
     let registry = unsafe { load_account::<crate::state::Registry>(registry_account)? };
     if registry.has_unsettled_batch() {
         return Err(MgkError::OperationPaused.into());

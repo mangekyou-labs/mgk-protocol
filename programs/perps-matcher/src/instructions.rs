@@ -8,8 +8,9 @@ use crate::state::{
 };
 use core::alloc::Layout;
 use mgk_common::layout::{discriminator, stamp_body_mut, LAYOUT_VERSION_1};
+use mgk_common::market::MarketContext;
 use mgk_common::matcher::{
-    validate_authority, validate_results, MAX_SETTLEMENT_ORDERS, RESULTS_ENVELOPE_LEN,
+    validate_authority_in, validate_results_in, MAX_SETTLEMENT_ORDERS, RESULTS_ENVELOPE_LEN,
 };
 use pinocchio::{
     account_info::AccountInfo, msg, program_error::ProgramError, pubkey::Pubkey, ProgramResult,
@@ -264,20 +265,26 @@ pub fn process_compute_clearing(
 }
 
 /// Authenticate the core-owned registry PDA before touching matcher state.
-fn authenticated_accounts(accounts: &[AccountInfo]) -> Result<&[AccountInfo], ProgramError> {
+fn authenticated_accounts(
+    context: MarketContext,
+    accounts: &[AccountInfo],
+) -> Result<&[AccountInfo], ProgramError> {
     let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
-    validate_authority(authority)?;
+    validate_authority_in(context, authority)?;
     Ok(&accounts[1..])
 }
-fn authenticated_user(accounts: &[AccountInfo]) -> Result<(Pubkey, &[AccountInfo]), ProgramError> {
-    let accounts = authenticated_accounts(accounts)?;
+fn authenticated_user(
+    context: MarketContext,
+    accounts: &[AccountInfo],
+) -> Result<(Pubkey, &[AccountInfo]), ProgramError> {
+    let accounts = authenticated_accounts(context, accounts)?;
     let user = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
     if !user.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
     Ok((*user.key(), &accounts[1..]))
 }
-fn validate_book(book: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
+fn validate_book(context: MarketContext, book: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
     if !book.is_writable() {
         return Err(ProgramError::InvalidAccountData);
     }
@@ -286,7 +293,7 @@ fn validate_book(book: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
     }
     let raw = book.try_borrow_data()?;
     let header = mgk_common::layout::load::<mgk_common::book::OrderBook>(&raw)?;
-    if book.key() != &mgk_common::book::book_pda(program_id, header.instrument_id).0 {
+    if book.key() != &mgk_common::book::book_pda_in(context, program_id, header.instrument_id).0 {
         return Err(ProgramError::InvalidSeeds);
     }
     Ok(())
@@ -416,7 +423,16 @@ pub fn process_dfba_clear(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    let accounts = authenticated_accounts(accounts)?;
+    process_dfba_clear_in(MarketContext::Legacy, program_id, accounts, data)
+}
+#[inline(never)]
+pub fn process_dfba_clear_in(
+    context: MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let accounts = authenticated_accounts(context, accounts)?;
 
     if accounts.is_empty() {
         msg!("Error: DfbaClear requires results account");
@@ -450,9 +466,15 @@ pub fn process_dfba_clear(
         return Err(ProgramError::InvalidInstructionData);
     }
     let batch_id = u64::from_le_bytes(data[DFBA_IX_HEADER_BYTES..].try_into().unwrap());
-    validate_book(&accounts[1], program_id)?;
-    create_results_if_needed(results_account, batch_id, accounts.get(2), accounts.get(3))?;
-    validate_results(results_account, batch_id)?;
+    validate_book(context, &accounts[1], program_id)?;
+    create_results_if_needed(
+        context,
+        results_account,
+        batch_id,
+        accounts.get(2),
+        accounts.get(3),
+    )?;
+    validate_results_in(context, results_account, batch_id)?;
     {
         let mut raw = results_account.try_borrow_mut_data()?;
         begin_results(&mut raw, batch_id)?;
@@ -868,12 +890,13 @@ pub const INIT_BOOK_DATA_LEN: usize = 2 + 1;
 
 /// Allocate a fresh batch results PDA when clearing its batch for the first time.
 fn create_results_if_needed(
+    context: MarketContext,
     results: &AccountInfo,
     batch_id: u64,
     payer: Option<&AccountInfo>,
     system: Option<&AccountInfo>,
 ) -> ProgramResult {
-    if results.key() != &mgk_common::matcher::results_pda(batch_id).0 {
+    if results.key() != &mgk_common::matcher::results_pda_in(context, batch_id).0 {
         return Err(ProgramError::InvalidSeeds);
     }
     if results.data_len() != 0 {
@@ -909,9 +932,20 @@ fn create_results_if_needed(
         data: &data,
     };
     let id = batch_id.to_le_bytes();
-    let bump = [mgk_common::matcher::results_pda(batch_id).1];
-    let seeds = pinocchio::seeds!(b"results", &id, &bump);
-    invoke_signed::<2>(&ix, &[payer, results], &[Signer::from(&seeds)])
+    let bump = [mgk_common::matcher::results_pda_in(context, batch_id).1];
+    let registry = context
+        .registry_pda(&mgk_common::program_ids::PERPS_CORE_ID)
+        .0;
+    match context {
+        MarketContext::Legacy => {
+            let seeds = pinocchio::seeds!(b"results", &id, &bump);
+            invoke_signed::<2>(&ix, &[payer, results], &[Signer::from(&seeds)])
+        }
+        MarketContext::Scoped { .. } => {
+            let seeds = pinocchio::seeds!(b"results", &registry, &id, &bump);
+            invoke_signed::<2>(&ix, &[payer, results], &[Signer::from(&seeds)])
+        }
+    }
 }
 
 // Each live order belongs to exactly one of the four auction regions. Allocation
@@ -944,7 +978,15 @@ pub fn process_initialize_book(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    let accounts = authenticated_accounts(accounts)?;
+    process_initialize_book_in(MarketContext::Legacy, program_id, accounts, data)
+}
+pub fn process_initialize_book_in(
+    context: MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let accounts = authenticated_accounts(context, accounts)?;
 
     if accounts.len() < 3 {
         msg!("Error: InitializeBook needs book, payer, system_program");
@@ -966,11 +1008,11 @@ pub fn process_initialize_book(
     }
 
     let instrument_id = u16::from_le_bytes([data[0], data[1]]);
-    let bump = data[2];
+    let bump = mgk_common::book::book_pda_in(context, program_id, instrument_id).1;
     let book_space = crate::state::book_account_size();
 
     let id_le = instrument_id.to_le_bytes();
-    let (expected_pda, _) = pinocchio::pubkey::find_program_address(&[b"book", &id_le], program_id);
+    let (expected_pda, _) = mgk_common::book::book_pda_in(context, program_id, instrument_id);
     if book_account.key() != &expected_pda {
         msg!("Error: book PDA mismatch");
         return Err(ProgramError::InvalidSeeds);
@@ -980,6 +1022,26 @@ pub fn process_initialize_book(
     // still-zeroed account has no discriminator yet; a stamped book is left alone.
     if book_account.owner() == program_id {
         let len = book_account.data_len();
+        if book_account
+            .try_borrow_data()?
+            .first()
+            .copied()
+            .unwrap_or(0)
+            != 0
+        {
+            validate_book(context, book_account, program_id)?;
+            if len < book_space {
+                return Err(ProgramError::AccountDataTooSmall);
+            }
+            return Ok(());
+        }
+        if book_account
+            .try_borrow_data()?
+            .iter()
+            .any(|byte| *byte != 0)
+        {
+            return Err(ProgramError::InvalidAccountData);
+        }
         if len < book_space {
             book_account.resize(core::cmp::min(len + MAX_BOOK_GROWTH, book_space))?;
         }
@@ -990,7 +1052,10 @@ pub fn process_initialize_book(
         return Ok(());
     }
 
-    if book_account.data_len() > 0 && book_account.owner() != program_id {
+    if book_account.owner() != &SYSTEM_PROGRAM_ID_BYTES
+        || book_account.data_len() > 0
+        || _system.key() != &SYSTEM_PROGRAM_ID_BYTES
+    {
         msg!("Error: book account has unexpected owner");
         return Err(ProgramError::IllegalOwner);
     }
@@ -1021,9 +1086,19 @@ pub fn process_initialize_book(
         data: &ix_data,
     };
     let bump_seed = [bump];
-    let signer_seeds = pinocchio::seeds!(b"book", id_le.as_slice(), &bump_seed);
-    let signer = Signer::from(&signer_seeds);
-    invoke_signed::<2>(&ix, &[payer, book_account], &[signer])?;
+    let registry = context
+        .registry_pda(&mgk_common::program_ids::PERPS_CORE_ID)
+        .0;
+    match context {
+        MarketContext::Legacy => {
+            let seeds = pinocchio::seeds!(b"book", id_le.as_slice(), &bump_seed);
+            invoke_signed::<2>(&ix, &[payer, book_account], &[Signer::from(&seeds)])?;
+        }
+        MarketContext::Scoped { .. } => {
+            let seeds = pinocchio::seeds!(b"book", &registry, id_le.as_slice(), &bump_seed);
+            invoke_signed::<2>(&ix, &[payer, book_account], &[Signer::from(&seeds)])?;
+        }
+    }
     // createAccount zeros account data → empty BookState (resting_count=0),
     // which still lacks the discriminator + layout version: stamp it once full.
     if initial_space == book_space {
@@ -1039,6 +1114,11 @@ pub fn process_initialize_book(
 fn stamp_new_book(book_account: &AccountInfo, instrument_id: u16) -> ProgramResult {
     let mut data = book_account.try_borrow_mut_data()?;
     if data.first().copied() != Some(discriminator::UNINITIALIZED) {
+        mgk_common::layout::check_header(&data, discriminator::ORDER_BOOK, LAYOUT_VERSION_1)?;
+        let state = mgk_common::layout::load::<mgk_common::book::OrderBook>(&data)?;
+        if state.instrument_id != instrument_id {
+            return Err(ProgramError::InvalidAccountData);
+        }
         return Ok(());
     }
     stamp_body_mut(&mut data, discriminator::ORDER_BOOK, LAYOUT_VERSION_1)
@@ -1071,14 +1151,22 @@ pub fn process_place_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    let (user, accounts) = authenticated_user(accounts)?;
+    process_place_resting_in(MarketContext::Legacy, program_id, accounts, data)
+}
+pub fn process_place_resting_in(
+    context: MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let (user, accounts) = authenticated_user(context, accounts)?;
 
     if accounts.is_empty() {
         msg!("Error: PlaceResting requires book account");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
-    validate_book(book_account, program_id)?;
+    validate_book(context, book_account, program_id)?;
     if !book_account.is_writable() {
         return Err(ProgramError::InvalidAccountData);
     }
@@ -1169,14 +1257,22 @@ pub fn process_cancel_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    let (user, accounts) = authenticated_user(accounts)?;
+    process_cancel_resting_in(MarketContext::Legacy, program_id, accounts, data)
+}
+pub fn process_cancel_resting_in(
+    context: MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let (user, accounts) = authenticated_user(context, accounts)?;
 
     if accounts.is_empty() {
         msg!("Error: CancelResting requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
-    validate_book(book_account, program_id)?;
+    validate_book(context, book_account, program_id)?;
     if !book_account.is_writable() {
         msg!("Error: Book account must be writable");
         return Err(ProgramError::InvalidAccountData);
@@ -1218,14 +1314,22 @@ pub fn process_modify_resting(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    let (user, accounts) = authenticated_user(accounts)?;
+    process_modify_resting_in(MarketContext::Legacy, program_id, accounts, data)
+}
+pub fn process_modify_resting_in(
+    context: MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let (user, accounts) = authenticated_user(context, accounts)?;
 
     if accounts.is_empty() {
         msg!("Error: ModifyResting requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
-    validate_book(book_account, program_id)?;
+    validate_book(context, book_account, program_id)?;
     if !book_account.is_writable() {
         msg!("Error: Book account must be writable");
         return Err(ProgramError::InvalidAccountData);
@@ -1282,14 +1386,22 @@ pub fn process_cancel_all(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    let (user, accounts) = authenticated_user(accounts)?;
+    process_cancel_all_in(MarketContext::Legacy, program_id, accounts, data)
+}
+pub fn process_cancel_all_in(
+    context: MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let (user, accounts) = authenticated_user(context, accounts)?;
 
     if accounts.is_empty() {
         msg!("Error: CancelAll requires at least 1 account (book)");
         return Err(ProgramError::NotEnoughAccountKeys);
     }
     let book_account = &accounts[0];
-    validate_book(book_account, program_id)?;
+    validate_book(context, book_account, program_id)?;
     if !book_account.is_writable() {
         msg!("Error: Book account must be writable");
         return Err(ProgramError::InvalidAccountData);

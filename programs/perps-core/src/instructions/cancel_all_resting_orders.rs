@@ -29,6 +29,7 @@ pub const MAX_BOOKS_PER_CALL: usize = 32;
 ///
 /// Data: num_books(2)
 pub fn process_cancel_all_resting_orders(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     user_account: &AccountInfo,
@@ -58,7 +59,7 @@ pub fn process_cancel_all_resting_orders(
         return Err(MgkError::InvalidInstruction.into());
     }
 
-    crate::risk::unlocked(registry_account)?;
+    crate::risk::unlocked(context, registry_account)?;
 
     // Build the CPI data once — same user for every book.
     let mut cpi_data = [0u8; 1 + 32];
@@ -66,9 +67,10 @@ pub fn process_cancel_all_resting_orders(
     cpi_data[1..33].copy_from_slice(user_account.key().as_ref());
 
     for book in book_accounts {
-        crate::matcher_cpi::validate_book(matcher_program, book, None)?;
+        crate::matcher_cpi::validate_book(context, matcher_program, book, None)?;
         let id = unsafe { load_account::<mgk_common::book::OrderBook>(book)? }.instrument_id;
         crate::matcher_cpi::trader(
+            context,
             registry_account,
             user_account,
             book,

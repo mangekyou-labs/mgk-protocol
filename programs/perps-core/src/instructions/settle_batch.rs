@@ -36,6 +36,7 @@ fn read_oracle_price(
 
 #[allow(clippy::too_many_arguments)]
 pub fn process_settle_batch(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     batch_account: &AccountInfo,
     registry_account: &AccountInfo,
@@ -49,28 +50,33 @@ pub fn process_settle_batch(
     portfolio_accounts: &[AccountInfo],
     next_batch_account: &AccountInfo,
 ) -> ProgramResult {
-    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
     crate::matcher_cpi::validate_program(matcher_program)?;
     let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
     if batch.status != BatchStatus::Cleared {
         msg!("Error: Batch not in clearing phase");
         return Err(MgkError::InvalidInstruction.into());
     }
-    crate::matcher_cpi::validate_batch(program_id, batch_account, batch.batch_id)?;
-    mgk_common::matcher::validate_results(results_account, batch.batch_id)?;
+    crate::matcher_cpi::validate_batch(context, program_id, batch_account, batch.batch_id)?;
+    crate::pda::validate_current_batch(batch, unsafe {
+        load_account::<Registry>(registry_account)?
+    })?;
+    mgk_common::matcher::validate_results_in(context, results_account, batch.batch_id)?;
     let instrument = unsafe { load_account_mut::<Instrument>(instrument_account)? };
     crate::matcher_cpi::validate_book(
+        context,
         matcher_program,
         book_account,
         Some(instrument.instrument_id),
     )?;
     if instrument_account.key()
-        != &crate::pda::derive_instrument_pda(instrument.instrument_id, program_id).0
+        != &crate::pda::derive_instrument_pda_in(context, instrument.instrument_id, program_id).0
     {
         return Err(ProgramError::InvalidSeeds);
     }
     if next_batch_account.key()
-        != &crate::pda::derive_batch_pda(
+        != &crate::pda::derive_batch_pda_in(
+            context,
             batch.batch_id.checked_add(1).ok_or(MgkError::Overflow)?,
             program_id,
         )
@@ -83,7 +89,9 @@ pub fn process_settle_batch(
         mgk_common::validate_owner(account, program_id)?;
         mgk_common::validate_writable(account)?;
         let portfolio = unsafe { load_account::<Portfolio>(account)? };
-        if account.key() != &crate::pda::derive_portfolio_pda(&portfolio.user, program_id).0 {
+        if account.key()
+            != &crate::pda::derive_portfolio_pda_in(context, &portfolio.user, program_id).0
+        {
             return Err(ProgramError::InvalidSeeds);
         }
     }
@@ -112,6 +120,7 @@ pub fn process_settle_batch(
         &mut RuntimeStates::<Commitment>::new(commitment_accounts),
         &mut RuntimeStates::<Portfolio>::new(portfolio_accounts),
         &mut RuntimeEnvironment {
+            context,
             registry_account,
             vault_account,
             instrument_account,
@@ -134,6 +143,7 @@ pub fn process_settle_batch(
         pinocchio::instruction::AccountMeta::writable(results_account.key()),
     ];
     crate::matcher_cpi::signed(
+        context,
         registry_account,
         matcher_program,
         &metas,
@@ -172,6 +182,7 @@ impl<T: AccountLayout> transition::States<T> for RuntimeStates<'_, T> {
 }
 
 struct RuntimeEnvironment<'a> {
+    context: mgk_common::market::MarketContext,
     registry_account: &'a AccountInfo,
     vault_account: &'a AccountInfo,
     instrument_account: &'a AccountInfo,
@@ -190,8 +201,14 @@ impl transition::Environment for RuntimeEnvironment<'_> {
             pinocchio::instruction::AccountMeta::readonly_signer(self.registry_account.key()),
             pinocchio::instruction::AccountMeta::writable(self.book_account.key()),
         ];
-        crate::matcher_cpi::signed(self.registry_account, self.matcher_program, &metas,
-            &[self.registry_account, self.book_account], &data)
+        crate::matcher_cpi::signed(
+            self.context,
+            self.registry_account,
+            self.matcher_program,
+            &metas,
+            &[self.registry_account, self.book_account],
+            &data,
+        )
     }
     fn registry(&self) -> Result<Registry, ProgramError> {
         Ok(unsafe { *load_account::<Registry>(self.registry_account)? })
@@ -201,6 +218,7 @@ impl transition::Environment for RuntimeEnvironment<'_> {
     }
     fn validate_book(&self, instrument_id: u16) -> ProgramResult {
         crate::matcher_cpi::validate_book(
+            self.context,
             self.matcher_program,
             self.book_account,
             Some(instrument_id),

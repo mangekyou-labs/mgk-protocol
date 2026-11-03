@@ -28,6 +28,7 @@ pub const MATCHER_PLACE_RESTING: u8 = 6;
 /// `is_maker`: 0 = taker (default), 1 = maker.
 #[allow(clippy::too_many_arguments)]
 pub fn process_post_order(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     user_account: &AccountInfo,
@@ -45,10 +46,12 @@ pub fn process_post_order(
     instrument_id: u16,
     reduce_only: bool,
 ) -> ProgramResult {
-    crate::matcher_cpi::validate_registry(registry_account)?;
-    crate::matcher_cpi::validate_book(matcher_program, book_account, Some(instrument_id))?;
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
+    crate::matcher_cpi::validate_book(context, matcher_program, book_account, Some(instrument_id))?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
-    if registry.has_unsettled_batch() || (!reduce_only && (registry.is_trading_paused() || registry.is_posts_paused())) {
+    if registry.has_unsettled_batch()
+        || (!reduce_only && (registry.is_trading_paused() || registry.is_posts_paused()))
+    {
         msg!("Error: Trading/posts is paused");
         return Err(MgkError::OperationPaused.into());
     }
@@ -76,7 +79,8 @@ pub fn process_post_order(
     }
 
     let batch = unsafe { load_account_mut::<Batch>(batch_account)? };
-    crate::matcher_cpi::validate_batch(program_id, batch_account, batch.batch_id)?;
+    crate::matcher_cpi::validate_batch(context, program_id, batch_account, batch.batch_id)?;
+    crate::pda::validate_current_batch(batch, registry)?;
     // Until T9.3 renames status to Collecting, Committing is the open window.
     if batch.status != BatchStatus::Committing {
         msg!("Error: Batch not open for posts");
@@ -120,7 +124,13 @@ pub fn process_post_order(
         })?;
     }
 
-    let conversion = crate::risk::conversion(program_id, instrument_account, oracle_account, instrument_id)?;
+    let conversion = crate::risk::conversion(
+        context,
+        program_id,
+        instrument_account,
+        oracle_account,
+        instrument_id,
+    )?;
     crate::risk::refresh(portfolio, instrument_id, conversion)?;
     let reserve = crate::risk::reservation(qty, price, conversion, reduce_only)?;
     let order_id = unsafe { load_account::<mgk_common::book::OrderBook>(book_account)? }.next_order_id;
@@ -142,6 +152,7 @@ pub fn process_post_order(
     cpi_data[53] = if reduce_only { 1 } else { 0 };
 
     crate::matcher_cpi::trader(
+        context,
         registry_account,
         user_account,
         book_account,

@@ -2,10 +2,9 @@ use crate::state::{Instrument, Registry, Vault};
 use mgk_common::layout::init_account_mut;
 use pinocchio::{
     account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction, Signer},
+    instruction::{AccountMeta, Instruction},
     msg,
-    program::invoke_signed,
-    pubkey::{find_program_address, Pubkey},
+    pubkey::Pubkey,
     sysvars::{rent::Rent, Sysvar},
     ProgramResult,
 };
@@ -40,6 +39,7 @@ fn build_create_account_ix<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub fn process_initialize(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     registry_account: &AccountInfo,
     governance_account: &AccountInfo,
@@ -51,7 +51,7 @@ pub fn process_initialize(
     t_min_slots: u64,
     t_max_slots: u64,
     t_reveal_slots: u64,
-    registry_bump: u8,
+    _registry_bump: u8,
     instrument_account: &AccountInfo,
     instrument_id: u16,
     tick_size: u64,
@@ -61,18 +61,40 @@ pub fn process_initialize(
     taker_fee_bps: u16,
     maker_fee_bps: i16,
     oracle_addr: Pubkey,
-    instrument_bump: u8,
+    _instrument_bump: u8,
     _system_program: &AccountInfo,
     vault_account: &AccountInfo,
-    vault_bump: u8,
+    _vault_bump: u8,
 ) -> ProgramResult {
-    // Initialization is one-shot: resetting the registry would erase the
-    // global unsettled-batch lock and permit withdrawal before settlement.
-    if registry_account.key() != &find_program_address(&[b"registry"], program_id).0 {
-        return Err(pinocchio::program_error::ProgramError::InvalidSeeds);
+    let registry_bump = context.registry_pda(program_id).1;
+    let instrument_bump = context
+        .child_pda(b"instrument", &[&instrument_id.to_le_bytes()], program_id)
+        .1;
+    let vault_bump = context.child_pda(b"vault", &[], program_id).1;
+    if governance_account.key() != governance || !governance_account.is_signer() {
+        return Err(pinocchio::program_error::ProgramError::MissingRequiredSignature);
     }
-    if registry_account.try_borrow_data()?.iter().any(|byte| *byte != 0) {
-        return Err(mgk_common::MgkError::AlreadyInitialized.into());
+    for (account, expected) in [
+        (registry_account, context.registry_pda(program_id).0),
+        (
+            instrument_account,
+            context
+                .child_pda(b"instrument", &[&instrument_id.to_le_bytes()], program_id)
+                .0,
+        ),
+        (
+            vault_account,
+            context.child_pda(b"vault", &[], program_id).0,
+        ),
+    ] {
+        if account.key() != &expected {
+            return Err(pinocchio::program_error::ProgramError::InvalidSeeds);
+        }
+        mgk_common::validate_writable(account)?;
+        crate::pda::require_uninitialized(account)?;
+        if account.data_len() != 0 {
+            mgk_common::validate_owner(account, program_id)?;
+        }
     }
     Instrument::validate_demo_fees(taker_fee_bps, maker_fee_bps)?;
     if imr_bps != 2000 || mmr_bps != 1000 {
@@ -84,7 +106,7 @@ pub fn process_initialize(
     if registry_account.data_len() < REGISTRY_SPACE {
         let rent = Rent::get()?;
         let lamports = rent.minimum_balance(REGISTRY_SPACE);
-        let (reg_pda, _) = find_program_address(&[b"registry"], program_id);
+        let (reg_pda, _) = context.registry_pda(program_id);
         let (ix_data, metas) = build_create_account_ix(
             governance_account.key(),
             &reg_pda,
@@ -98,10 +120,14 @@ pub fn process_initialize(
             accounts: &metas,
             data: &ix_data,
         };
-        let bump_seed = [registry_bump];
-        let signer_seeds = pinocchio::seeds!(b"registry", &bump_seed);
-        let signer = Signer::from(&signer_seeds);
-        invoke_signed::<2>(&ix, &[governance_account, registry_account], &[signer])?;
+        crate::pda::invoke_pda(
+            context,
+            b"registry",
+            &[],
+            program_id,
+            &ix,
+            &[governance_account, registry_account],
+        )?;
         msg!("Registry PDA created");
     }
 
@@ -110,7 +136,7 @@ pub fn process_initialize(
         let rent = Rent::get()?;
         let lamports = rent.minimum_balance(INSTRUMENT_SPACE);
         let id_le = instrument_id.to_le_bytes();
-        let (inst_pda, _) = find_program_address(&[b"instrument", &id_le], program_id);
+        let (inst_pda, _) = context.child_pda(b"instrument", &[&id_le], program_id);
         let (ix_data, metas) = build_create_account_ix(
             governance_account.key(),
             &inst_pda,
@@ -124,10 +150,14 @@ pub fn process_initialize(
             accounts: &metas,
             data: &ix_data,
         };
-        let bump_seed = [instrument_bump];
-        let signer_seeds = pinocchio::seeds!(b"instrument", id_le.as_slice(), &bump_seed);
-        let signer = Signer::from(&signer_seeds);
-        invoke_signed::<2>(&ix, &[governance_account, instrument_account], &[signer])?;
+        crate::pda::invoke_pda(
+            context,
+            b"instrument",
+            &[id_le.as_slice()],
+            program_id,
+            &ix,
+            &[governance_account, instrument_account],
+        )?;
         msg!("Instrument PDA created");
     }
 
@@ -135,7 +165,7 @@ pub fn process_initialize(
     if vault_account.data_len() < VAULT_SPACE {
         let rent = Rent::get()?;
         let lamports = rent.minimum_balance(VAULT_SPACE);
-        let (vault_pda, _) = find_program_address(&[b"vault"], program_id);
+        let (vault_pda, _) = context.child_pda(b"vault", &[], program_id);
         let (ix_data, metas) = build_create_account_ix(
             governance_account.key(),
             &vault_pda,
@@ -149,10 +179,14 @@ pub fn process_initialize(
             accounts: &metas,
             data: &ix_data,
         };
-        let bump_seed = [vault_bump];
-        let signer_seeds = pinocchio::seeds!(b"vault", &bump_seed);
-        let signer = Signer::from(&signer_seeds);
-        invoke_signed::<2>(&ix, &[governance_account, vault_account], &[signer])?;
+        crate::pda::invoke_pda(
+            context,
+            b"vault",
+            &[],
+            program_id,
+            &ix,
+            &[governance_account, vault_account],
+        )?;
         msg!("Vault PDA created");
     }
 
