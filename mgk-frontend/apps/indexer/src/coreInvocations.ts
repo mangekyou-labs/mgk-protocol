@@ -1,5 +1,5 @@
 import {unwrapInstruction,type MarketSeed} from '../../../packages/layout/market.js';
-import type {ConfirmedTransactionMeta, Message, MessageV0, PublicKey} from '@solana/web3.js';
+import type {ConfirmedTransactionMeta, PublicKey, VersionedMessage} from '@solana/web3.js';
 import bs58 from 'bs58';
 
 interface Invocation {
@@ -13,8 +13,11 @@ interface Invocation {
 /** Match core instructions in execution preorder to authenticated runtime log frames.
  * A successful child is committed only if every enclosing invocation succeeds.
  */
-export function coreInvocations(message: Message | MessageV0, meta: Pick<ConfirmedTransactionMeta, 'loadedAddresses' | 'innerInstructions' | 'logMessages'>, core: PublicKey, marketSeed?: MarketSeed) {
-  const keys = message.getAccountKeys({accountKeysFromLookups: meta.loadedAddresses});
+export function coreInvocations(message: VersionedMessage, meta: Pick<ConfirmedTransactionMeta, 'loadedAddresses' | 'innerInstructions' | 'logMessages'>, core: PublicKey, marketSeed?: MarketSeed) {
+  // V1 messages carry resolved keys directly; legacy/V0 resolve lookups from meta.
+  const keys = message.version === 0
+    ? message.getAccountKeys({accountKeysFromLookups: meta.loadedAddresses})
+    : message.getAccountKeys();
   const instructions = message.compiledInstructions.flatMap((ix, index) => [
     {...ix, depth: 1},
     ...(meta.innerInstructions?.find(group => group.index === index)?.instructions ?? []).map(inner => ({
