@@ -119,7 +119,7 @@ later steps depend on the registry/funding in order.
 | 3 | InitializeBook ×3 (grow book) | admin | book rent from admin |
 | 4 | CreateBatch 0 | admin | batch rent from admin |
 | 5 | TopUp insurance | admin | 3,000,000,000 to D′ vault |
-| 6 | InitPortfolio (maker) | admin (fee), maker `DPs1NM3T…` | portfolio rent from maker |
+| 6 | InitPortfolioForUser (maker portfolio, created via invoke_signed) | admin | portfolio rent from admin |
 | 7 | Deposit maker collateral | maker | 3,000,000,000 from maker |
 
 Funding top-ups the operator sends first, from a separate wallet they

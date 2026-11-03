@@ -37,7 +37,7 @@ const [instrument, instrumentBump] = derive('instrument', [Buffer.alloc(2)]);
 const [vault, vaultBump] = derive('vault');
 const [book] = derive('book', [Buffer.alloc(2)], MATCHER);
 const [batch0, batch0Bump] = derive('batch', [Buffer.alloc(8)]);
-const [portfolio, portfolioBump] = derive('portfolio', [MAKER.toBuffer()]);
+const [portfolio] = derive('portfolio', [MAKER.toBuffer()]);
 
 const scoped = (name, params) => new TransactionInstruction({ programId: CORE,
   keys: scoped.keys, data: Buffer.concat([Buffer.from([29]), SEED, Buffer.from(encodeInstruction('core', name, params))]) });
@@ -99,11 +99,13 @@ async function main() {
     const tx = new Transaction({ feePayer: ADMIN }).add(scoped('TopUp', { amount: 3000000000n }));
     steps.push({ step: ++n, action: 'TopUp insurance 3 SOL (admin)', ...save('05_topup', tx), signers: [ADMIN.toBase58()], lamportsFromFeePayer: 3000000000, simulateNow: false, simulationNote: 'needs step 2 and the admin funding top-up' });
   }
-  // 6. Maker portfolio for the maker worker signer.
-  scoped.keys = [meta(portfolio), meta(MAKER, true, true)];
+  // 6. Maker portfolio: InitPortfolioForUser creates the PDA via invoke_signed
+  // (plain InitPortfolio only stamps a pre-created account and fails owner
+  // validation on a fresh PDA). Admin pays the rent; maker is the user.
+  scoped.keys = [meta(ADMIN, true, true), meta(portfolio), meta(SystemProgram.programId, false)];
   {
-    const tx = new Transaction({ feePayer: ADMIN }).add(scoped('InitPortfolio', { user: MAKER.toBytes(), bump: portfolioBump }));
-    steps.push({ step: ++n, action: 'InitPortfolio (maker)', ...save('06_portfolio', tx), signers: [ADMIN.toBase58(), MAKER.toBase58()], simulateNow: false, simulationNote: 'needs the registry from step 2' });
+    const tx = new Transaction({ feePayer: ADMIN }).add(scoped('InitPortfolioForUser', { user: MAKER.toBytes() }));
+    steps.push({ step: ++n, action: 'InitPortfolioForUser (maker portfolio)', ...save('06_portfolio', tx), signers: [ADMIN.toBase58()], simulateNow: false, simulationNote: 'needs the registry from step 2' });
   }
   // 7. Maker collateral: 3 SOL from the maker wallet into its portfolio.
   scoped.keys = [meta(portfolio), meta(MAKER, true, true), meta(SystemProgram.programId, false), meta(vault)];
