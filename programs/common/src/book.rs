@@ -95,7 +95,18 @@ pub const fn book_header_size() -> usize {
 /// Used by `perps-core` to verify that a `SettleBatch` caller passed the
 /// real book account (not a malicious lookalike) for the given instrument.
 #[inline]
-pub fn book_pda(program_id: &pinocchio::pubkey::Pubkey, instrument_id: u16) -> (pinocchio::pubkey::Pubkey, u8) {
+pub fn book_pda_in(
+    context: crate::market::MarketContext,
+    program_id: &pinocchio::pubkey::Pubkey,
+    instrument_id: u16,
+) -> (pinocchio::pubkey::Pubkey, u8) {
+    context.child_pda(b"book", &[&instrument_id.to_le_bytes()], program_id)
+}
+
+pub fn book_pda(
+    program_id: &pinocchio::pubkey::Pubkey,
+    instrument_id: u16,
+) -> (pinocchio::pubkey::Pubkey, u8) {
     let id_bytes = instrument_id.to_le_bytes();
     let seeds: [&[u8]; 2] = [b"book", &id_bytes];
     pinocchio::pubkey::find_program_address(&seeds, program_id)

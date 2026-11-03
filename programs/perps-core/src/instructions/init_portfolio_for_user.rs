@@ -27,11 +27,10 @@ use crate::state::Portfolio;
 use mgk_common::layout::init_account_mut;
 use pinocchio::{
     account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction, Signer},
+    instruction::{AccountMeta, Instruction},
     msg,
-    program::invoke_signed,
     program_error::ProgramError,
-    pubkey::{find_program_address, Pubkey},
+    pubkey::Pubkey,
     sysvars::{rent::Rent, Sysvar},
     ProgramResult,
 };
@@ -46,6 +45,7 @@ const SYSTEM_PROGRAM_ID_BYTES: [u8; 32] = [
 ];
 
 pub fn process_init_portfolio_for_user(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     data: &[u8],
@@ -76,7 +76,16 @@ pub fn process_init_portfolio_for_user(
     }
 
     // Derive user's portfolio PDA
-    let (portfolio_pda, bump) = find_program_address(&[b"portfolio", user.as_ref()], program_id);
+    let (portfolio_pda, bump) = context.child_pda(b"portfolio", &[user.as_ref()], program_id);
+
+    if portfolio_account.key() != &portfolio_pda {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    mgk_common::validate_writable(portfolio_account)?;
+    crate::pda::require_uninitialized(portfolio_account)?;
+    if portfolio_account.data_len() != 0 {
+        mgk_common::validate_owner(portfolio_account, program_id)?;
+    }
 
     // If portfolio account is not yet created (data_len == 0), use invoke_signed
     // + SystemProgram::CreateAccount to create it at the PDA address.
@@ -106,18 +115,13 @@ pub fn process_init_portfolio_for_user(
             data: &ix_data,
         };
 
-        let bump_seed = [bump];
-        let signer_seeds = pinocchio::seeds!(b"portfolio", user.as_ref(), &bump_seed);
-        let signer = Signer::from(&signer_seeds);
-        let signers = [signer];
-
-        invoke_signed::<2>(
+        crate::pda::invoke_pda(
+            context,
+            b"portfolio",
+            &[user.as_ref()],
+            program_id,
             &create_ix,
-            &[
-                payer_account,
-                portfolio_account,
-            ],
-            &signers,
+            &[payer_account, portfolio_account],
         )?;
 
         msg!("InitPortfolioForUser: created portfolio at PDA via invoke_signed");

@@ -3,7 +3,9 @@ use mgk_common::layout::load_account;
 use mgk_common::MgkError;
 use pinocchio::{account_info::AccountInfo, msg, ProgramResult};
 
+#[allow(clippy::too_many_arguments)]
 pub fn process_withdraw(
+    context: mgk_common::market::MarketContext,
     _portfolio_account: &AccountInfo,
     portfolio: &mut Portfolio,
     user_account: &AccountInfo,
@@ -16,7 +18,7 @@ pub fn process_withdraw(
     // (e.g. oracle outage, suspected bug). Deposits stay open so users
     // can still fund defensive positions during a paused-but-recovering
     // state.
-    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
     if registry.is_withdrawals_paused() || registry.has_unsettled_batch() {
         msg!("Error: Withdrawals are paused");

@@ -3,10 +3,9 @@ use mgk_common::layout::{discriminator, init_account_mut, load_account, load_acc
 use mgk_common::{validate_owner, validate_writable, MgkError};
 use pinocchio::{
     account_info::AccountInfo,
-    instruction::{AccountMeta, Instruction, Signer},
+    instruction::{AccountMeta, Instruction},
     msg,
-    program::invoke_signed,
-    pubkey::{find_program_address, Pubkey},
+    pubkey::Pubkey,
     sysvars::{clock::Clock, rent::Rent, Sysvar},
     ProgramResult,
 };
@@ -26,18 +25,21 @@ const BATCH_SPACE: usize = core::mem::size_of::<Batch>();
 ///
 /// Data: bump(1)
 pub fn process_create_batch(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     batch_account: &AccountInfo,
     registry_account: &AccountInfo,
     payer_account: Option<&AccountInfo>,
-    bump: u8,
+    _bump: u8,
 ) -> ProgramResult {
-    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
     if registry.has_unsettled_batch() {
         return Err(MgkError::OperationPaused.into());
     }
-    let expected = crate::pda::derive_batch_pda(registry.batch_id_counter, program_id).0;
+    let (expected, bump) =
+        crate::pda::derive_batch_pda_in(context, registry.batch_id_counter, program_id);
+    crate::pda::require_uninitialized(batch_account)?;
     if batch_account.key() != &expected {
         return Err(pinocchio::program_error::ProgramError::InvalidSeeds);
     }
@@ -61,7 +63,7 @@ pub fn process_create_batch(
         // Read batch_id from registry counter to derive the correct PDA.
         let batch_id = { unsafe { *load_account::<Registry>(registry_account)? } }.batch_id_counter;
         let batch_id_le = batch_id.to_le_bytes();
-        let (batch_pda, _) = find_program_address(&[b"batch", &batch_id_le], program_id);
+        let (batch_pda, _) = context.child_pda(b"batch", &[&batch_id_le], program_id);
 
         // Build SystemProgram::CreateAccount instruction.
         let mut ix_data = [0u8; 52];
@@ -81,10 +83,14 @@ pub fn process_create_batch(
             data: &ix_data,
         };
 
-        let bump_seed = [bump];
-        let signer_seeds = pinocchio::seeds!(b"batch", batch_id_le.as_slice(), &bump_seed);
-        let signer = Signer::from(&signer_seeds);
-        invoke_signed::<2>(&ix, &[payer, batch_account], &[signer])?;
+        crate::pda::invoke_pda(
+            context,
+            b"batch",
+            &[batch_id_le.as_slice()],
+            program_id,
+            &ix,
+            &[payer, batch_account],
+        )?;
         msg!("Batch PDA created");
     }
 
@@ -130,11 +136,12 @@ pub fn process_create_batch(
 ///   0: [writable] Registry
 ///   1: [signer]   Governance (must equal registry.governance)
 pub fn process_set_batch_counter(
+    context: mgk_common::market::MarketContext,
     registry_account: &AccountInfo,
     governance_account: &AccountInfo,
 ) -> ProgramResult {
     let program_id = registry_account.owner();
-    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
     if unsafe { load_account::<Registry>(registry_account)? }.has_unsettled_batch() {
         return Err(MgkError::OperationPaused.into());
     }

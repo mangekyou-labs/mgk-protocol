@@ -13,6 +13,7 @@ pub mod program_ids;
 pub mod book;
 pub mod oracle;
 pub mod matcher;
+pub mod market;
 
 #[cfg(test)]
 mod tests;

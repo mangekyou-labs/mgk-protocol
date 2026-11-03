@@ -21,6 +21,7 @@ pub const MATCHER_MODIFY_RESTING: u8 = 2;
 /// Data: order_id(8) + new_qty(8)
 #[allow(clippy::too_many_arguments)]
 pub fn process_modify_resting_order(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     user_account: &AccountInfo,
@@ -53,12 +54,26 @@ pub fn process_modify_resting_order(
         return Err(MgkError::Unauthorized.into());
     }
 
-    crate::risk::unlocked(registry_account)?;
-    let index = portfolio.orders.iter().position(|o| o.remaining_qty != 0 && o.order_id == order_id)
+    crate::risk::unlocked(context, registry_account)?;
+    let index = portfolio
+        .orders
+        .iter()
+        .position(|o| o.remaining_qty != 0 && o.order_id == order_id)
         .ok_or(MgkError::InvalidOrder)?;
     let mut order = portfolio.orders[index];
-    crate::matcher_cpi::validate_book(matcher_program, book_account, Some(order.instrument_id))?;
-    let conversion = crate::risk::conversion(program_id, instrument_account, oracle_account, order.instrument_id)?;
+    crate::matcher_cpi::validate_book(
+        context,
+        matcher_program,
+        book_account,
+        Some(order.instrument_id),
+    )?;
+    let conversion = crate::risk::conversion(
+        context,
+        program_id,
+        instrument_account,
+        oracle_account,
+        order.instrument_id,
+    )?;
     crate::risk::refresh(portfolio, order.instrument_id, conversion)?;
     let registry = unsafe { load_account::<crate::state::Registry>(registry_account)? };
     if order.reduce_only == 0 && (registry.is_trading_paused() || registry.is_posts_paused()) {
@@ -97,6 +112,7 @@ pub fn process_modify_resting_order(
     cpi_data[41..49].copy_from_slice(&new_qty.to_le_bytes());
 
     crate::matcher_cpi::trader(
+        context,
         registry_account,
         user_account,
         book_account,
