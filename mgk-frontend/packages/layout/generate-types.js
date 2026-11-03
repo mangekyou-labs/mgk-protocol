@@ -35,7 +35,7 @@ for (const [program,table] of Object.entries(instructions)) {
  for (const [name,spec] of Object.entries(table)) instructionTypes += `  ${name}: {disc:${spec.disc}; fields:[string,string][]; enabled:boolean};\n`;
  instructionTypes += ' };\n';
 }
-instructionTypes += "};\nexport function encodeInstruction(program:'core'|'matcher'|'oracle',name:string,params?:Record<string,unknown>):Uint8Array;\n";
+instructionTypes += "};\nexport function encodeInstruction(program:'core'|'matcher'|'oracle',name:string,params?:Record<string,unknown>,marketSeed?:import(\"./market\").MarketSeed):Uint8Array;\n";
 for (const [name,text] of [['index.d.ts',accounts],['instructions.d.ts',instructionTypes]]) {
  const file = path.join(__dirname,name);
  if (process.argv.includes('--check')) {
