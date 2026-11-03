@@ -59,15 +59,36 @@ fn checked_in_program_ids_are_the_ids_compiled_into_the_programs() {
     assert_eq!(m.programs.oracle, mgk_common::mgk_oracle_program_id());
 }
 
+fn deployed(address: &str) -> AccountRef {
+    let bytes = bs58::decode(address).into_vec().unwrap();
+    AccountRef::Deployed(bytes.try_into().unwrap())
+}
+
+/// Pinned by the #38 devnet deploy; a redeploy must update these on purpose.
 #[test]
-fn checked_in_manifest_marks_undeployed_addresses_as_explicit_placeholders() {
+fn checked_in_manifest_pins_the_devnet_deployment() {
     let m = parse(&checked_in_value()).unwrap();
-    assert_eq!(m.accounts.registry, AccountRef::Pending);
-    assert_eq!(m.accounts.instrument, AccountRef::Pending);
-    assert_eq!(m.accounts.oracle, AccountRef::Pending);
-    assert_eq!(m.accounts.insurance, AccountRef::Pending);
-    assert_eq!(m.accounts.maker, AccountRef::Pending);
-    assert_eq!(m.start_slot, SlotRef::Pending);
+    assert_eq!(
+        m.accounts.registry,
+        deployed("5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH")
+    );
+    assert_eq!(
+        m.accounts.instrument,
+        deployed("ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB")
+    );
+    assert_eq!(
+        m.accounts.oracle,
+        deployed("BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp")
+    );
+    assert_eq!(
+        m.accounts.insurance,
+        deployed("8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV")
+    );
+    assert_eq!(
+        m.accounts.maker,
+        deployed("DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o")
+    );
+    assert_eq!(m.start_slot, SlotRef::Set(517_959_329));
 }
 
 #[test]
