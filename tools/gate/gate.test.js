@@ -142,13 +142,17 @@ test('gate tooling end-to-end: market fill and settle, latency, shortened soak, 
   };
   const manifestPath = join(directory, 'deployment.json');
   const payerPath = join(directory, 'payer.json');
+  const monitoringPath = join(directory, 'monitoring.json');
+  const monitoring = structuredClone(require('../../deployments/monitoring.json'));
+  monitoring.feePayers.keeper = payer.publicKey.toBase58();
+  writeFileSync(monitoringPath, JSON.stringify(monitoring));
   writeFileSync(manifestPath, JSON.stringify(manifest));
   writeFileSync(payerPath, JSON.stringify([...payer.secretKey]), { mode: 0o600 });
   const keeper = await runtime.launchWorker(process.execPath,
     [resolve(__dirname, '..', 'ops-keeper.js'), '--loop'], {
       env: {
         KEEPER_KEYPAIR: payerPath, DEPLOYMENT_MANIFEST: manifestPath,
-        MONITORING_CONFIG: resolve(__dirname, '../../deployments/monitoring.json'),
+        MONITORING_CONFIG: monitoringPath,
       },
     });
   collectKeeperOutput(keeper);
