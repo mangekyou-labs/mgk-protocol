@@ -1,5 +1,9 @@
 {
-  "feePayers": {"keeper": null, "oracle": null, "maker": null},
+  "feePayers": {
+    "keeper": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+    "oracle": "72dFyhGoA5uNep2XFTv4saMJVPecSNcthXZkaquUXHue",
+    "maker": "DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o"
+  },
   "feeFloorLamports": "10000000",
   "insuranceFloorLamports": "1000000000",
   "uptime": {
