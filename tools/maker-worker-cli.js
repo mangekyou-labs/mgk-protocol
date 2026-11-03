@@ -74,55 +74,61 @@ async function main() {
     feeFloorLamports: BigInt(monitoring.feeFloorLamports),
   });
   const health = createHealthState("maker");
-  if (process.argv.includes("--loop")) startHealthServer(health);
+  const healthServer = process.argv.includes("--loop") && process.env.PORT
+    ? startHealthServer(health)
+    : null;
   const abort = new AbortController();
   process.once("SIGTERM", () => abort.abort());
   process.once("SIGINT", () => abort.abort());
-  do {
-    const started = Date.now();
-    try {
-      const result = await worker.tick();
-      markCycle(health, result.status);
-      console.log(
-        JSON.stringify({
-          ...result,
-          service: "maker",
-          batchId: result.batchId?.toString(),
-        }),
-      );
-      if (result.status === "halted") {
-        process.exitCode = 1;
-        break;
+  try {
+    do {
+      const started = Date.now();
+      try {
+        const result = await worker.tick();
+        markCycle(health, result.status);
+        console.log(
+          JSON.stringify({
+            ...result,
+            service: "maker",
+            batchId: result.batchId?.toString(),
+          }),
+        );
+        if (result.status === "halted") {
+          process.exitCode = 1;
+          break;
+        }
+        if (
+          process.argv.includes("--once") &&
+          [
+            "retry",
+            "backoff",
+            "low_fee_sol",
+            "invalid_price",
+            "blocked",
+          ].includes(result.status)
+        )
+          process.exitCode = 1;
+      } catch {
+        markError(health);
+        console.error(
+          JSON.stringify({
+            service: "maker",
+            severity: "critical",
+            code: "cycle_failed",
+            status: "cycle_failed",
+            action: "Check RPC availability and manifest account bindings",
+          }),
+        );
+        if (process.argv.includes("--once")) process.exitCode = 1;
       }
-      if (
-        process.argv.includes("--once") &&
-        [
-          "retry",
-          "backoff",
-          "low_fee_sol",
-          "invalid_price",
-          "blocked",
-        ].includes(result.status)
-      )
-        process.exitCode = 1;
-    } catch {
-      markError(health);
-      console.error(
-        JSON.stringify({
-          service: "maker",
-          severity: "critical",
-          code: "cycle_failed",
-          status: "cycle_failed",
-          action: "Check RPC availability and manifest account bindings",
-        }),
-      );
-      if (process.argv.includes("--once")) process.exitCode = 1;
-    }
-    if (process.argv.includes("--once") || abort.signal.aborted) break;
-    await sleep(Math.max(0, INTERVAL_MS - (Date.now() - started)), undefined, {
-      signal: abort.signal,
-    }).catch(() => {});
-  } while (!abort.signal.aborted);
+      if (process.argv.includes("--once") || abort.signal.aborted) break;
+      await sleep(Math.max(0, INTERVAL_MS - (Date.now() - started)), undefined, {
+        signal: abort.signal,
+      }).catch(() => {});
+    } while (!abort.signal.aborted);
+  } finally {
+    healthServer?.close();
+  }
 }
 function fatal() {
   console.error(

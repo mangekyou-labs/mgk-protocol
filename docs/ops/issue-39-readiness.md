@@ -1,12 +1,112 @@
 # Issue #39 rollout readiness — 2026-11-03
 
-Issue #39 is **not complete**. Market isolation is implemented locally across
-programs, clients, workers, and auditing. No public transaction was sent and no
-hosted service was deployed. Tests signed only with generated local wallets;
-operator secrets were not read. The required D′ rows remain **not run**.
+Issue #39 remains **open** and PR #72 remains **draft**. D′ is deployed and
+funded, workers are live, and both recovery procedures have been exercised.
+The exhaustion recovery and flat withdrawal completed at slot 518207459.
+P0-31 still lacks complete fault/alert evidence; indexer backfill and CI also
+remain release blockers. This is not a production sign-off.
 
-The concrete candidate, upgrade costs, and remaining signing requirements are in
-[the upgrade review](issue-39-upgrade-review.md).
+## Dated correction — public rollout and rehearsal evidence
+
+This update supersedes the earlier local-only observations retained below.
+The operator signed public devnet transactions; the agent used read-only chain
+probes and the authorized Render suspend/resume actions. The agent did not read
+keypair files or sign/send transactions. Production frontend settings were not
+changed; the restored trade UI was deployed as a D′ preview.
+
+The shared manifest is [devnet-dprime.json](../../deployments/devnet-dprime.json),
+with market seed `GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4`, registry
+`CbwTpmDgb6KKfBpv156754dXBpCoKPyjGt1kmJAb8mtR`, and start slot `518144057`.
+D′ uses the same program IDs as the default market, with separate registry,
+vault, portfolios, book and batches. Its initial insurance and maker collateral
+were 3 SOL each. The [deployment record](../ai/deployment/2026-11-03-issue-39-dprime.md)
+records executable hashes, service pins and the preview.
+
+### Current D′ gate assessment
+
+| Required row | Assessment | Evidence and remaining limits |
+| --- | --- | --- |
+| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. Stopping maker left resting GTC depth `ok`; a maker-stop depth/liveness check and actual external alert delivery remain unproved. Pause UI evidence exists below, but is not proof of each outage banner. |
+| P0-32 | **procedures exercised; final gate review pending** | The post-upgrade batch-201 stall/recovery above also exercises the Cleared >2 min runbook. The exhaustion sequence below proves real debt, auto-pause, debt repayment, ordered unpause and a successful flat withdrawal. No successful taker reduce-only close occurred: liquidation removed the position first. Runbook follow-up and transaction-paired invariant evidence remain explicit limits. |
+| P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
+
+An earlier batch-92 Cleared rehearsal preceded the matcher upgrade at slot
+518171780, so it does not qualify the current executable. Batch 201's 178 s
+stall and subsequent recovery occurred after that upgrade and are the current
+Cleared-runbook evidence. Do not present the old batch-92 capture as a new pass.
+
+### Insurance exhaustion and recovery
+
+At 11:47:17 UTC, the [pre-crash account snapshot](evidence/issue-39-2026-11-03/p032-precrash.json)
+showed taker +300 lots, maker −300, fund 80,150,434 lamports and zero debt.
+Taker equity was 799,849,566 lamports, exceeding the original 0.4 SOL estimate:
+[transaction history](evidence/issue-39-2026-11-03/p032-taker-transactions.json)
+confirms two separate 0.4 SOL deposits before the buy. This explains the smaller
+actual shortfall. The oracle service was suspended at 11:47:35 UTC; the operator
+then posted the $20 crash price.
+
+The maker's `LiquidateUser` succeeded at slot **518205530**, signature
+`2jKZ9AXRCSz8mg9G6JfSuFax3P7vi4J1qxeUeVkxNzhkTiVWEf9eBUcHTKe2jA6S7WY7FBfN6CDhNWQfYtW7cbEL`.
+Both positions became flat, fund reached zero, debt became **212,857,100
+lamports**, and pause flags became **3**. The [account observation summary](evidence/issue-39-2026-11-03/p032-exhaustion-observation.json)
+explains its provenance; the [status response](evidence/issue-39-2026-11-03/p032-exhausted-status.json)
+independently records zero insurance and flags 3. The taker's attempted
+reduce-only close failed simulation with custom 606 because no position remained;
+that attempt did not send a close transaction.
+
+The operator's confirmed recovery transactions are recorded with logs, fees,
+slots and lamport deltas in the history linked above and in the
+[signature list](evidence/issue-39-2026-11-03/p032-operator-recovery-signatures.json):
+
+| Operation | Slot | Result |
+| --- | --- | --- |
+| TopUp 1.7 SOL | 518206463 | Debt repaid first; fund 1,487,142,900 lamports |
+| Unpause withdrawals | 518206499 | Flags 3 → 1 |
+| Unpause trading | 518206526 | Flags 1 → 0 |
+| Flat deposit 0.05 SOL | 518206563 | Vault +50,000,000 lamports |
+| Flat withdraw 0.05 SOL | 518207459 | Vault −50,000,000; wallet +49,995,000 after 5,000 lamport fee |
+
+The first withdrawal simulations returned custom 602 despite flags 0 because
+batch 432 was Cleared with the global settlement lock set. `Withdraw` uses the
+same message for the governance pause and the settlement lock. Resuming the
+oracle at 11:52:53 UTC allowed the keeper to settle it. The operator's temporary
+withdrawal helper then waited for a clear lock and retried only rejected
+simulations; it never retries a sent transaction or uncertain confirmation.
+Its five safety tests passed before operator use.
+
+The [recovery status](evidence/issue-39-2026-11-03/p032-recovery-status.json)
+shows oracle, batch, maker depth, fees, insurance, pause and RPC all `ok`, with
+only indexer `warn` (58,079 slots behind). The
+[recovery accounts](evidence/issue-39-2026-11-03/p032-recovery-live.json) show
+zero taker equity and no position after withdrawal. A later Cleared phase in
+that snapshot is a normal new batch, not evidence of another governance pause.
+
+The [read-only recovery audit](evidence/issue-39-2026-11-03/p032-recovery-audit.json)
+at slot 518207977 reports **zero violations**: vault identity, signed auction
+quantity, receipt application, nonnegative withdrawable balance, collateral
+and open-interest consistency pass where evaluable. Eligible fill size cannot
+be evaluated with no cleared batch awaiting settlement; the reduce invariant
+needs paired snapshots around a settling transaction. These are **not evaluated**,
+not passes. No open positions remain for the net-position consistency check.
+
+### Remaining work
+
+Keep #39 open and PR #72 draft until P0-31 and P0-32 have their full required
+evidence. Confirm actual external alert delivery, complete the missing maker
+fault/UX evidence, and retain transaction-paired snapshots for invariant 5.
+Complete indexer backfill, show the early fills without duplicates, and recheck
+health. Free Render instances have ephemeral storage and can sleep after idle
+periods: keep `/healthz` warm during drills and do not redeploy/reset the indexer
+just to update documentation. Match all required service/source pins and rerun
+affected evidence after off-chain changes. CI failures and their fixes are
+tracked separately from the known local rustc-1.79 layout-build limitation.
+
+## Historical investigation — retained as observed
+
+The following sections describe the earlier 02:03 UTC investigation and local
+candidate verification. Statements such as “not deployed” or “not run” below are
+historical and superseded by the dated correction above; they are retained to
+preserve the evidence boundary.
 
 ## Source and evidence boundary
 

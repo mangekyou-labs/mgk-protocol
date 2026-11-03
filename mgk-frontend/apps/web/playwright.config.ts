@@ -2,9 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  // This immutable build is the maintenance rollback target. Restore the live
-  // trading suites when the rebuilt demo replaces this shell (issue #34).
-  testMatch: 'maintenance.spec.ts',
+  // Deterministic live-shell smoke coverage; signing suites use separate configs.
+  testMatch: 'live-shell.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

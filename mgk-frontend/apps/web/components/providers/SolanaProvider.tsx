@@ -13,7 +13,7 @@ const DEVNET_RPC = clusterApiUrl('devnet');
 
 export function SolanaProvider({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => {
-    return process.env.NEXT_PUBLIC_RPC_URL ?? DEVNET_RPC;
+    return process.env.NEXT_PUBLIC_RPC_URL || DEVNET_RPC;
   }, []);
 
   const wallets = useMemo(
