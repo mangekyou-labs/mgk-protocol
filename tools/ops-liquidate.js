@@ -23,9 +23,9 @@ function decodePortfolioHealth(data, conversionPrice) {
  }
  return {health,positionsLen:p.positionsLen,unrealizedPnl};
 }
-function encodeLiquidateUser(numInstruments = 1) {
+function encodeLiquidateUser(numInstruments = 1, marketSeed) {
   if (numInstruments !== 1) throw new Error('only one SOL-PERP instrument is supported');
-  return Buffer.from([LIQUIDATE_DISC, 1, 0]);
+  return Buffer.from(encodeInstruction('core','LiquidateUser',{numInstruments},marketSeed));
 }
 /** health must have been refreshed at the same validated conversion oracle. */
 function decideLiquidation(p) {

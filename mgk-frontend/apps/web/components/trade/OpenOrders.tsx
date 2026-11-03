@@ -36,9 +36,9 @@ function buildCancelIx(
   publicKey: PublicKey,
   instrumentId: number,
 ): TransactionInstruction {
-  const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId);
+  const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId, config.marketContext);
   const bookPda =
-    config.bookAddress ?? sdk.deriveBookPda(instrumentId, config.matcherProgramId)[0];
+    config.bookAddress ?? sdk.deriveBookPda(instrumentId, config.matcherProgramId, config.marketContext)[0];
 
   return new TransactionInstruction({
     keys: [
@@ -46,10 +46,10 @@ function buildCancelIx(
       { pubkey: publicKey, isSigner: true, isWritable: true },
       { pubkey: bookPda, isSigner: false, isWritable: true },
       { pubkey: config.matcherProgramId, isSigner: false, isWritable: false },
-      { pubkey: config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0], isSigner: false, isWritable: false },
+      { pubkey: config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId, config.marketContext)[0], isSigner: false, isWritable: false },
     ],
     programId: config.coreProgramId,
-    data: Buffer.from(ixData),
+    data: Buffer.from(config.marketSeed ? sdk.wrapInstruction('core',ixData,config.marketSeed) : ixData),
   });
 }
 
@@ -72,7 +72,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
     setError(null);
     try {
       const bookPda =
-        config.bookAddress ?? sdk.deriveBookPda(instrumentId, config.matcherProgramId)[0];
+        config.bookAddress ?? sdk.deriveBookPda(instrumentId, config.matcherProgramId, config.marketContext)[0];
       const accounts = await connection.getMultipleAccountsInfo([bookPda]);
       const acc = accounts[0];
       if (!acc) {

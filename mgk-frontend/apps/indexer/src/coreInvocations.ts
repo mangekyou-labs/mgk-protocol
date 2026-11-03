@@ -1,3 +1,4 @@
+import {unwrapInstruction,type MarketSeed} from '../../../packages/layout/market.js';
 import type {ConfirmedTransactionMeta, Message, MessageV0, PublicKey} from '@solana/web3.js';
 import bs58 from 'bs58';
 
@@ -12,7 +13,7 @@ interface Invocation {
 /** Match core instructions in execution preorder to authenticated runtime log frames.
  * A successful child is committed only if every enclosing invocation succeeds.
  */
-export function coreInvocations(message: Message | MessageV0, meta: Pick<ConfirmedTransactionMeta, 'loadedAddresses' | 'innerInstructions' | 'logMessages'>, core: PublicKey) {
+export function coreInvocations(message: Message | MessageV0, meta: Pick<ConfirmedTransactionMeta, 'loadedAddresses' | 'innerInstructions' | 'logMessages'>, core: PublicKey, marketSeed?: MarketSeed) {
   const keys = message.getAccountKeys({accountKeysFromLookups: meta.loadedAddresses});
   const instructions = message.compiledInstructions.flatMap((ix, index) => [
     {...ix, depth: 1},
@@ -52,6 +53,7 @@ export function coreInvocations(message: Message | MessageV0, meta: Pick<Confirm
   return instructions.map((ix, index) => {
     const frame = frames[index]!;
     if (ix.depth !== undefined && ix.depth !== frame.depth) throw new Error('Core instruction/log depth mismatch');
-    return {...ix, keys, success: committed(frame), logs: frame.logs};
-  });
+    const data=unwrapInstruction('core',ix.data,marketSeed);
+    return data ? {...ix, data, keys, success: committed(frame), logs: frame.logs} : null;
+  }).filter((ix): ix is NonNullable<typeof ix> => ix!==null);
 }

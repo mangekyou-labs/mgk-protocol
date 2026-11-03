@@ -52,14 +52,33 @@ function rollbackAncestor(tx: ReturnType<typeof nestedTransaction>) {
     `Program ${core} success`, `Program ${wrapper} failed: custom program error: 0x1`, `Program ${outer} success`];
 }
 
-async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:')) { const fills: Record<string, unknown>[] = [];
+async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:'), marketSeed?: string) { const fills: Record<string, unknown>[] = [];
   const {batchData, resultsData} = accounts();
   const connection = {getBlocks: async () => [100], getBlock: async () => ({blockTime: 1700000000, transactions: [tx]}),
     getAccountInfo: async (pk: PublicKey) => getInfo ? getInfo(pk) : ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
-  const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100, onFill: fill => fills.push(fill)});
+  const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100, marketSeed, onFill: fill => fills.push(fill)});
   return {result, fills, store, connection};
 }
 describe('CPI settlement history through syncChunk', () => {
+  it('indexes only the selected namespace for the same program IDs', async () => {
+    const marketSeed = Keypair.generate().publicKey.toBase58();
+    const otherSeed = Keypair.generate().publicKey.toBase58();
+    for (const selected of [marketSeed, otherSeed, undefined]) {
+      const tx = nestedTransaction();
+      const batchPk = sdk.deriveBatchPda(1n, core, {marketSeed})[0];
+      const resultsPk = sdk.deriveResultsPda(1n, matcher, {marketSeed, coreProgramId: core})[0];
+      tx.meta.loadedAddresses.writable = [batchPk, resultsPk];
+      tx.meta.innerInstructions[0]!.instructions[0]!.data = bs58.encode(sdk.wrapInstruction('core', Uint8Array.of(instructions.core.SettleBatch.disc), marketSeed));
+      const {batchData, resultsData} = accounts();
+      const {result, fills, store} = await replay(tx, pk => ({owner: pk.equals(batchPk) ? core : matcher,
+        data: pk.equals(batchPk) ? batchData : resultsData}), createStore(':memory:'), selected);
+      try {
+        expect(result.success).toBe(true);
+        expect(fills).toHaveLength(selected === marketSeed ? 1 : 0);
+      } finally { store.close(); }
+    }
+  });
+
   it('recovers effective fills from a nested settlement with lookup-table addresses', async () => {
     const {result, fills, store} = await replay();
     try {expect(result.success).toBe(true); expect(result.fillsInserted).toBe(1); expect(fills[0]?.qty).toBe(3);} finally {store.close();}
@@ -177,7 +196,7 @@ describe('nested ClearBatch history through HTTP status', () => {
       getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string}) => options.before ? [] : [{signature: 'nested-clear', slot: 100, err: null}],
       getTransaction: async () => ({...tx, blockTime: now - 121}),
     } as unknown as Connection;
-    const manifest: DeploymentManifest = {name: 'cpi', cluster: 'localnet', ready: true, startSlot: 100,
+    const manifest: DeploymentManifest = {marketSeed:null,name: 'cpi', cluster: 'localnet', ready: true, startSlot: 100,
       programs: {perps_core: String(core), perps_matcher: String(matcher), oracle: String(core)},
       accounts: {registry: String(registry), instrument: null, oracle: null, insurance: null, maker: null}};
     await statusRoutes(app, {connection, store, manifest, monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'}});

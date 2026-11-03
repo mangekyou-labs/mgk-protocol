@@ -22,7 +22,7 @@ export function useBatchStatus(
   useEffect(() => {
     if (batchId == null) return;
     let cancelled = false;
-    const address = sdk.deriveBatchPda(batchId, config.coreProgramId)[0];
+    const address = sdk.deriveBatchPda(batchId, config.coreProgramId, config.marketContext)[0];
     const tick = async () => {
       try {
         const acc = await connection.getAccountInfo(address);

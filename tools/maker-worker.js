@@ -1,4 +1,5 @@
 "use strict";
+const {createMarketContext}=require("./market-context");
 const {
   PublicKey,
   Transaction,
@@ -57,8 +58,8 @@ async function createMakerWorker({
   const core = new PublicKey(manifest.programs.perps_core),
     matcher = new PublicKey(manifest.programs.perps_matcher),
     oracleProgram = new PublicKey(manifest.programs.oracle);
-  const pda = (seeds, owner = core) =>
-    PublicKey.findProgramAddressSync(seeds, owner)[0];
+  const context=createMarketContext(core,manifest.marketSeed);
+  const pda = (seeds, owner = core) => context.pda(seeds,owner)[0];
   const registry = new PublicKey(manifest.accounts.registry),
     instrument = new PublicKey(manifest.accounts.instrument),
     vault = new PublicKey(manifest.accounts.insurance),
@@ -92,7 +93,7 @@ async function createMakerWorker({
     new TransactionInstruction({
       programId: core,
       keys,
-      data: Buffer.from(encodeInstruction("core", name, params)),
+      data: Buffer.from(encodeInstruction("core", name, params, manifest.marketSeed)),
     });
   async function send(instructions) {
     const latest = await connection.getLatestBlockhash("confirmed");
@@ -221,7 +222,7 @@ async function createMakerWorker({
         const victim = decodeAccount("Portfolio", raw.data),
           canonical = pda([Buffer.from("portfolio"), Buffer.from(victim.user)]);
         if (!canonical.equals(candidate.pubkey))
-          throw Error("Noncanonical victim");
+          continue; // Other market namespaces share this program and account layout.
         if (
           decodePortfolioHealth(raw.data, price).health >= 0n ||
           !victim.positionsLen

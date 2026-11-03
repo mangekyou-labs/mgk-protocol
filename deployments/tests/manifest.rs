@@ -196,7 +196,7 @@ fn unknown_cluster_is_rejected() {
 #[test]
 fn unsupported_schema_version_is_rejected() {
     let mut v = fully_deployed();
-    v["schema_version"] = json!(2);
+    v["schema_version"] = json!(3);
     assert_eq!(parse(&v).unwrap_err().field, "schema_version");
 }
 
@@ -271,4 +271,16 @@ fn schema_file_declares_the_same_required_fields_as_the_validator() {
         ["oracle", "perps_core", "perps_matcher"]
     );
     assert_eq!(schema["additionalProperties"], json!(false));
+}
+
+#[test]
+fn scoped_manifest_requires_explicit_32_byte_market_identity() {
+    let mut value = fully_deployed();
+    value["schema_version"] = json!(2);
+    value["market_seed"] = json!(some_pubkey(9));
+    assert_eq!(parse(&value).unwrap().market_seed, Some([9; 32]));
+    value["market_seed"] = json!("bad");
+    assert!(parse(&value).is_err());
+    value["market_seed"] = Value::Null;
+    assert!(parse(&value).is_err());
 }

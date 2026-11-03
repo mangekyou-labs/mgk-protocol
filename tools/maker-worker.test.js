@@ -4,13 +4,14 @@ const assert = require("node:assert/strict");
 const { Keypair, PublicKey, Transaction } = require("@solana/web3.js");
 const { layouts } = require("../mgk-frontend/packages/layout");
 const { createMakerWorker } = require("./maker-worker");
-function fixture() {
+function fixture(marketSeed = null) {
   const payer = Keypair.generate(),
     core = Keypair.generate().publicKey,
     matcher = Keypair.generate().publicKey,
     oracleProgram = Keypair.generate().publicKey;
+  const context=require("./market-context").createMarketContext(core,marketSeed);
   const pda = (seeds, owner = core) =>
-    PublicKey.findProgramAddressSync(
+    context.pda(
       seeds.map((s) => (typeof s === "string" ? Buffer.from(s) : s)),
       owner,
     )[0];
@@ -69,7 +70,8 @@ function fixture() {
   const book = pda(["book", Buffer.alloc(2)], matcher);
   put(book, "OrderBook", { instrumentId: 0 }, matcher);
   const manifest = {
-    schema_version: 1,
+    schema_version: marketSeed ? 2 : 1,
+    ...(marketSeed ? {market_seed:marketSeed} : {}),
     name: "maker-test",
     cluster: "localnet",
     programs: {
@@ -453,4 +455,12 @@ test("maker CLI rejects unsafe role overrides and unsupported arguments without 
     assert.match(result.stderr, /startup_validation_failed/);
     assert.doesNotMatch(result.stderr, /private-path|private-endpoint|secret/);
   }
+});
+test('scoped maker wraps orders and rejects a manifest for a different namespace',async()=>{
+ const seed=Keypair.generate().publicKey.toBase58(),f=fixture(seed);
+ assert.equal((await (await createMakerWorker(f.options)).tick()).status,'quoted');
+ const orders=f.sent[0].instructions.filter(ix=>ix.data[0]===29);
+ assert.equal(orders.length,6);
+ for(const ix of orders){assert.equal(ix.data[33],20);assert.deepEqual(ix.data.subarray(1,33),new PublicKey(seed).toBuffer());}
+ await assert.rejects(createMakerWorker({...f.options,manifest:{...f.options.manifest,market_seed:Keypair.generate().publicKey.toBase58()}}),/Noncanonical/);
 });

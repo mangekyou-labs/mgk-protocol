@@ -1,9 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
-import { deriveBookPda } from '@mgk/sdk';
+import { deriveBookPda, deriveRegistryPda, deriveVaultPda } from '@mgk/sdk';
 import { loadManifest } from '../../../packages/layout/manifest.js';
 import rawManifest from '../../../../deployments/devnet.json';
 
-export const deployment = loadManifest(rawManifest);
+// Optional public build-time manifest selects a scoped market without rewriting devnet.json.
+export const deployment = loadManifest(process.env.NEXT_PUBLIC_DEPLOYMENT_MANIFEST_JSON ? JSON.parse(process.env.NEXT_PUBLIC_DEPLOYMENT_MANIFEST_JSON) : rawManifest);
 const key = (value: string | null) => value ? new PublicKey(value) : null;
 const coreProgramId = new PublicKey(deployment.programs.perps_core);
 const matcherProgramId = new PublicKey(deployment.programs.perps_matcher);
@@ -14,7 +15,14 @@ const feeds = {
   pythSolFeedId: 'ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d',
 } as const;
 
+const marketContext={marketSeed:deployment.marketSeed,coreProgramId};
+if (deployment.ready && deployment.marketSeed && (
+  deriveRegistryPda(coreProgramId, marketContext)[0].toBase58() !== deployment.accounts.registry ||
+  deriveVaultPda(coreProgramId, marketContext)[0].toBase58() !== deployment.accounts.insurance
+)) throw Error('Deployment namespace mismatch');
 export const config = {
+  marketSeed:deployment.marketSeed,
+  marketContext,
   rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com',
   indexerUrl: process.env.NEXT_PUBLIC_INDEXER_URL || 'http://localhost:4000',
   hermesUrl: process.env.NEXT_PUBLIC_HERMES_URL || 'https://hermes.pyth.network',
@@ -25,7 +33,7 @@ export const config = {
   vaultAddress: key(deployment.accounts.insurance),
   instrumentAddress: key(deployment.accounts.instrument),
   oracleAddress: key(deployment.accounts.oracle),
-  bookAddress: deployment.ready ? deriveBookPda(0, matcherProgramId)[0] : null,
+  bookAddress: deployment.ready ? deriveBookPda(0, matcherProgramId, marketContext)[0] : null,
   deploymentReady: deployment.ready,
   ...feeds,
 } as const;

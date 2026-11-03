@@ -7,7 +7,8 @@
   "additionalProperties": false,
   "required": ["schema_version", "name", "cluster", "programs", "accounts", "start_slot"],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "enum": [1, 2] },
+    "market_seed": { "$ref": "#/$defs/pubkey", "description": "Schema 2 market identity; initialization requires this public key to sign." },
     "name": { "type": "string", "minLength": 1 },
     "cluster": { "enum": ["localnet", "devnet", "testnet", "mainnet-beta"] },
     "programs": {
@@ -55,6 +56,11 @@
       ]
     }
   },
+  "allOf": [{
+    "if": { "properties": { "schema_version": { "const": 2 } } },
+    "then": { "required": ["market_seed"] },
+    "else": { "not": { "required": ["market_seed"] } }
+  }],
   "$defs": {
     "pubkey": {
       "type": "string",

@@ -87,12 +87,12 @@ export function useMarketBar(
       try {
         // Derivation can throw (bad program id); that reads as unknown, not a crash.
         const vaultAddress =
-          config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+          config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId, config.marketContext)[0];
         const keys = [
           vaultAddress,
           ...(oracleAddress ? [oracleAddress] : []),
           ...(prevId != null
-            ? [sdk.deriveBatchPda(prevId, config.coreProgramId)[0]]
+            ? [sdk.deriveBatchPda(prevId, config.coreProgramId, config.marketContext)[0]]
             : []),
         ];
         const accounts = await connection.getMultipleAccountsInfo(

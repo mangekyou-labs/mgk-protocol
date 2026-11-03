@@ -1,4 +1,5 @@
 "use strict";
+const {createMarketContext}=require("./market-context");
 const {
   PublicKey,
   Transaction,
@@ -165,6 +166,8 @@ async function createOracleWorker({
     throw new Error("RPC cluster differs from manifest");
   const oracleKey = new PublicKey(manifest.accounts.oracle);
   const instrumentKey = new PublicKey(manifest.accounts.instrument);
+  const context=createMarketContext(manifest.programs.perps_core,manifest.marketSeed);
+  if(!context.registry.equals(new PublicKey(manifest.accounts.registry)) || !context.pda([Buffer.from("vault")])[0].equals(new PublicKey(manifest.accounts.insurance))) throw Error("Noncanonical manifest PDA");
   async function validateAccounts() {
     const [oracleAccount, instrumentAccount] = await Promise.all([
       connection.getAccountInfo(oracleKey, "confirmed"),
@@ -184,6 +187,8 @@ async function createOracleWorker({
       throw new Error("Invalid instrument owner or missing instrument");
     const oracle = decodeAccount("PriceOracle", oracleAccount.data);
     const instrument = decodeAccount("Instrument", instrumentAccount.data);
+    const id=Buffer.alloc(2);id.writeUInt16LE(instrument.instrumentId);
+    if(!context.pda([Buffer.from("instrument"),id])[0].equals(instrumentKey)) throw Error("Instrument namespace mismatch");
     if (!new PublicKey(oracle.authority).equals(authority.publicKey))
       throw new Error("Oracle authority mismatch");
     if (

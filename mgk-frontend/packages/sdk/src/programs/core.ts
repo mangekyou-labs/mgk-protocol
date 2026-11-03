@@ -1,3 +1,4 @@
+import type {MarketSeed} from '../../../layout/market.js';
 import {encodeInstruction,instructions} from '../../../layout/instructions.js';
 /**
  * mgk perps-core instruction encoders.
@@ -68,22 +69,22 @@ export type CoreInstruction =
  * user pubkey and data[32] as the bump. The discriminator is stripped
  * by the dispatch layer before reaching the inner function.
  */
-export function encodeInitPortfolio(user: Uint8Array, bump: number): Uint8Array {
-  return encodeInstruction('core','InitPortfolio',{user,bump});
+export function encodeInitPortfolio(user: Uint8Array, bump: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','InitPortfolio',{user,bump},marketSeed);
 }
 
 /**
  * Deposit — discriminator + amount (u64 LE).
  */
-export function encodeDeposit(amount: bigint): Uint8Array {
-  return encodeInstruction('core','Deposit',{amount});
+export function encodeDeposit(amount: bigint, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','Deposit',{amount},marketSeed);
 }
 
 /**
  * Withdraw — discriminator + amount (u64 LE).
  */
-export function encodeWithdraw(amount: bigint): Uint8Array {
-  return encodeInstruction('core','Withdraw',{amount});
+export function encodeWithdraw(amount: bigint, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','Withdraw',{amount},marketSeed);
 }
 
 export interface CommitOrderParams {
@@ -103,8 +104,8 @@ export interface CommitOrderParams {
  * Layout mirrors `process_commit_order` in
  * programs/perps-core/src/instructions/commit_order.rs:96-105.
  */
-export function encodeCommitOrder(params: CommitOrderParams): Uint8Array {
-  return encodeInstruction('core','CommitOrder',{...params});
+export function encodeCommitOrder(params: CommitOrderParams, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','CommitOrder',{...params},marketSeed);
 }
 
 export interface RevealOrderParams {
@@ -124,8 +125,8 @@ export interface RevealOrderParams {
  * programs/perps-core/src/instructions/reveal_order.rs:18-25.
  * Note: no `commitment_bump` (only CommitOrder takes it).
  */
-export function encodeRevealOrder(params: RevealOrderParams): Uint8Array {
-  return encodeInstruction('core','RevealOrder',{...params});
+export function encodeRevealOrder(params: RevealOrderParams, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','RevealOrder',{...params},marketSeed);
 }
 
 /**
@@ -133,8 +134,8 @@ export function encodeRevealOrder(params: RevealOrderParams): Uint8Array {
  * Wire format: disc(1) + (nothing) = 1 byte.
  * DFBA: transitions Committing → Clearing (skips reveal).
  */
-export function encodeCloseCommitting(): Uint8Array {
-  return encodeInstruction('core','CloseCommitting',{});
+export function encodeCloseCommitting(marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','CloseCommitting',{},marketSeed);
 }
 
 export interface PostOrderParams {
@@ -151,8 +152,8 @@ export interface PostOrderParams {
  * PostOrder (disc 20) — DFBA open limit post.
  * Wire: disc(1) + side(1) + is_maker(1) + price(8) + qty(8) + instrument_id(2) + reduce_only(1) = 22
  */
-export function encodePostOrder(params: PostOrderParams): Uint8Array {
-  return encodeInstruction('core','PostOrder',{...params});
+export function encodePostOrder(params: PostOrderParams, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','PostOrder',{...params},marketSeed);
 }
 
 /**
@@ -160,8 +161,8 @@ export function encodePostOrder(params: PostOrderParams): Uint8Array {
  * Wire: disc(1) + marginal_size_cap(8) + num_orders(2, always zero) + batch_id(8).
  * Requires the core registry PDA signer; invoked by Core ClearBatch.
  */
-export function encodeDfbaClear(batchId: bigint, marginalSizeCap: bigint = BigInt('0xFFFFFFFFFFFFFFFF')): Uint8Array {
-  return encodeInstruction('matcher','DfbaClear',{batchId,marginalSizeCap,numOrders:0});
+export function encodeDfbaClear(batchId: bigint, marginalSizeCap: bigint = BigInt('0xFFFFFFFFFFFFFFFF'), marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('matcher','DfbaClear',{batchId,marginalSizeCap,numOrders:0},marketSeed);
 }
 
 /**
@@ -175,9 +176,8 @@ export function encodePlaceResting(
   price: bigint,
   qty: bigint,
   instrumentId: number,
-  reduceOnly = false,
-): Uint8Array {
-  return encodeInstruction('matcher','PlaceResting',{user,side,isMaker,price,qty,instrumentId,reduceOnly});
+  reduceOnly = false, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('matcher','PlaceResting',{user,side,isMaker,price,qty,instrumentId,reduceOnly},marketSeed);
 }
 
 /**
@@ -187,9 +187,8 @@ export function encodePlaceResting(
 export function encodeClearBatch(
   numCommitments: number,
   numInstruments: number,
-  numPortfolios: number,
-): Uint8Array {
-  return encodeInstruction('core','ClearBatch',{numCommitments,numInstruments,numPortfolios});
+  numPortfolios: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','ClearBatch',{numCommitments,numInstruments,numPortfolios},marketSeed);
 }
 
 /**
@@ -198,9 +197,8 @@ export function encodeClearBatch(
  */
 export function encodeSettleBatch(
   numCommitments: number,
-  numPortfolios: number,
-): Uint8Array {
-  return encodeInstruction('core','SettleBatch',{numCommitments,numPortfolios});
+  numPortfolios: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','SettleBatch',{numCommitments,numPortfolios},marketSeed);
 }
 
 /**
@@ -208,8 +206,8 @@ export function encodeSettleBatch(
  * then transfers signed quarter-position steps into the liquidator portfolio.
  * Wire: disc(9) + num_instruments(1 as u16 LE). No auction mark is required.
  */
-export function encodeLiquidateUser(numInstruments = 1): Uint8Array {
-  if(numInstruments!==1)throw new Error('Only one SOL-PERP instrument is supported'); return encodeInstruction('core','LiquidateUser',{numInstruments});
+export function encodeLiquidateUser(numInstruments = 1, marketSeed?: MarketSeed): Uint8Array {
+  if(numInstruments!==1)throw new Error('Only one SOL-PERP instrument is supported'); return encodeInstruction('core','LiquidateUser',{numInstruments},marketSeed);
 }
 
 export interface LiquidateUserAccounts {
@@ -231,6 +229,7 @@ export interface LiquidateUserAccounts {
 export function buildLiquidateUser(
   programId: PublicKey,
   accounts: LiquidateUserAccounts,
+  marketSeed?:MarketSeed,
 ): TransactionInstruction {
   const meta = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({
     pubkey, isWritable, isSigner,
@@ -248,7 +247,7 @@ export function buildLiquidateUser(
       meta(accounts.book, true),
       meta(accounts.matcher),
     ],
-    data: Buffer.from(encodeLiquidateUser()),
+    data: Buffer.from(encodeLiquidateUser(1,marketSeed)),
   });
 }
 
@@ -256,8 +255,8 @@ export function buildLiquidateUser(
  * CancelRestingOrder — discriminator + order_id (u64), 9 bytes total.
  * Wire format: disc(1) + order_id(8) = 9.
  */
-export function encodeCancelRestingOrder(orderId: bigint): Uint8Array {
-  return encodeInstruction('core','CancelRestingOrder',{orderId});
+export function encodeCancelRestingOrder(orderId: bigint, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','CancelRestingOrder',{orderId},marketSeed);
 }
 
 /**
@@ -266,9 +265,8 @@ export function encodeCancelRestingOrder(orderId: bigint): Uint8Array {
  */
 export function encodeModifyRestingOrder(
   orderId: bigint,
-  newQty: bigint,
-): Uint8Array {
-  return encodeInstruction('core','ModifyRestingOrder',{orderId,newQty});
+  newQty: bigint, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','ModifyRestingOrder',{orderId,newQty},marketSeed);
 }
 
 export interface AddInstrumentParams {
@@ -289,8 +287,8 @@ export interface AddInstrumentParams {
  *   + imr_bps(2) + mmr_bps(2) + taker_fee_bps(2) + maker_fee_bps(2)
  *   + oracle_addr(32) + bump(1) = 60.
  */
-export function encodeAddInstrument(params: AddInstrumentParams): Uint8Array {
-  return encodeInstruction('core','AddInstrument',{...params});
+export function encodeAddInstrument(params: AddInstrumentParams, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','AddInstrument',{...params},marketSeed);
 }
 
 /**
@@ -323,8 +321,8 @@ export interface InitializeParams {
   batchIdCounter?: bigint;
 }
 
-export function encodeInitialize(params: InitializeParams): Uint8Array {
-  return encodeInstruction('core','Initialize',{instrumentCount:1,volatilityMultiplier:10000,batchIdCounter:0n,...params});
+export function encodeInitialize(params: InitializeParams, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','Initialize',{instrumentCount:1,volatilityMultiplier:10000,batchIdCounter:0n,...params},marketSeed);
 }
 
 /**
@@ -332,8 +330,8 @@ export function encodeInitialize(params: InitializeParams): Uint8Array {
  * Atomic create + initialize via invoke_signed(SystemProgram.createAccount).
  * Wire format: disc(1) + bump(1) = 2.
  */
-export function encodeCreatePortfolio(bump: number): Uint8Array {
-  return encodeInstruction('core','CreatePortfolio',{bump});
+export function encodeCreatePortfolio(bump: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','CreatePortfolio',{bump},marketSeed);
 }
 
 /**
@@ -342,8 +340,8 @@ export function encodeCreatePortfolio(bump: number): Uint8Array {
  * Wire format: disc(1) + user_pubkey(32) = 33.
  * Entrypoint strips disc 19, passes 32-byte user pubkey to inner function.
  */
-export function encodeInitPortfolioForUser(user: Uint8Array): Uint8Array {
-  return encodeInstruction('core','InitPortfolioForUser',{user});
+export function encodeInitPortfolioForUser(user: Uint8Array, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','InitPortfolioForUser',{user},marketSeed);
 }
 
 /**
@@ -352,17 +350,16 @@ export function encodeInitPortfolioForUser(user: Uint8Array): Uint8Array {
  */
 export function encodeSetInstrumentFees(
   takerFeeBps: number,
-  makerFeeBps: number,
-): Uint8Array {
-  return encodeInstruction('core','SetInstrumentFees',{takerFeeBps,makerFeeBps});
+  makerFeeBps: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','SetInstrumentFees',{takerFeeBps,makerFeeBps},marketSeed);
 }
 
 /**
  * SetInstrumentOracle (disc 23) — governance-only instrument oracle binding.
  * Wire: disc(1) = 1 byte.
  */
-export function encodeSetInstrumentOracle(): Uint8Array {
-  return encodeInstruction('core','SetInstrumentOracle',{});
+export function encodeSetInstrumentOracle(marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','SetInstrumentOracle',{},marketSeed);
 }
 
 /**
@@ -372,12 +369,11 @@ export function encodeSetInstrumentOracle(): Uint8Array {
 export function encodeSetFundingParams(
   coefficientBps: number,
   maxRateBps: number,
-  intervalSlots: number,
-): Uint8Array {
-  return encodeInstruction('core','SetFundingParams',{coefficientBps,maxRateBps,intervalSlots});
+  intervalSlots: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','SetFundingParams',{coefficientBps,maxRateBps,intervalSlots},marketSeed);
 }
 
 /** InitializeBook — disc(1) + instrument_id(u16 LE). */
-export function encodeInitializeBook(instrumentId: number): Uint8Array {
-  return encodeInstruction('core','InitializeBook',{instrumentId});
+export function encodeInitializeBook(instrumentId: number, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','InitializeBook',{instrumentId},marketSeed);
 }
