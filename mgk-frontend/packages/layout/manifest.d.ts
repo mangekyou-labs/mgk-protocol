@@ -1,4 +1,5 @@
 export interface DeploymentManifest {
+ marketSeed: string | null;
  name: string;
  cluster: 'localnet' | 'devnet' | 'testnet' | 'mainnet-beta';
  programs: {perps_core: string; perps_matcher: string; oracle: string};

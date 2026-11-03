@@ -65,6 +65,8 @@ export async function tradesRoutes(app: FastifyInstance, store: Store): Promise<
 }
 
 export interface BookRouteConfig {
+  marketSeed?:string|null;
+  coreProgramId?:string;
   /** Solana RPC connection. When omitted, returns empty stub (test mode). */
   connection?: Connection;
   /** Matcher program public key. Required if connection is provided. */
@@ -131,7 +133,7 @@ export async function bookRoutes(
       }
 
       try {
-        const bookAccount = bookPk ?? sdk.deriveBookPda(instrumentId, matcherPk)[0];
+        const bookAccount = bookPk ?? sdk.deriveBookPda(instrumentId, matcherPk,{marketSeed:cfg.marketSeed,coreProgramId:cfg.coreProgramId ? new PublicKey(cfg.coreProgramId):undefined})[0];
         const accounts = await connection.getMultipleAccountsInfo([bookAccount]);
         const acc = accounts[0] ?? null;
         if (!acc) {
@@ -161,6 +163,7 @@ export async function bookRoutes(
 }
 
 export interface BatchRouteConfig {
+  marketSeed?:string|null;
   connection?: Connection;
   coreProgramId?: string;
   registryAddress?: string;
@@ -171,6 +174,7 @@ async function findLiveBatchAccount(
   connection: Connection,
   coreProgramId: PublicKey,
   activeBatchId: bigint,
+  marketSeed?:string|null,
 ): Promise<{ address: PublicKey; batch: sdk.state.BatchState } | null> {
   const accounts = await connection.getProgramAccounts(coreProgramId, {
     filters: [{ dataSize: sdk.state.BATCH_SIZE }],
@@ -180,7 +184,7 @@ async function findLiveBatchAccount(
   for (const { pubkey, account } of accounts) {
     try {
       const batch = sdk.state.decodeBatch(new Uint8Array(account.data));
-      if (batch.batchId === activeBatchId) {
+      if (batch.batchId === activeBatchId && pubkey.equals(sdk.deriveBatchPda(activeBatchId,coreProgramId,{marketSeed})[0])) {
         return { address: pubkey, batch };
       }
     } catch {
@@ -250,7 +254,7 @@ export async function batchRoutes(
         const corePk = new PublicKey(coreProgramId);
         const registryPk = registryAddress
           ? new PublicKey(registryAddress)
-          : sdk.deriveRegistryPda(corePk)[0];
+          : sdk.deriveRegistryPda(corePk,{marketSeed:cfg.marketSeed})[0];
         const registryInfo = await connection.getAccountInfo(registryPk, 'confirmed');
         if (!registryInfo) {
           return { phase: -1, source: 'rpc', error: 'registry not found' };
@@ -272,14 +276,14 @@ export async function batchRoutes(
         if (configuredBatch) {
           candidateAddresses.push(new PublicKey(configuredBatch));
         }
-        const derivedBatch = sdk.deriveBatchPda(activeBatchId, corePk)[0];
+        const derivedBatch = sdk.deriveBatchPda(activeBatchId, corePk,{marketSeed:cfg.marketSeed})[0];
         if (!candidateAddresses.some((pk) => pk.equals(derivedBatch))) {
           candidateAddresses.push(derivedBatch);
         }
 
         for (const batchPk of candidateAddresses) {
           const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
-          if (!batchInfo) continue;
+          if (!batchInfo || !batchPk.equals(derivedBatch) || !batchInfo.owner.equals(corePk)) continue;
 
           const batch = sdk.state.decodeBatch(new Uint8Array(batchInfo.data));
           if (batch.batchId !== activeBatchId) {
@@ -303,7 +307,7 @@ export async function batchRoutes(
           return cachedLiveBatch;
         }
 
-        const scannedBatch = await findLiveBatchAccount(connection, corePk, activeBatchId);
+        const scannedBatch = await findLiveBatchAccount(connection, corePk, activeBatchId,cfg.marketSeed);
         if (scannedBatch) {
           cachedLiveBatch = {
             ...batchStateToJson(scannedBatch.batch, scannedBatch.address.toBase58()),

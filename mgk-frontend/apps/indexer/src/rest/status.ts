@@ -35,7 +35,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
           commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
         });
         if (!tx?.meta || tx.meta.err) throw new Error('Clear transaction history unavailable');
-        if (coreInvocations(tx.transaction.message, tx.meta, core).some(ix =>
+        if (coreInvocations(tx.transaction.message, tx.meta, core,manifest.marketSeed).some(ix =>
           ix.success && ix.data[0] === instructions.core.ClearBatch.disc &&
           ix.accountKeyIndexes.some(i => ix.keys.get(i)?.equals(batch)))) {
           const time = tx.blockTime ?? await connection.getBlockTime(entry.slot);
@@ -88,7 +88,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
         run('makerDepth', async () => {
           const instrument = decodeAccount('Instrument', (await account('Instrument', manifest.accounts.instrument, core)).data);
           if (new PublicKey(instrument.oracleAddr).toBase58() !== manifest.accounts.oracle) throw new Error('Instrument oracle mismatch');
-          const bookPk = sdk.deriveBookPda(instrument.instrumentId, matcher)[0];
+          const bookPk = sdk.deriveBookPda(instrument.instrumentId, matcher,{marketSeed:manifest.marketSeed,coreProgramId:core})[0];
           const info = await connection.getAccountInfo(bookPk, 'confirmed');
           if (!info || !info.owner.equals(matcher)) throw new Error('Book missing or wrong owner');
           decodeAccount('OrderBook', info.data);
@@ -103,7 +103,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
             await run('batch', async () => {
               if (!registry.batchIdCounter) throw new Error('No current batch');
               const batchId = registry.batchIdCounter - 1n;
-              const batchPk = sdk.deriveBatchPda(batchId, core)[0];
+              const batchPk = sdk.deriveBatchPda(batchId, core,{marketSeed:manifest.marketSeed})[0];
               const info = await connection.getAccountInfo(batchPk, 'confirmed');
               if (!info || !info.owner.equals(core)) throw new Error('Current batch missing or wrong owner');
               const batch = decodeAccount('Batch', info.data);

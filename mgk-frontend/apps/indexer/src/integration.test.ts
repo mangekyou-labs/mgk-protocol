@@ -164,13 +164,13 @@ describe('indexer integration', () => {
     expect(body.num_commitments).toBe(22);
   });
 
-  it('GET /api/batch/current ignores a stale persisted keypair and scans for the active batch', async () => {
+  it('GET /api/batch/current ignores a stale persisted keypair and scans only for the canonical active batch', async () => {
     const liveStore = createStore(':memory:');
     const liveApp = Fastify({ logger: false });
     const coreProgramId = Keypair.generate().publicKey;
     const registryAddress = Keypair.generate().publicKey;
     const staleBatchAddress = Keypair.generate().publicKey;
-    const activeBatchAddress = Keypair.generate().publicKey;
+    const activeBatchAddress = sdk.deriveBatchPda(4n,coreProgramId)[0];
 
     const connection = {
       async getAccountInfo(address: PublicKey) {
@@ -216,16 +216,16 @@ describe('indexer integration', () => {
     const liveApp = Fastify({ logger: false });
     const coreProgramId = Keypair.generate().publicKey;
     const registryAddress = Keypair.generate().publicKey;
-    const firstBatchAddress = Keypair.generate().publicKey;
-    const nextBatchAddress = Keypair.generate().publicKey;
+    const firstBatchAddress = sdk.deriveBatchPda(4n,coreProgramId)[0];
+    const nextBatchAddress = sdk.deriveBatchPda(5n,coreProgramId)[0];
     let batchIdCounter = 5n;
     let currentBatchAddress = firstBatchAddress;
 
     const connection = {
       async getAccountInfo(address: PublicKey) {
         if (address.equals(registryAddress)) return makeAccountInfo(makeRegistryBuffer(batchIdCounter));
-        if (address.equals(firstBatchAddress)) return makeAccountInfo(makeBatchBuffer(4n));
-        if (address.equals(nextBatchAddress)) return makeAccountInfo(makeBatchBuffer(5n));
+        if (address.equals(firstBatchAddress)) return {...makeAccountInfo(makeBatchBuffer(4n)),owner:coreProgramId};
+        if (address.equals(nextBatchAddress)) return {...makeAccountInfo(makeBatchBuffer(5n)),owner:coreProgramId};
         return null;
       },
       async getProgramAccounts() {

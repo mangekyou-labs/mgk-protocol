@@ -44,6 +44,7 @@ async function main(): Promise<void> {
     connection,
     store,
     coreProgramId: CORE_PROGRAM_ID,
+    marketSeed: manifest.marketSeed,
     matcherProgramId: MATCHER_PROGRAM_ID,
     startSlot: manifest.startSlot!,
     maxChunkSlots: 256,
@@ -72,10 +73,13 @@ async function main(): Promise<void> {
   await bookRoutes(app, store, {
     connection,
     matcherProgramId: MATCHER_PROGRAM_ID,
+    coreProgramId: CORE_PROGRAM_ID,
+    marketSeed:manifest.marketSeed,
   });
   await batchRoutes(app, store, {
     connection,
     coreProgramId: CORE_PROGRAM_ID,
+    marketSeed: manifest.marketSeed,
     registryAddress: manifest.accounts.registry!,
   });
   await userFillsRoutes(app, store);

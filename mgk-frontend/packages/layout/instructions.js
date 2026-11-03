@@ -1,4 +1,5 @@
 "use strict";
+const {wrapInstruction} = require("./market");
 // Single-byte discriminators and packed LE bodies. Account layouts are NOT instruction layouts.
 const fields = (text) =>
   text ? text.split(" ").map((pair) => pair.split(":")) : [];
@@ -111,7 +112,7 @@ const width = (type, value) =>
       : type === "ids"
         ? 1 + value.length * 8
         : Number(type.slice(1)) / 8;
-function encodeInstruction(program, name, params = {}) {
+function encodeInstruction(program, name, params = {}, marketSeed) {
   const spec = instructions[program]?.[name];
   if (!spec) throw new Error("Unknown instruction");
   const values = spec.fields
@@ -155,6 +156,6 @@ function encodeInstruction(program, name, params = {}) {
     }
     offset += width(type, value);
   }
-  return data;
+  return wrapInstruction(program, data, marketSeed);
 }
 module.exports = { instructions, encodeInstruction };

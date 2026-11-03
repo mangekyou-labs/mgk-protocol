@@ -9,13 +9,14 @@ const u64 = (n) => {
   b.writeBigUInt64LE(BigInt(n));
   return b;
 };
-function fixture(id = 0n) {
+function fixture(id = 0n, marketSeed = null) {
   const payer = Keypair.generate(),
     core = Keypair.generate().publicKey,
     matcher = Keypair.generate().publicKey,
     oracle = Keypair.generate().publicKey;
+  const context=require("./market-context").createMarketContext(core,marketSeed);
   const pda = (seeds, owner = core) =>
-    PublicKey.findProgramAddressSync(
+    context.pda(
       seeds.map((s) => (typeof s === "string" ? Buffer.from(s) : s)),
       owner,
     )[0];
@@ -46,7 +47,8 @@ function fixture(id = 0n) {
   const [deadline] = layouts.Batch.fields.commitDeadlineSlot;
   b.writeBigUInt64LE(25n, deadline);
   const manifest = {
-    schema_version: 1,
+    schema_version: marketSeed ? 2 : 1,
+    ...(marketSeed ? {market_seed:marketSeed} : {}),
     name: "keeper-test",
     cluster: "localnet",
     programs: {
@@ -90,8 +92,9 @@ function fixture(id = 0n) {
       const ix = tx.instructions.at(-1);
       sent.push(ix);
       if (fail) throw Error("RPC credentials must stay private");
-      if (ix.data[0] === 6) b[layouts.Batch.fields.status[0]] = 2;
-      if (ix.data[0] === 7) {
+      const data=marketSeed ? ix.data.subarray(33) : ix.data;
+      if (data[0] === 6) b[layouts.Batch.fields.status[0]] = 2;
+      if (data[0] === 7) {
         b[layouts.Batch.fields.status[0]] = 4;
         const data = Buffer.alloc(51);
         data[0] = 8;
@@ -102,7 +105,7 @@ function fixture(id = 0n) {
           data,
         });
       }
-      if (ix.data[0] === 8) {
+      if (data[0] === 8) {
         b[layouts.Batch.fields.status[0]] = 3;
         reg.writeBigUInt64LE(
           id + 2n,
@@ -332,4 +335,14 @@ test("reconciliation accepts only a matching batch moving through valid ordered 
     assert.equal((await w.tick()).status, expected);
     assert.equal(f.sent.length, 0);
   }
+});
+test('scoped keeper derives its lifecycle and wraps every instruction, namespace mismatch fails closed',async()=>{
+ const seed=Keypair.generate().publicKey.toBase58(), f=fixture(0n,seed);
+ const worker=await createKeeperWorker(f.options);f.setSlot(26);
+ await worker.tick();await worker.tick();await worker.tick();
+ assert.deepEqual(f.sent.map(ix=>ix.data[0]),[29,29,29]);
+ assert.deepEqual(f.sent.map(ix=>ix.data[33]),[6,7,8]);
+ for(const ix of f.sent)assert.deepEqual(ix.data.subarray(1,33),new PublicKey(seed).toBuffer());
+ const bad={...f.options.manifest,market_seed:Keypair.generate().publicKey.toBase58()};
+ await assert.rejects(createKeeperWorker({...f.options,manifest:bad}),/Noncanonical/);
 });

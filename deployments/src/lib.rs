@@ -10,8 +10,8 @@ use serde_json::{Map, Value};
 
 pub type Address = [u8; 32];
 
-/// The only `schema_version` this validator understands.
-pub const SCHEMA_VERSION: u64 = 1;
+/// Latest schema version. Version 1 remains supported without a namespace.
+pub const SCHEMA_VERSION: u64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cluster {
@@ -53,6 +53,7 @@ pub struct Accounts {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
+    pub market_seed: Option<Address>,
     pub name: String,
     pub cluster: Cluster,
     pub programs: Programs,
@@ -69,7 +70,11 @@ pub struct ManifestError {
 
 impl core::fmt::Display for ManifestError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "invalid manifest field `{}`: {}", self.field, self.reason)
+        write!(
+            f,
+            "invalid manifest field `{}`: {}",
+            self.field, self.reason
+        )
     }
 }
 
@@ -149,8 +154,12 @@ fn parse_account_ref(value: &Value, path: &str) -> Result<AccountRef, ManifestEr
             Ok(AccountRef::Pending)
         }
         "deployed" => {
-            exact_object(value, path, &["status", "address"])
-                .or_else(|_| err(path, "a deployed entry needs exactly `status` and `address`"))?;
+            exact_object(value, path, &["status", "address"]).or_else(|_| {
+                err(
+                    path,
+                    "a deployed entry needs exactly `status` and `address`",
+                )
+            })?;
             parse_pubkey(&obj["address"], path).map(AccountRef::Deployed)
         }
         other => err(
@@ -162,7 +171,10 @@ fn parse_account_ref(value: &Value, path: &str) -> Result<AccountRef, ManifestEr
 
 fn parse_slot_ref(value: &Value, path: &str) -> Result<SlotRef, ManifestError> {
     let Some(obj) = value.as_object() else {
-        return err(path, "expected {\"status\":\"pending\"} or {\"status\":\"set\",\"slot\":N}");
+        return err(
+            path,
+            "expected {\"status\":\"pending\"} or {\"status\":\"set\",\"slot\":N}",
+        );
     };
     match status(obj, path)? {
         "pending" => {
@@ -205,25 +217,31 @@ impl Manifest {
             Ok(v) => v,
             Err(e) => return err("", format!("not valid JSON: {e}")),
         };
-        let obj = exact_object(
-            &root,
-            "",
-            &[
-                "schema_version",
-                "name",
-                "cluster",
-                "programs",
-                "accounts",
-                "start_slot",
-            ],
-        )?;
+        let scoped = root["schema_version"].as_u64() == Some(2);
+        let mut keys = vec![
+            "schema_version",
+            "name",
+            "cluster",
+            "programs",
+            "accounts",
+            "start_slot",
+        ];
+        if scoped {
+            keys.push("market_seed");
+        }
+        let obj = exact_object(&root, "", &keys)?;
 
-        if obj["schema_version"].as_u64() != Some(SCHEMA_VERSION) {
+        if !matches!(obj["schema_version"].as_u64(), Some(1 | 2)) {
             return err(
                 "schema_version",
                 format!("unsupported, expected {SCHEMA_VERSION}"),
             );
         }
+        let market_seed = if scoped {
+            Some(parse_pubkey(&obj["market_seed"], "market_seed")?)
+        } else {
+            None
+        };
         let name = match obj["name"].as_str() {
             Some(n) if !n.is_empty() => n.to_string(),
             _ => return err("name", "expected a non-empty string"),
@@ -257,6 +275,7 @@ impl Manifest {
         let start_slot = parse_slot_ref(&obj["start_slot"], "start_slot")?;
 
         let manifest = Manifest {
+            market_seed,
             name,
             cluster,
             programs,
@@ -288,7 +307,10 @@ impl Manifest {
         }
         for (i, (addr, path)) in seen.iter().enumerate() {
             if let Some((_, first)) = seen[..i].iter().find(|(a, _)| a == addr) {
-                return err(path, format!("duplicate of address already used by `{first}`"));
+                return err(
+                    path,
+                    format!("duplicate of address already used by `{first}`"),
+                );
             }
         }
         Ok(())

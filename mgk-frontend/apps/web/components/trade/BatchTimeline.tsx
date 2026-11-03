@@ -55,7 +55,7 @@ export function BatchTimeline() {
     try {
       // DFBA: batches are PDAs (or config override). Prefer configured address.
       const batchPda =
-        sdk.deriveBatchPda(currentBatchId, config.coreProgramId)[0];
+        sdk.deriveBatchPda(currentBatchId, config.coreProgramId, config.marketContext)[0];
       const registryPda = resolveRegistryAddress(config.coreProgramId);
       // CloseCollecting (disc 6): [writable] batch, [] registry
       const ix = new TransactionInstruction({
@@ -64,7 +64,7 @@ export function BatchTimeline() {
           { pubkey: batchPda, isSigner: false, isWritable: true },
           { pubkey: registryPda, isSigner: false, isWritable: false },
         ],
-        data: Buffer.from(sdk.programs.encodeCloseCommitting()),
+        data: Buffer.from(sdk.programs.encodeCloseCommitting(config.marketSeed)),
       });
       const tx = new Transaction().add(ix);
       const sig = await safeSend(tx);

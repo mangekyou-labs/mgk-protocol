@@ -20,6 +20,7 @@ export {
   deriveInstrumentPda,
   derivePortfolioPda,
   deriveRegistryPda,
+  deriveResultsPda,
   deriveVaultPda,
 } from './pda.js';
 export * as state from './state/index.js';
@@ -69,3 +70,6 @@ export { confirmSignature } from '../../layout/confirmation.js';
 export * as layout from '../../layout/index.js';
 
 export {encodeInstruction, instructions} from '../../layout/instructions.js';
+
+export type {MarketContext} from './pda.js';
+export {marketSeedBytes, marketSeeds, wrapInstruction} from '../../layout/market.js';

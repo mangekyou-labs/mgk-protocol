@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { state } from '@mgk/sdk';
+import { state,deriveCommitmentPda } from '@mgk/sdk';
 import { findCommitmentsForBatch, startKeeper, type StartKeeperParams } from './keeper.js';
 
 // The fixture was emitted from the actual Rust Commitment type, including its header.
@@ -9,7 +9,7 @@ describe('keeper commitment scan', () => {
     const bytes = Buffer.from(state.layouts.Commitment.fixture);
     const expected = state.decodeCommitment(bytes);
     const program = new PublicKey(new Uint8Array(32).fill(1));
-    const pubkey = new PublicKey(new Uint8Array(32).fill(2));
+    const pubkey = deriveCommitmentPda(expected.batchId,expected.user,expected.nonce,program)[0];
     let filters: unknown;
     const connection = {
       getProgramAccounts: async (_program: PublicKey, config: {filters: unknown}) => {
