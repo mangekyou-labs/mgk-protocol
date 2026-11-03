@@ -10,6 +10,7 @@ import { portfolioRoutes } from './rest/portfolio.js';
 import { createSyncer } from './syncer.js';
 import { loadDeployment, loadMonitoring } from './config.js';
 import { statusRoutes } from './rest/status.js';
+import { createHistoryFetch } from './historyFetch.js';
 import { createWsServer, broadcastFill, broadcastBatch } from './ws.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -29,9 +30,9 @@ async function main(): Promise<void> {
   const manifest = loadDeployment();
   const store = createStore(DB_PATH, JSON.stringify(manifest));
   const monitoring = loadMonitoring();
-  const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)})});
   const CORE_PROGRAM_ID = manifest.programs.perps_core;
   const MATCHER_PROGRAM_ID = manifest.programs.perps_matcher;
+  const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: createHistoryFetch(CORE_PROGRAM_ID, (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)}))});
 
   let wss: WebSocketServer | undefined;
 

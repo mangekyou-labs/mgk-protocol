@@ -1,0 +1,72 @@
+{
+  "observedAt": "2026-11-03T12:27:27.902603+00:00",
+  "scope": "Read-only live RPC measurements and local in-memory replay; no deploy and no signing",
+  "range": {
+    "startSlot": 518155833,
+    "endSlot": 518156088,
+    "slots": 256,
+    "producedBlocks": 252
+  },
+  "liveOldDeploymentWindow": {
+    "seconds": 47.906,
+    "startCursor": 518156088,
+    "endCursor": 518156344,
+    "startFreshTip": 518213625,
+    "endFreshTip": 518213827,
+    "replaySlotsPerSecond": 5.343798271615246,
+    "chainSlotsPerSecond": 4.216590823696405,
+    "netCatchupSlotsPerSecond": 1.127207447918841,
+    "endLagSlots": 57483,
+    "catchupEtaMinutesAtMeasuredRate": 849.9322833333334,
+    "warning": "256-slot atomic chunks alias short windows; first47.253s window observedzero cursor change and is notproof of stalled replay"
+  },
+  "baselineReplay": {
+    "wallMs": 14650.040875,
+    "cpuMs": 4020.354,
+    "sdkPostFetchMs": 3049.198628,
+    "getBlocks": {
+      "calls": 4,
+      "sumMs": 2251.643667
+    },
+    "getBlock": {
+      "calls": 252,
+      "sumMs": 81357.356549,
+      "bytes": 19811464
+    },
+    "getAccountInfo": {
+      "calls": 4,
+      "sumMs": 1636.15054
+    },
+    "success": true,
+    "fillsInserted": 0,
+    "cursor": 518156088
+  },
+  "productionFilterReplay": {
+    "wallMs": 12057.953792,
+    "cpuMs": 1322.444,
+    "sdkPostFetchMs": 192.177662,
+    "getBlocks": {
+      "calls": 4,
+      "sumMs": 1982.722541
+    },
+    "getBlock": {
+      "calls": 252,
+      "sumMs": 70986.391374,
+      "bytes": 19811464
+    },
+    "getAccountInfo": {
+      "calls": 4,
+      "sumMs": 1012.190333
+    },
+    "success": true,
+    "fillsInserted": 0,
+    "cursor": 518156088
+  },
+  "ephemeralPrototype": {
+    "totalTransactions": 5087,
+    "retainedTransactions": 10,
+    "cpuMs": 1323.129,
+    "wallMs": 12489.345792
+  },
+  "interpretation": "Core-key prefilter after Connection.getBlock happens after SDK deserialization of every unrelated tx. Moving filtering before SDK hydration cut local replay CPU67%. Settlement lookups and RPC errors didnotexplain old observedrate. Hosted net throughput remains unverified until reviewed redeploy. Network bandwidth/requestcount unchanged."
+}

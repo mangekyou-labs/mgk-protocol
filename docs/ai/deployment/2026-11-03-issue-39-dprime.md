@@ -27,7 +27,7 @@ All Render services below were free, not suspended, on `feature-issue-39-integra
 | mgk-keeper | `srv-dbk6u0bbc2fs73ejiqp0` | `edf8b6566362f8927c3d2aceb8c8c4c122ef5d72` | `dep-dbkpns8u01pc73e05p2g` |
 | mgk-maker | `srv-dbkpc5rbc2fs73a0kvpg` | `edf8b6566362f8927c3d2aceb8c8c4c122ef5d72` | `dep-dbkpnsajnfac739ki290` |
 
-The worker pins differ from the indexer pin. New CI fixes are not yet deployed at these recorded pins. Match the intended service sources and rerun affected evidence before gate approval. Free instances can sleep; keep health endpoints warm during rehearsals. Indexer storage is ephemeral, so redeployment resets replay and must not be used merely to update documentation.
+The worker pins differ from the indexer pin. Identical SHAs are not required: each actual pin must be recorded and its relevant behavior assessed. The worker diff from `edf8b65` to `41df659` only changes HTTP health-server startup/lifetime and adds tests; trading/settlement logic is unchanged. New CI fixes are not deployed at these recorded pins. Rerun affected evidence after behavior changes. Free instances can sleep; keep health endpoints warm during rehearsals. Indexer storage is ephemeral, so redeployment resets replay and must not be used merely to align SHAs or update documentation.
 
 ## Frontend preview
 
@@ -41,4 +41,6 @@ The prior frontend CI failed with an empty RPC variable and obsolete maintenance
 
 Local validation: tools 153 passed; web 488 passed; typecheck, lint and production build passed; browser smoke 5 passed with external services intercepted; `cargo +stable clippy --all-targets --all-features -- -D warnings` passed before `cargo +stable test --all-features` (625 passed, 6 ignored). Lint retains an existing unused `BOOK_PDA` warning. The signed validator runtime suite was not run by the agent; hosted CI must verify it. The known local SBF layout-build rustc-version limitation is separate from the diagnosed CI failure.
 
-Recovery transaction details and audit limits are in the readiness assessment. No release-gate completion is implied by these local checks.
+Hosted CI subsequently passed for `41df659831c84b1db2b22b76da47f4d0be386d74`, freshly checked with `gh pr checks 72` at 12:22 UTC: [candidate SBF runtime smoke and Rust tests/lint](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790023), [frontend tests and layout fixtures](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790027), and [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790115). Both Vercel previews passed too. This supersedes the earlier pending-CI observation above.
+
+Recovery transaction details and audit limits are in the readiness assessment. Passing CI does not imply live release-gate completion.

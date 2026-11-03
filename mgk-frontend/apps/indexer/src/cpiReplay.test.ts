@@ -194,7 +194,7 @@ describe('CPI settlement history through syncChunk', () => {
 
 
 describe('nested ClearBatch history through HTTP status', () => {
-  async function status(fault = '') {
+  async function status(fault = '', polls = 1) {
     const store = createStore(':memory:'), app = Fastify();
     const registry = Keypair.generate().publicKey;
     const batchPk = sdk.deriveBatchPda(0n, core)[0];
@@ -209,22 +209,51 @@ describe('nested ClearBatch history through HTTP status', () => {
     if (fault === 'ancestor rollback') rollbackAncestor(tx);
     if (fault === 'missing logs') tx.meta.logMessages = [];
     const now = Math.floor(Date.now()/1000);
+    let historyReads = 0;
     const connection = {getSlot: async () => 100,
       getAccountInfo: async (pk: PublicKey) => pk.equals(registry) ? {owner: core, data: regData} : pk.equals(batchPk) ? {owner: core, data: batchData} : null,
       getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string}) => options.before ? [] : [{signature: 'nested-clear', slot: 100, err: null}],
-      getTransaction: async () => ({...tx, blockTime: now - 121}),
+      getTransaction: async () => {
+        historyReads++;
+        if (fault === 'transient' && historyReads === 1) throw new Error('Temporary history outage');
+        return {...tx, blockTime: now - 121};
+      },
     } as unknown as Connection;
     const manifest: DeploymentManifest = {marketSeed:null,name: 'cpi', cluster: 'localnet', ready: true, startSlot: 100,
       programs: {perps_core: String(core), perps_matcher: String(matcher), oracle: String(core)},
       accounts: {registry: String(registry), instrument: null, oracle: null, insurance: null, maker: null}};
     await statusRoutes(app, {connection, store, manifest, monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'}});
-    try {const response = await app.inject({method: 'GET', url: '/api/status'}); expect(response.statusCode).toBe(200); return response.json();}
+    try {
+      const observations = [];
+      for (let i = 0; i < polls; i++) {
+        const response = await app.inject({method: 'GET', url: '/api/status'});
+        expect(response.statusCode).toBe(200);
+        observations.push(response.json());
+      }
+      return {...observations.at(-1), historyReads, observations};
+    }
     finally {await app.close(); store.close();}
   }
   it('uses the committed nested ClearBatch block time for the current batch', async () => {
     const observed = await status();
     expect(observed.checks.batch.phase).toBe(4); expect(observed.checks.batch.ageSeconds).toBeGreaterThanOrEqual(121);
     expect(observed.checks.batch.severity).toBe('critical'); expect(observed.checks.batch.available).not.toBe(false);
+  });
+  it('serves repeated status polls without rereading verified immutable clear history', async () => {
+    const observed = await status('', 2);
+    expect(observed.observations).toHaveLength(2);
+    for (const reading of observed.observations) {
+      expect(reading.checks.batch.severity).toBe('critical');
+      expect(reading.checks.batch.ageSeconds).toBeGreaterThanOrEqual(121);
+    }
+    expect(observed.historyReads).toBe(1);
+  });
+  it('retries unavailable clear history on the next status poll', async () => {
+    const observed = await status('transient', 2);
+    expect(observed.observations[0].checks.batch.available).toBe(false);
+    expect(observed.checks.batch.severity).toBe('critical');
+    expect(observed.checks.batch.ageSeconds).toBeGreaterThanOrEqual(121);
+    expect(observed.historyReads).toBe(2);
   });
   it.each(['caught failure', 'ancestor rollback', 'missing logs'])('fails closed for %s', async fault => {
     const observed = await status(fault);

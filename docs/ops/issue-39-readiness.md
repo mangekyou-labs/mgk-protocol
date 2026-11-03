@@ -3,8 +3,9 @@
 Issue #39 remains **open** and PR #72 remains **draft**. D′ is deployed and
 funded, workers are live, and both recovery procedures have been exercised.
 The exhaustion recovery and flat withdrawal completed at slot 518207459.
-P0-31 still lacks complete fault/alert evidence; indexer backfill and CI also
-remain release blockers. This is not a production sign-off.
+P0-31 still lacks complete fault/alert evidence; indexer backfill and the small
+post-recovery reduce-only close remain release blockers. CI passed for
+`41df659831c84b1db2b22b76da47f4d0be386d74`. This is not a production sign-off.
 
 ## Dated correction — public rollout and rehearsal evidence
 
@@ -26,7 +27,7 @@ records executable hashes, service pins and the preview.
 
 | Required row | Assessment | Evidence and remaining limits |
 | --- | --- | --- |
-| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. Stopping maker left resting GTC depth `ok`; a maker-stop depth/liveness check and actual external alert delivery remain unproved. Pause UI evidence exists below, but is not proof of each outage banner. |
+| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. Stopping maker left resting GTC depth `ok`; missing executable maker depth and actual external alert delivery remain unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
 | P0-32 | **procedures exercised; final gate review pending** | The post-upgrade batch-201 stall/recovery above also exercises the Cleared >2 min runbook. The exhaustion sequence below proves real debt, auto-pause, debt repayment, ordered unpause and a successful flat withdrawal. No successful taker reduce-only close occurred: liquidation removed the position first. Runbook follow-up and transaction-paired invariant evidence remain explicit limits. |
 | P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
 
@@ -93,13 +94,57 @@ not passes. No open positions remain for the net-position consistency check.
 
 Keep #39 open and PR #72 draft until P0-31 and P0-32 have their full required
 evidence. Confirm actual external alert delivery, complete the missing maker
-fault/UX evidence, and retain transaction-paired snapshots for invariant 5.
+fault/UX evidence, and complete the insurance runbook's small successful
+reduce-only close after recovery, retaining paired snapshots for invariant 5.
+The genuine liquidation already proves exhaustion; do not repeat the destructive
+drill solely because liquidation beat the originally planned taker close.
 Complete indexer backfill, show the early fills without duplicates, and recheck
 health. Free Render instances have ephemeral storage and can sleep after idle
 periods: keep `/healthz` warm during drills and do not redeploy/reset the indexer
-just to update documentation. Match all required service/source pins and rerun
-affected evidence after off-chain changes. CI failures and their fixes are
-tracked separately from the known local rustc-1.79 layout-build limitation.
+just to update documentation. Record each actual service/source pin and rerun
+affected evidence after behavior changes; identical SHAs across services are not
+a requirement. The worker changes from their recorded pin to `41df659` only
+affect HTTP health-server startup/lifetime, not trading or settlement logic.
+
+### CI verification — 12:22 UTC
+
+Fresh `gh pr checks 72` reports all checks passed for `41df659`: candidate SBF
+runtime smoke and Rust tests/lint in [Verify](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790023),
+frontend tests and layout fixtures in [Frontend](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790027),
+and [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790115).
+Both Vercel previews also passed. This resolves the prior CI blocker; it does not
+replace live D′ evidence. The local rustc-1.79 layout-build limitation is separate
+from these successful hosted checks.
+
+### Follow-up investigation — 12:24–12:30 UTC
+
+The keeper fee check is critical again: its balance was 9,233,120 lamports,
+below the 10M floor, and batch 534 remained Cleared with settlement lock 1.
+The [rent audit](evidence/issue-39-2026-11-03/keeper-rent-audit.json) shows the
+latest 30 transactions all succeeded. They debited 60,043,200 lamports: 150,000
+in fees and 59,893,200 retained as account rent. An ordinary full batch creates
+4,445,000 lamports of results rent and 1,544,320 of next-batch rent, plus 15,000
+network fees: **0.00600432 SOL per batch**. Earlier green health is historical,
+not the current keeper state. A bounded operator top-up can resume the existing
+batch without restarting the keeper; it must include this account-rent budget.
+
+The [replay measurement](evidence/issue-39-2026-11-03/indexer-throughput.json)
+compares the indexer cursor against a fresh confirmed chain tip. Its old hosted
+rate of 5.34 slots/s versus 4.22 chain slots/s implies roughly 14 hours to close
+the observed 57,483-slot gap. Short windows can show no cursor movement because
+256 slots commit atomically; that alone does not prove a stuck replay.
+Moving core-program filtering before SDK block deserialization reduced local
+CPU from 4.02 s to 1.32 s on the same 256 slots; wall time fell from 14.65 s to
+12.06 s. This is local measurement, not proof of hosted catch-up. Network request
+count and bytes are unchanged; deployment and fresh hosted measurement remain
+necessary.
+
+Live browser polling also exposed status requests exceeding its four-second
+deadline. The follow-up status change caches only verified, immutable
+ClearBatch timestamps and reads fee balances concurrently; phase, balances and
+age remain live. Failed history reads are retried on later polls. The regression
+test fails before timestamp reuse and passes after it. Browser outage evidence
+must still be collected against the deployed service.
 
 ## Historical investigation — retained as observed
 

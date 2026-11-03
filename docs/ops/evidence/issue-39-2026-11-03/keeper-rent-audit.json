@@ -1,0 +1,583 @@
+{
+  "observedAt": "2026-11-03T12:24:35.231Z",
+  "balance": 9233120,
+  "registry": {
+    "batchIdCounter": "535",
+    "tMinSlots": "10",
+    "tMaxSlots": "25",
+    "pauseFlags": 0,
+    "lock": 1
+  },
+  "allocated": [
+    {
+      "address": "CHoE8TcZmXQJyKKFwGyKZPJyMXucSvaV5CpR8zX1ajNG",
+      "lamports": 4445000,
+      "bytes": 747,
+      "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK"
+    },
+    {
+      "address": "xCry8vDtooX3YvdHw4qP88xXqcCzxuWNWRwtywcNd9S",
+      "lamports": 1544320,
+      "bytes": 176,
+      "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT"
+    },
+    {
+      "address": "CuKzGBq93HGzZFfH5VmGzvEE2tpbiyVWEjf6c7P8M45x",
+      "lamports": 4445000,
+      "bytes": 747,
+      "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK"
+    },
+    {
+      "address": "9TxSH3CEiYULmrELzKkYLCKAtRwAqxQCjL8wvf9gVaai",
+      "lamports": 1544320,
+      "bytes": 176,
+      "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT"
+    }
+  ],
+  "keeper": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+  "sampledTransactions": [
+    {
+      "signature": "5GuRyDZ9JdsMNnziddqGAtXjE1YP8Z4NmJRbmur457X8f696qskFbFfFW4bpB4BbKbzspVG9kqFvjEDG7Ub5Fg5z",
+      "slot": 518212470,
+      "time": "2026-11-03T12:15:31.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "CHoE8TcZmXQJyKKFwGyKZPJyMXucSvaV5CpR8zX1ajNG",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "29eA51wH73SS9fpx7AnGRvq9Bmi1dkfgftySy9fjr4hUFiB1NUxMfzYHesqip5B2tkfPJFdFDeXEDat5fJFrXbLw",
+      "slot": 518212461,
+      "time": "2026-11-03T12:15:29.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "4baVYLmHx58YseCph7tXcxWNx4GcKVfQDFmrkM8LF2Fhe28wuMZR3CPnptt9oihEiXTKWg61mM5Xp8qkuUqU8MWW",
+      "slot": 518212428,
+      "time": "2026-11-03T12:15:21.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "xCry8vDtooX3YvdHw4qP88xXqcCzxuWNWRwtywcNd9S",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "3ANZs5ax7sNRENZ1p6VQAqRPTnJpoi9RvqLDVNBwqACWKt6ufV7u5QXTPTWVVi9n8dmQrf76QuwQ9xdAYjMYVW5x",
+      "slot": 518212420,
+      "time": "2026-11-03T12:15:19.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "CuKzGBq93HGzZFfH5VmGzvEE2tpbiyVWEjf6c7P8M45x",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "82hGCHmixC6sdxHupAcJiDhG5XmEPPb1L1B8ehZ7HqzaWEL5hWHciisz7owJ7rJD3uPKxXty4PpvsSTo4SnEmRw",
+      "slot": 518212411,
+      "time": "2026-11-03T12:15:17.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "5vhqmB3jxVTZ4YhrnBKSPCRAnRNngwL6skFtR5cobLnaJEYG3cw7g2FYwjmgZGHpouUeRJdmhuqXBA9GKW1PVSCD",
+      "slot": 518212378,
+      "time": "2026-11-03T12:15:09.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "9TxSH3CEiYULmrELzKkYLCKAtRwAqxQCjL8wvf9gVaai",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "EhtQwHwPoPFJNaCsHAZR9Fc3SR7j5E4kBkXWUMqAyJyL17Q3yLKkMx6ur3EKxRX1KiseBvffSLBtmDnEemziJGA",
+      "slot": 518212369,
+      "time": "2026-11-03T12:15:07.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "9UKZF9pPczE1ZLzz8rNwcsUktwyiSwYZLEai3QKqj5XK",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "33iGMh3tzm4xXWVBzu5dvf9HuEc8GWHwPmJbUH9QmQEfnBssDNE5vDTApyo8T9T64wmKx9pZKi2bKDt7zSDhdKK9",
+      "slot": 518212361,
+      "time": "2026-11-03T12:15:05.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "KuEPDbgo8wndb6KQdM7WZKDpzXARS9J9hx3RH5Z46YiUykmpg32jJ6SEhY4PU7wGXtiidCisM9bh8kbXcbby53X",
+      "slot": 518212328,
+      "time": "2026-11-03T12:14:57.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "EjtaT4TDAbYdN9dzWyyDS38MVZvnKymwaytwc9c7Ty6x",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "XiH8foB4GKtWSsCRypLipQMidaGcU2yKhNrkb7CwwLrZJzT6YWx3psk4hxDPYBz2m8C5A3jDoUXTJLEV1GafMSi",
+      "slot": 518212319,
+      "time": "2026-11-03T12:14:55.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "41mADnsZAwxjS51sxir6cCiVDdigg47Kzw6ynF7p5zJD",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "vRoep8ESeGiwo4WLCajUWirLrFwPxRc3cRiUVzc728KvZoGz228oVxkrjFszm37ybBtDk29ub5wPiVUfripCVCF",
+      "slot": 518212310,
+      "time": "2026-11-03T12:14:53.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "jCeoXUHhLXEJdQeWHTMuV7sQM1FXyY5LaPvkU5uAMnhmcC2TTEKjPmZk4QceKzXgigJ47t59rH8fcyZPTMSXUTY",
+      "slot": 518212136,
+      "time": "2026-11-03T12:14:11.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "CfABuPP7exJgF1Qr3ZkyEk8ggGSJEXvf2bt1qvaaoBvZ",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "GLmTuJCLjU9TNKPxhA6cN98iDDpY81ZB57GV4i3RkuH5eXoXmig4eevVV4rQmKSdyCU3y8PQYTauur6WWkhUck4",
+      "slot": 518212127,
+      "time": "2026-11-03T12:14:09.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "2fU6yBj14RSGtaZycfymnPBM7oyoEP2vF7x55ipPNaSM",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "5nS2xXWGPqFScDEB5PB15E5SXTT2tgqSLyH4GUppZDMarJhJZFHxg3ESY4Rjfogi51EKZDyfotnLEQ6xPeJSathr",
+      "slot": 518212118,
+      "time": "2026-11-03T12:14:07.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "2D8cGsTHR7qXuted2Lp5yhSFEqmbBE9AsG9kfooitdDVk63dmQNKNrjL3GXaTSmXWdkSZTJzc25iqn9eYjEghwew",
+      "slot": 518212085,
+      "time": "2026-11-03T12:13:59.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "C4EAb4xA23BwLx5zgmJprytJNMWwKJTnqLx1WE7BR7o7",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "2EAF2t1az7anLLF1X5FqVh6EAQxXuqqben68xfNs2XsaUzxyFSGri3iokBZTeugKMB1fXzq1M2sG5VNDLSkphnXJ",
+      "slot": 518212076,
+      "time": "2026-11-03T12:13:57.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "EkK9NV42MbAsVEEWuctNDugKzwpCqP7KwNGaLLaadSFA",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "4hg3F2gmyXvhikwMjaegwCbAer84Zbwh9cB9TQaZWj32CDJjWhnNoFeSfvjGNvqcJuxAYu3LQiWLZTv4ejmoavEU",
+      "slot": 518212068,
+      "time": "2026-11-03T12:13:55.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "4qjGK17mYwbaZYaH1fX25eqRyeJgUMq1gUXL5TnjTpmf7Sd3dS6VMntarhuHLUbrjiFbA3QvPNfTTrT71QTDs1Zu",
+      "slot": 518212034,
+      "time": "2026-11-03T12:13:47.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "45Ja585YUJhfCRk4udLjVqaee7AMZkienSCzQaVjYfJL",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "3d472iPYZhd39w5kXJxePwrdhkaJ6Yu44Vpk55zGkwhaAH23eGaSnR5oxRTFKFK5nvv7uUjeuzkY29Y4FGrxkkib",
+      "slot": 518212025,
+      "time": "2026-11-03T12:13:45.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "4kMx1eEHsNUueGmdBCXpSbRVCvW1Gi4EZpLDj6baun5j",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "25spxWtZb5meHbLxrkYBRkePYXmC3bCrZpSddLmLTLL3SCA5Zbk49C7H8Ht24iawC946S2ZMEZpAj39T9u7GL2Ue",
+      "slot": 518212017,
+      "time": "2026-11-03T12:13:43.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "5LYae9myzVGiuqtkrz4t2CtUuSugF5qivK1FesJe9ENaQazDgKHkTJmAYsCYGNWtqMmD7NAArCwCeSHiXVQ374rK",
+      "slot": 518211984,
+      "time": "2026-11-03T12:13:35.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "CXaNgWipQnJ3uE1uP66ZkKPmDsgrJLGmpTzBsWdTa2np",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "4sPgvzGpiWbkTQtbe96LkYx3chy65kXkNXrZ1MFnd23MPtcvwSfTnunafWY9K1i5kPNJuK8ZM2SSk8Y7cBkqiZ6Z",
+      "slot": 518211976,
+      "time": "2026-11-03T12:13:33.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "CiJiYH249VtTX5o5kWD1ctvGrVjZqZZDQdYhvcLkNBiK",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "3NJoecWBBHSmnBfXwXmoa8njCmQXxHUesJCD7Ztv9JaQENnFDvsp4ZJGxXttHURn2TD5VVHtRhd5Jw2sMveYgagc",
+      "slot": 518211966,
+      "time": "2026-11-03T12:13:30.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "tMYdzdocmfEJx5q8tjBFeqWxTPgbZ8bhKxZVdiXAM4uCJtnPEt7dEQSMQThcH6LJH75CqSzXpPZG7B6VDRr1Wys",
+      "slot": 518211933,
+      "time": "2026-11-03T12:13:23.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "9N4zCoJHmLYuU9FGL4oZJHW7VMDW72djeK6pW1pooutU",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "5hSewBywqkZCeMJ2MjCExdAkRp7mCzmuHUkv9pMitGgQkxbDn5naHrw1oPyuTwCWn7UFzsavFVfebzRiTHgoMzar",
+      "slot": 518211924,
+      "time": "2026-11-03T12:13:20.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "3EotwixWFUGZrV8uSNygXeoRjN7hDEtWnq8o4y6qqBLq",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "4jSD9GM71HDUVMFFLuXafjvZBrbgLWGVGKSHBngZWWKJmbhkZ1vkA6rugRtoQtwtZNo4W1eo1scb5hmj2ToSLdCt",
+      "slot": 518211916,
+      "time": "2026-11-03T12:13:19.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "5unJbakUQ9MdymkuTGiWvipoHn91e5VqiBwQAfP8iUrUXWanpfYTuAyi9o8pBGCsJPz14KSDYahQJx48TEyJ78ST",
+      "slot": 518211881,
+      "time": "2026-11-03T12:13:10.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "DowoBTM9V2vRBV2j87xPqmnTjY3CnVwPT65jZkcBwpRH",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    },
+    {
+      "signature": "3mxqwURpj8trHqYtBqpBppcz1HhdKhLwMGvUYvKr5CSbsgVn4ouokGGUorhzk5uTPJ6HUujZkSn2JtNbHQodfTjr",
+      "slot": 518211872,
+      "time": "2026-11-03T12:13:08.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -4450000,
+      "created": [
+        {
+          "lamports": 4445000,
+          "newAccount": "DfuZD6pPnXVSYaU9mrxH7NLomqhCNS7NnCiqYKRs51jT",
+          "owner": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 747
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: ClearBatch",
+        "Program log: Instruction: DfbaClear"
+      ]
+    },
+    {
+      "signature": "4TqV2t47itPZvazcFqeoMaskr8FnWYpBy4uv6VdsHbmzRaFTqUPbZAaH9R6UzhzvKq7xg3HKe6Z39dLhdDrVRKFn",
+      "slot": 518211863,
+      "time": "2026-11-03T12:13:06.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -5000,
+      "created": [],
+      "logs": [
+        "Program log: Instruction: CloseCommitting"
+      ]
+    },
+    {
+      "signature": "5KaP2jVXxZ5tS1t6aDxAzztbbYmDZk8zfZDNhxSNNduWC4RG8H2f5APDFtxJZqsQnwsdAj5ALkkf4Kxi7r2LH1VW",
+      "slot": 518211829,
+      "time": "2026-11-03T12:12:58.000Z",
+      "error": null,
+      "fee": 5000,
+      "keeperDelta": -1549320,
+      "created": [
+        {
+          "lamports": 1544320,
+          "newAccount": "78JQo8KF3ZSpynf7nakXHswLssbZ8hkKUPN6TacN5fSq",
+          "owner": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+          "source": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+          "space": 176
+        }
+      ],
+      "logs": [
+        "Program log: Instruction: SettleBatch"
+      ]
+    }
+  ],
+  "sampleTotals": {
+    "transactions": 30,
+    "debitLamports": 60043200,
+    "feesLamports": 150000,
+    "rentLamports": 59893200
+  },
+  "ordinaryBatchLamports": {
+    "resultsRent": 4445000,
+    "nextBatchRent": 1544320,
+    "networkFees": 15000,
+    "total": 6004320
+  },
+  "limits": "Sample of the latest 30 transactions; active-rate projections do not account for the entire previous deposit."
+}
