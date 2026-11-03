@@ -79,7 +79,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 0, "CoreInstruction::Initialize");
-        check(dispatch, "CoreInstruction::Initialize => {\n            msg!(\"Instruction: Initialize\");\n            process_initialize_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::Initialize => {\n            msg!(\"Instruction: Initialize\");\n            process_initialize_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_initialize_inner",
@@ -159,7 +159,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 1, "CoreInstruction::InitPortfolio");
-        check(dispatch, "CoreInstruction::InitPortfolio => {\n            msg!(\"Instruction: InitPortfolio\");\n            process_init_portfolio_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::InitPortfolio => {\n            msg!(\"Instruction: InitPortfolio\");\n            process_init_portfolio_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_init_portfolio_inner",
@@ -172,7 +172,8 @@ fn main() -> Result<(), ProgramError> {
                 173, 210, 247, 28, 65, 102, 139, 176, 213, 250, 31, 68, 105, 142, 179,
             ];
             read!(source, let user = Pubkey::from(<[u8; 32]>::try_from(&data[0..32]).unwrap()););
-            read!(source, let bump = data[32];);
+            check(source, "let bump = crate::pda::derive_portfolio_pda_in(context, &user, program_id).1;");
+            let bump = data[32];
             fixtures.push(json!({"program":"core","name":"InitPortfolio","enabled":true,"bytes": ([&[1u8][..], data].concat()),"params":{"user": user.to_vec(),"bump": bump.to_string()}}));
         }
     }
@@ -180,7 +181,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 2, "CoreInstruction::Deposit");
-        check(dispatch, "CoreInstruction::Deposit => {\n            msg!(\"Instruction: Deposit\");\n            process_deposit_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::Deposit => {\n            msg!(\"Instruction: Deposit\");\n            process_deposit_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_deposit_inner",
@@ -197,7 +198,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 3, "CoreInstruction::Withdraw");
-        check(dispatch, "CoreInstruction::Withdraw => {\n            msg!(\"Instruction: Withdraw\");\n            process_withdraw_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::Withdraw => {\n            msg!(\"Instruction: Withdraw\");\n            process_withdraw_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_withdraw_inner",
@@ -214,7 +215,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 4, "CoreInstruction::CommitOrder");
-        check(dispatch, "CoreInstruction::CommitOrder => {\n            msg!(\"Instruction: CommitOrder\");\n            process_commit_order_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::CommitOrder => {\n            msg!(\"Instruction: CommitOrder\");\n            process_commit_order_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_commit_order_inner",
@@ -243,7 +244,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 5, "CoreInstruction::RevealOrder");
-        check(dispatch, "CoreInstruction::RevealOrder => {\n            msg!(\"Instruction: RevealOrder\");\n            process_reveal_order_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::RevealOrder => {\n            msg!(\"Instruction: RevealOrder\");\n            process_reveal_order_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_reveal_order_inner",
@@ -270,7 +271,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 6, "CoreInstruction::CloseCommitting");
-        check(dispatch, "CoreInstruction::CloseCommitting => {\n            msg!(\"Instruction: CloseCommitting\");\n            process_close_committing_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::CloseCommitting => {\n            msg!(\"Instruction: CloseCommitting\");\n            process_close_committing_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_close_committing_inner",
@@ -285,7 +286,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 7, "CoreInstruction::ClearBatch");
-        check(dispatch, "CoreInstruction::ClearBatch => {\n            msg!(\"Instruction: ClearBatch\");\n            process_clear_batch_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::ClearBatch => {\n            msg!(\"Instruction: ClearBatch\");\n            process_clear_batch_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_clear_batch_inner",
@@ -304,26 +305,26 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 8, "CoreInstruction::SettleBatch");
-        check(dispatch, "CoreInstruction::SettleBatch => {\n            msg!(\"Instruction: SettleBatch\");\n            process_settle_batch_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SettleBatch => {\n            msg!(\"Instruction: SettleBatch\");\n            process_settle_batch_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_settle_batch_inner",
         );
         let _ = source;
         check(source, "if data.len() < 4 {");
-        check(source, "if data.len() > 4 {");
+        check(source, "crate::pda::derive_batch_pda_in(context, next_id, program_id)");
         {
             let data: &[u8] = &[19, 56, 93, 130, 167];
             read!(source, let num_commitments = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;);
             read!(source, let num_portfolios = u16::from_le_bytes(data[2..4].try_into().unwrap()) as usize;);
-            read!(source, let next_batch_bump = if data.len() > 4 { data[4] } else { 0 };);
+            let next_batch_bump = if data.len() > 4 { data[4] } else { 0 };
             fixtures.push(json!({"program":"core","name":"SettleBatch","enabled":true,"bytes": ([&[8u8][..], data].concat()),"params":{"numCommitments": num_commitments.to_string(),"numPortfolios": num_portfolios.to_string(),"nextBatchBump": next_batch_bump.to_string()}}));
         }
         {
             let data: &[u8] = &[19, 56, 93, 130];
             read!(source, let num_commitments = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;);
             read!(source, let num_portfolios = u16::from_le_bytes(data[2..4].try_into().unwrap()) as usize;);
-            read!(source, let next_batch_bump = if data.len() > 4 { data[4] } else { 0 };);
+            let next_batch_bump = if data.len() > 4 { data[4] } else { 0 };
             assert_eq!(next_batch_bump, 0);
             fixtures.push(json!({"program":"core","name":"SettleBatch","enabled":true,"bytes": ([&[8u8][..], data].concat()),"params":{"numCommitments": num_commitments.to_string(),"numPortfolios": num_portfolios.to_string()}}));
         }
@@ -332,7 +333,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 9, "CoreInstruction::LiquidateUser");
-        check(dispatch, "CoreInstruction::LiquidateUser => {\n            msg!(\"Instruction: LiquidateUser\");\n            process_liquidate_user_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::LiquidateUser => {\n            msg!(\"Instruction: LiquidateUser\");\n            process_liquidate_user_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_liquidate_user_inner",
@@ -348,7 +349,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 10, "CoreInstruction::AddInstrument");
-        check(dispatch, "CoreInstruction::AddInstrument => {\n            msg!(\"Instruction: AddInstrument\");\n            process_add_instrument_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::AddInstrument => {\n            msg!(\"Instruction: AddInstrument\");\n            process_add_instrument_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_add_instrument_inner",
@@ -370,7 +371,8 @@ fn main() -> Result<(), ProgramError> {
             read!(source, let taker_fee_bps = u16::from_le_bytes(data[22..24].try_into().unwrap()););
             read!(source, let maker_fee_bps = i16::from_le_bytes(data[24..26].try_into().unwrap()););
             read!(source, let oracle_addr = Pubkey::from(<[u8; 32]>::try_from(&data[26..58]).unwrap()););
-            read!(source, let bump = data[58];);
+            check(source, "let bump = crate::pda::derive_instrument_pda_in(context, instrument_id, program_id).1;");
+            let bump = data[58];
             fixtures.push(json!({"program":"core","name":"AddInstrument","enabled":true,"bytes": ([&[10u8][..], data].concat()),"params":{"instrumentId": instrument_id.to_string(),"tickSize": tick_size.to_string(),"lotSize": lot_size.to_string(),"imrBps": imr_bps.to_string(),"mmrBps": mmr_bps.to_string(),"takerFeeBps": taker_fee_bps.to_string(),"makerFeeBps": maker_fee_bps.to_string(),"oracleAddr": oracle_addr.to_vec(),"bump": bump.to_string()}}));
         }
     }
@@ -378,7 +380,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 11, "CoreInstruction::CancelRestingOrder");
-        check(dispatch, "CoreInstruction::CancelRestingOrder => {\n            msg!(\"Instruction: CancelRestingOrder\");\n            process_cancel_resting_order_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::CancelRestingOrder => {\n            msg!(\"Instruction: CancelRestingOrder\");\n            process_cancel_resting_order_inner(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_cancel_resting_order_inner",
@@ -395,7 +397,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 12, "CoreInstruction::ModifyRestingOrder");
-        check(dispatch, "CoreInstruction::ModifyRestingOrder => {\n            msg!(\"Instruction: ModifyRestingOrder\");\n            process_modify_resting_order_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::ModifyRestingOrder => {\n            msg!(\"Instruction: ModifyRestingOrder\");\n            process_modify_resting_order_inner(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_modify_resting_order_inner",
@@ -415,7 +417,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 13, "CoreInstruction::CancelAllRestingOrders");
-        check(dispatch, "CoreInstruction::CancelAllRestingOrders => {\n            msg!(\"Instruction: CancelAllRestingOrders\");\n            process_cancel_all_resting_orders_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::CancelAllRestingOrders => {\n            msg!(\"Instruction: CancelAllRestingOrders\");\n            process_cancel_all_resting_orders_inner(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_cancel_all_resting_orders_inner",
@@ -432,7 +434,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 14, "CoreInstruction::SetPauseFlags");
-        check(dispatch, "CoreInstruction::SetPauseFlags => {\n            msg!(\"Instruction: SetPauseFlags\");\n            process_set_pause_flags_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SetPauseFlags => {\n            msg!(\"Instruction: SetPauseFlags\");\n            process_set_pause_flags_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_set_pause_flags_inner",
@@ -449,7 +451,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 15, "CoreInstruction::InitVault");
-        check(dispatch, "CoreInstruction::InitVault => {\n            msg!(\"Instruction: InitVault\");\n            process_init_vault_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::InitVault => {\n            msg!(\"Instruction: InitVault\");\n            process_init_vault_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_init_vault_inner",
@@ -458,7 +460,8 @@ fn main() -> Result<(), ProgramError> {
         check(source, "if data.is_empty() {");
         {
             let data: &[u8] = &[19];
-            read!(source, let bump = data[0];);
+            check(source, "let bump = crate::pda::derive_vault_pda_in(context, program_id).1;");
+            let bump = data[0];
             fixtures.push(json!({"program":"core","name":"InitVault","enabled":true,"bytes": ([&[15u8][..], data].concat()),"params":{"bump": bump.to_string()}}));
         }
     }
@@ -466,7 +469,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 16, "CoreInstruction::CreateBatch");
-        check(dispatch, "CoreInstruction::CreateBatch => {\n            msg!(\"Instruction: CreateBatch\");\n            process_create_batch_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::CreateBatch => {\n            msg!(\"Instruction: CreateBatch\");\n            process_create_batch_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_create_batch_inner",
@@ -483,7 +486,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 17, "CoreInstruction::SetBatchCounter");
-        check(dispatch, "CoreInstruction::SetBatchCounter => {\n            msg!(\"Instruction: SetBatchCounter\");\n            process_set_batch_counter_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SetBatchCounter => {\n            msg!(\"Instruction: SetBatchCounter\");\n            process_set_batch_counter_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_set_batch_counter_inner",
@@ -498,12 +501,17 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 18, "CoreInstruction::CreatePortfolio");
-        check(dispatch, "CoreInstruction::CreatePortfolio => {\n            msg!(\"Instruction: CreatePortfolio\");\n            process_create_portfolio_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::CreatePortfolio => {\n            msg!(\"Instruction: CreatePortfolio\");\n            process_create_portfolio_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/instructions/create_portfolio.rs"),
             "process_create_portfolio",
         );
         let _ = source;
+        let inner = handler(
+            include_str!("../../../programs/perps-core/src/entrypoint.rs"),
+            "process_create_portfolio_inner",
+        );
+        check(inner, "crate::pda::derive_portfolio_pda_in(context, accounts[1].key(), program_id)");
         {
             let data: &[u8] = &[19];
             read!(source, let bump = data.first().copied().unwrap_or(0););
@@ -514,7 +522,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 19, "CoreInstruction::InitPortfolioForUser");
-        check(dispatch, "CoreInstruction::InitPortfolioForUser => {\n            msg!(\"Instruction: InitPortfolioForUser\");\n            process_init_portfolio_for_user(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::InitPortfolioForUser => {\n            msg!(\"Instruction: InitPortfolioForUser\");\n            process_init_portfolio_for_user(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!(
                 "../../../programs/perps-core/src/instructions/init_portfolio_for_user.rs"
@@ -536,7 +544,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 20, "CoreInstruction::PostOrder");
-        check(dispatch, "CoreInstruction::PostOrder => {\n            msg!(\"Instruction: PostOrder\");\n            process_post_order_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::PostOrder => {\n            msg!(\"Instruction: PostOrder\");\n            process_post_order_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_post_order_inner",
@@ -561,7 +569,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 21, "CoreInstruction::SetBatchParams");
-        check(dispatch, "CoreInstruction::SetBatchParams => {\n            msg!(\"Instruction: SetBatchParams\");\n            process_set_batch_params_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SetBatchParams => {\n            msg!(\"Instruction: SetBatchParams\");\n            process_set_batch_params_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_set_batch_params_inner",
@@ -585,7 +593,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 22, "CoreInstruction::SetInstrumentFees");
-        check(dispatch, "CoreInstruction::SetInstrumentFees => {\n            msg!(\"Instruction: SetInstrumentFees\");\n            process_set_instrument_fees_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SetInstrumentFees => {\n            msg!(\"Instruction: SetInstrumentFees\");\n            process_set_instrument_fees_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_set_instrument_fees_inner",
@@ -603,7 +611,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 23, "CoreInstruction::SetInstrumentOracle");
-        check(dispatch, "CoreInstruction::SetInstrumentOracle => {\n            msg!(\"Instruction: SetInstrumentOracle\");\n            process_set_instrument_oracle_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SetInstrumentOracle => {\n            msg!(\"Instruction: SetInstrumentOracle\");\n            process_set_instrument_oracle_inner(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_set_instrument_oracle_inner",
@@ -618,7 +626,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 24, "CoreInstruction::SetFundingParams");
-        check(dispatch, "CoreInstruction::SetFundingParams => {\n            msg!(\"Instruction: SetFundingParams\");\n            process_set_funding_params_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::SetFundingParams => {\n            msg!(\"Instruction: SetFundingParams\");\n            process_set_funding_params_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_set_funding_params_inner",
@@ -640,7 +648,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 25, "CoreInstruction::InitializeBook");
-        check(dispatch, "CoreInstruction::InitializeBook => {\n            process_initialize_book_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::InitializeBook => {\n            process_initialize_book_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_initialize_book_inner",
@@ -657,7 +665,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 26, "CoreInstruction::TopUp");
-        check(dispatch, "CoreInstruction::TopUp => {\n            msg!(\"Instruction: TopUp\");\n            process_top_up_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::TopUp => {\n            msg!(\"Instruction: TopUp\");\n            process_top_up_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_top_up_inner",
@@ -674,7 +682,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 27, "CoreInstruction::WithdrawInsuranceFund");
-        check(dispatch, "CoreInstruction::WithdrawInsuranceFund => {\n            msg!(\"Instruction: WithdrawInsuranceFund\");\n            process_withdraw_insurance_fund_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::WithdrawInsuranceFund => {\n            msg!(\"Instruction: WithdrawInsuranceFund\");\n            process_withdraw_insurance_fund_inner(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_withdraw_insurance_fund_inner",
@@ -691,7 +699,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
         check_dispatch(dispatch, 28, "CoreInstruction::Unpause");
-        check(dispatch, "CoreInstruction::Unpause => {\n            msg!(\"Instruction: Unpause\");\n            process_unpause_inner(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "CoreInstruction::Unpause => {\n            msg!(\"Instruction: Unpause\");\n            process_unpause_inner(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-core/src/entrypoint.rs"),
             "process_unpause_inner",
@@ -721,10 +729,10 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 1, "MatcherInstruction::CancelResting");
-        check(dispatch, "MatcherInstruction::CancelResting => {\n            msg!(\"Instruction: CancelResting\");\n            instructions::process_cancel_resting(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::CancelResting => {\n            msg!(\"Instruction: CancelResting\");\n            instructions::process_cancel_resting_in(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/instructions.rs"),
-            "process_cancel_resting",
+            "process_cancel_resting_in",
         );
         let _ = source;
         check(source, "if data.len() < CANCEL_DATA_LEN {");
@@ -736,7 +744,7 @@ fn main() -> Result<(), ProgramError> {
             ];
             check(
                 source,
-                "let (user, accounts) = authenticated_user(accounts)?;",
+                "let (user, accounts) = authenticated_user(context, accounts)?;",
             );
             read!(source, let order_id = u64::from_le_bytes(
         data[32..40]
@@ -750,10 +758,10 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 2, "MatcherInstruction::ModifyResting");
-        check(dispatch, "MatcherInstruction::ModifyResting => {\n            msg!(\"Instruction: ModifyResting\");\n            instructions::process_modify_resting(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::ModifyResting => {\n            msg!(\"Instruction: ModifyResting\");\n            instructions::process_modify_resting_in(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/instructions.rs"),
-            "process_modify_resting",
+            "process_modify_resting_in",
         );
         let _ = source;
         check(source, "if data.len() < MODIFY_DATA_LEN {");
@@ -765,7 +773,7 @@ fn main() -> Result<(), ProgramError> {
             ];
             check(
                 source,
-                "let (user, accounts) = authenticated_user(accounts)?;",
+                "let (user, accounts) = authenticated_user(context, accounts)?;",
             );
             read!(source, let order_id = u64::from_le_bytes(
         data[32..40]
@@ -796,10 +804,10 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 4, "MatcherInstruction::CancelAll");
-        check(dispatch, "MatcherInstruction::CancelAll => {\n            msg!(\"Instruction: CancelAll\");\n            instructions::process_cancel_all(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::CancelAll => {\n            msg!(\"Instruction: CancelAll\");\n            instructions::process_cancel_all_in(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/instructions.rs"),
-            "process_cancel_all",
+            "process_cancel_all_in",
         );
         let _ = source;
         check(source, "if data.len() < 32 {");
@@ -810,7 +818,7 @@ fn main() -> Result<(), ProgramError> {
             ];
             check(
                 source,
-                "let (user, accounts) = authenticated_user(accounts)?;",
+                "let (user, accounts) = authenticated_user(context, accounts)?;",
             );
             fixtures.push(json!({"program":"matcher","name":"CancelAll","enabled":true,"bytes": ([&[4u8][..], data].concat()),"params":{"user": data[0..32].to_vec()}}));
         }
@@ -819,10 +827,10 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 5, "MatcherInstruction::DfbaClear");
-        check(dispatch, "MatcherInstruction::DfbaClear => {\n            msg!(\"Instruction: DfbaClear\");\n            instructions::process_dfba_clear(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::DfbaClear => {\n            msg!(\"Instruction: DfbaClear\");\n            instructions::process_dfba_clear_in(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/instructions.rs"),
-            "process_dfba_clear",
+            "process_dfba_clear_in",
         );
         let _ = source;
         check(source, "if data.len() < DFBA_IX_HEADER_BYTES {");
@@ -846,10 +854,10 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 6, "MatcherInstruction::PlaceResting");
-        check(dispatch, "MatcherInstruction::PlaceResting => {\n            msg!(\"Instruction: PlaceResting\");\n            instructions::process_place_resting(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::PlaceResting => {\n            msg!(\"Instruction: PlaceResting\");\n            instructions::process_place_resting_in(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/instructions.rs"),
-            "process_place_resting",
+            "process_place_resting_in",
         );
         let _ = source;
         check(source, "if data.len() < PLACE_RESTING_DATA_LEN {");
@@ -861,7 +869,7 @@ fn main() -> Result<(), ProgramError> {
             ];
             check(
                 source,
-                "let (user, accounts) = authenticated_user(accounts)?;",
+                "let (user, accounts) = authenticated_user(context, accounts)?;",
             );
             read!(source, let side = Side::from_u8(data[32]).ok_or(ProgramError::InvalidInstructionData)?;);
             read!(source, let is_maker = data[33] != 0;);
@@ -884,17 +892,18 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 7, "MatcherInstruction::InitializeBook");
-        check(dispatch, "MatcherInstruction::InitializeBook => {\n            msg!(\"Instruction: InitializeBook\");\n            instructions::process_initialize_book(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::InitializeBook => {\n            msg!(\"Instruction: InitializeBook\");\n            instructions::process_initialize_book_in(\n                context,\n                program_id,\n                accounts,\n                &instruction_data[1..],\n            )");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/instructions.rs"),
-            "process_initialize_book",
+            "process_initialize_book_in",
         );
         let _ = source;
         check(source, "if data.len() < INIT_BOOK_DATA_LEN {");
         {
             let data: &[u8] = &[19, 56, 93];
             read!(source, let instrument_id = u16::from_le_bytes([data[0], data[1]]););
-            read!(source, let bump = data[2];);
+            check(source, "let bump = mgk_common::book::book_pda_in(context, program_id, instrument_id).1;");
+            let bump = data[2];
             fixtures.push(json!({"program":"matcher","name":"InitializeBook","enabled":true,"bytes": ([&[7u8][..], data].concat()),"params":{"instrumentId": instrument_id.to_string(),"bump": bump.to_string()}}));
         }
     }
@@ -902,7 +911,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 8, "MatcherInstruction::ConsumeResults");
-        check(dispatch, "MatcherInstruction::ConsumeResults => {\n            process_consume_results(accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::ConsumeResults => {\n            process_consume_results(context, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/entrypoint.rs"),
             "process_consume_results",
@@ -919,7 +928,7 @@ fn main() -> Result<(), ProgramError> {
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
         check_dispatch(dispatch, 9, "MatcherInstruction::CancelSettledOrders");
-        check(dispatch, "MatcherInstruction::CancelSettledOrders => {\n            process_cancel_settled_orders(program_id, accounts, &instruction_data[1..])");
+        check(dispatch, "MatcherInstruction::CancelSettledOrders => {\n            process_cancel_settled_orders(context, program_id, accounts, &instruction_data[1..])");
         let source = handler(
             include_str!("../../../programs/perps-matcher/src/entrypoint.rs"),
             "process_cancel_settled_orders",
