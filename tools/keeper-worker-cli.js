@@ -6,6 +6,7 @@ const { setTimeout: sleep } = require("node:timers/promises");
 const { Connection, Keypair } = require("@solana/web3.js");
 const { loadManifest } = require("../mgk-frontend/packages/layout/manifest");
 const { createKeeperWorker, INTERVAL_MS } = require("./keeper-worker");
+const { createHealthState, markCycle, markError, startHealthServer } = require("./health-server");
 async function main() {
   if (process.argv.slice(2).some((arg) => !["--once", "--loop"].includes(arg)))
     throw Error("Unsupported argument");
@@ -67,6 +68,8 @@ async function main() {
     connection: new Connection(process.env.RPC_URL, "confirmed"),
     feeFloorLamports: BigInt(monitoring.feeFloorLamports),
   });
+  const health = createHealthState("keeper");
+  if (process.argv.includes("--loop")) startHealthServer(health);
   const abort = new AbortController();
   process.once("SIGTERM", () => abort.abort());
   process.once("SIGINT", () => abort.abort());
@@ -74,6 +77,7 @@ async function main() {
     const started = Date.now();
     try {
       const result = await worker.tick();
+      markCycle(health, result.status);
       console.log(
         JSON.stringify({
           ...result,
@@ -91,6 +95,7 @@ async function main() {
       )
         process.exitCode = 1;
     } catch {
+      markError(health);
       console.error(
         JSON.stringify({
           service: "keeper",

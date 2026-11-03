@@ -6,6 +6,7 @@ const { setTimeout: sleep } = require("node:timers/promises");
 const { Connection, Keypair } = require("@solana/web3.js");
 const { loadManifest } = require("../mgk-frontend/packages/layout/manifest");
 const { createOracleWorker, INTERVAL_MS } = require("./oracle-worker");
+const { createHealthState, markCycle, markError, startHealthServer } = require("./health-server");
 
 async function main() {
   const keyPath =
@@ -59,6 +60,8 @@ async function main() {
     hermesUrl: process.env.PYTH_HERMES_URL,
     pythApiKey: process.env.PYTH_API_KEY,
   });
+  const health = createHealthState("oracle");
+  if (process.argv.includes("--loop")) startHealthServer(health);
   const abort = new AbortController();
   process.once("SIGTERM", () => abort.abort());
   process.once("SIGINT", () => abort.abort());
@@ -66,6 +69,7 @@ async function main() {
     const started = Date.now();
     try {
       const result = await worker.tick();
+      markCycle(health, result.status);
       console.log(
         JSON.stringify({
           service: "oracle",
@@ -78,6 +82,7 @@ async function main() {
         }),
       );
     } catch {
+      markError(health);
       // RPC/fetch exceptions can contain credentials and URLs; never log the raw exception.
       console.error(
         JSON.stringify({ service: "oracle", status: "publication_failed" }),
