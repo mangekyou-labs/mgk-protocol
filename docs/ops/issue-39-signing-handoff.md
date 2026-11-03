@@ -64,6 +64,27 @@ to the authority or a separately reviewed funder) before D′ provisioning.
 Worker fee-payer top-ups to the original rollout targets (keeper/oracle 2 SOL
 each) are separate and not required by the health floor.
 
+## Upgrade executed (operator-signed, 2026-11-03)
+
+The operator approved steps 1–8 as tabled, selected Solana CLI with their own
+keypair file, and ran the wizard. Verified read-only afterwards:
+
+| Program | Last deployed slot | Deployed bytes check |
+| --- | ---: | --- |
+| Core | 518135007 | full dump SHA-256 = `efa55357…` (candidate exact) |
+| Matcher | 518135102 | first 82376 B SHA-256 = `def1ae6a…`; dump is 87184 B with 4808 trailing zero bytes from the capacity extension |
+
+Matcher upgrade signature:
+`3UzHSn9csfRuqpSwDjo99LuCu3AYSPA28rZKQvVzpPR5ysY6nu3TEUQgpxSk66MMbEU8nZ9e6z2fWp3avwaiz28u`
+(confirmed, slot 518135102). Post-upgrade authority balance: 1.499121692 SOL
+(≈209,011,520 permanent rent + 1,745,000 fees spent). Default-market audit at
+slot 518135279: registry, instrument, oracle and vault lamports, lengths and
+owners identical to the pre-upgrade snapshot.
+
+Wizard note: `solana program dump` returns full ProgramData capacity, so hash
+checks must compare the candidate-length prefix (matcher), not the whole
+dump. The wizard also needs the current-capacity guard before extending.
+
 ## What happens after approval
 
 1. Operator signs/sends steps 1–8 sequentially; each upgrade is confirmed and
