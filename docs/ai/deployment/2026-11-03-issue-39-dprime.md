@@ -22,7 +22,7 @@ All Render services below were free, not suspended, on `feature-issue-39-integra
 
 | Service | Render service ID | Live commit | Live deploy ID |
 | --- | --- | --- | --- |
-| mgk-indexer | `srv-d9a9gu6cjfls739fl4e0` | `318e2c76ec2223d7afb9617acff67cd2eff9334b` | `dep-dbkrkiek1f9s73dqkpn0` |
+| mgk-indexer | `srv-d9a9gu6cjfls739fl4e0` | `77764221ef097b8d15d2e375abeb544640359348` | `dep-dbkt80h5efls73fjvddg` |
 | mgk-oracle | `srv-dbk6u1c9v7es73bsrlk0` | `edf8b6566362f8927c3d2aceb8c8c4c122ef5d72` | `dep-dbkpns67bikc73fib9eg` |
 | mgk-keeper | `srv-dbk6u0bbc2fs73ejiqp0` | `edf8b6566362f8927c3d2aceb8c8c4c122ef5d72` | `dep-dbkpns8u01pc73e05p2g` |
 | mgk-maker | `srv-dbkpc5rbc2fs73a0kvpg` | `edf8b6566362f8927c3d2aceb8c8c4c122ef5d72` | `dep-dbkpnsajnfac739ki290` |
@@ -44,3 +44,9 @@ Local validation: tools 153 passed; web 488 passed; typecheck, lint and producti
 Hosted CI subsequently passed for `41df659831c84b1db2b22b76da47f4d0be386d74`, freshly checked with `gh pr checks 72` at 12:22 UTC: [candidate SBF runtime smoke and Rust tests/lint](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790023), [frontend tests and layout fixtures](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790027), and [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790115). Both Vercel previews passed too. This supersedes the earlier pending-CI observation above.
 
 Recovery transaction details and audit limits are in the readiness assessment. Passing CI does not imply live release-gate completion.
+
+## Indexer follow-up deployment — 12:32 UTC
+
+Render confirmed the indexer performance/status deployment live at 12:32:19 UTC. The [sanitized deployment observation](../../ops/evidence/issue-39-2026-11-03/indexer-7776422-deployment.json) records the new pin and three successful status requests (797–1,456 ms). The D′ preview now displays the actual delayed-batch and low-fee-SOL warnings; [browser evidence](../../ops/evidence/issue-39-2026-11-03/p031-fees-batch-banner.png) accompanies the [critical status](../../ops/evidence/issue-39-2026-11-03/p031-followup-fees-status.json). This performance deployment reset ephemeral replay storage, as expected. Catch-up and external alert delivery remain separate verification requirements. No worker or program upgrade occurred.
+
+All hosted checks subsequently passed for `7776422`, verified with `gh pr checks 72` at 12:39 UTC: [SBF/Rust](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351383), [browser](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351459), and [frontend/layout](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351564). The [hosted replay measurement](../../ops/evidence/issue-39-2026-11-03/indexer-hosted-7776422.json) shows 26.41 slots/s against chain growth of 4.19 slots/s over 126 seconds. Replay remains incomplete.

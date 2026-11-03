@@ -1,11 +1,12 @@
 # Issue #39 rollout readiness — 2026-11-03
 
 Issue #39 remains **open** and PR #72 remains **draft**. D′ is deployed and
-funded, workers are live, and both recovery procedures have been exercised.
+funded, and both recovery procedures have been exercised. The keeper currently
+waits below its fee-SOL floor; its next bounded top-up requires the operator.
 The exhaustion recovery and flat withdrawal completed at slot 518207459.
 P0-31 still lacks complete fault/alert evidence; indexer backfill and the small
-post-recovery reduce-only close remain release blockers. CI passed for
-`41df659831c84b1db2b22b76da47f4d0be386d74`. This is not a production sign-off.
+post-recovery reduce-only close remain release blockers. CI passed for indexer follow-up
+`77764221ef097b8d15d2e375abeb544640359348`. This is not a production sign-off.
 
 ## Dated correction — public rollout and rehearsal evidence
 
@@ -27,7 +28,7 @@ records executable hashes, service pins and the preview.
 
 | Required row | Assessment | Evidence and remaining limits |
 | --- | --- | --- |
-| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. Stopping maker left resting GTC depth `ok`; missing executable maker depth and actual external alert delivery remain unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
+| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker left resting GTC depth `ok`; missing executable maker depth and actual external alert delivery remain unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
 | P0-32 | **procedures exercised; final gate review pending** | The post-upgrade batch-201 stall/recovery above also exercises the Cleared >2 min runbook. The exhaustion sequence below proves real debt, auto-pause, debt repayment, ordered unpause and a successful flat withdrawal. No successful taker reduce-only close occurred: liquidation removed the position first. Runbook follow-up and transaction-paired invariant evidence remain explicit limits. |
 | P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
 
@@ -145,6 +146,18 @@ ClearBatch timestamps and reads fee balances concurrently; phase, balances and
 age remain live. Failed history reads are retried on later polls. The regression
 test fails before timestamp reuse and passes after it. Browser outage evidence
 must still be collected against the deployed service.
+
+### Deployed follow-up — 12:32 UTC
+
+Indexer commit `7776422` is [live](evidence/issue-39-2026-11-03/indexer-7776422-deployment.json), deploy `dep-dbkt80h5efls73fjvddg`, without a worker/program upgrade. Three status requests completed in 797–1,456 ms. The preview now shows the actual [fee/batch warning](evidence/issue-39-2026-11-03/p031-fees-batch-banner.png) against [critical live status](evidence/issue-39-2026-11-03/p031-followup-fees-status.json), rather than timing out and hiding those warnings.
+
+The [126-second hosted measurement](evidence/issue-39-2026-11-03/indexer-hosted-7776422.json) records replay at **26.41 slots/s** against chain growth of **4.19 slots/s**. Lag decreased from 68,501 to 65,701 slots; the measured net rate projects roughly 49 minutes of awake time to catch up. This is a projection, not completed backfill. The justified performance deploy reset ephemeral replay to the manifest start slot. No further redeploy is needed for these documentation updates.
+
+The oracle was [suspended](evidence/issue-39-2026-11-03/p031-followup-oracle-suspended.json) at 12:35:40 UTC. At 12:36:43 UTC its age was 63 s and [status was critical](evidence/issue-39-2026-11-03/p031-followup-oracle-critical.json); the deployed preview displayed the [stale-oracle banner](evidence/issue-39-2026-11-03/p031-oracle-banner.png). Render accepted [resume](evidence/issue-39-2026-11-03/p031-followup-oracle-resumed.json) at 12:36:49 UTC; [fresh publication recovered](evidence/issue-39-2026-11-03/p031-followup-oracle-recovered.json) at 12:37:50 UTC, age 1 s; the [recovered preview](evidence/issue-39-2026-11-03/p031-oracle-recovered-banner.png) cleared its stale-oracle warning. This adds the missing oracle/fee outage UI evidence. It does not prove delivery to email/Slack, missing maker-depth behavior, or keeper recovery: batch 534 still requires the operator's fee top-up.
+
+### Follow-up CI verification — 12:39 UTC
+
+Fresh `gh pr checks 72` passes all checks for `7776422`: [SBF runtime smoke and Rust tests/lint](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351383), [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351459), [frontend tests and layout fixtures](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351564), plus both Vercel previews. The operator helper's nine non-signing safety tests also passed again. No live close or delivered alert is inferred from CI.
 
 ## Historical investigation — retained as observed
 
