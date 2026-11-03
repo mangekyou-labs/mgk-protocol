@@ -1,5 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
-import { deriveBookPda, deriveRegistryPda, deriveVaultPda } from '@mgk/sdk';
+import { deriveBookPda, deriveInstrumentPda, deriveRegistryPda, deriveVaultPda } from '@mgk/sdk';
 import { loadManifest } from '../../../packages/layout/manifest.js';
 import rawManifest from '../../../../deployments/devnet.json';
 
@@ -18,7 +18,8 @@ const feeds = {
 const marketContext={marketSeed:deployment.marketSeed,coreProgramId};
 if (deployment.ready && deployment.marketSeed && (
   deriveRegistryPda(coreProgramId, marketContext)[0].toBase58() !== deployment.accounts.registry ||
-  deriveVaultPda(coreProgramId, marketContext)[0].toBase58() !== deployment.accounts.insurance
+  deriveVaultPda(coreProgramId, marketContext)[0].toBase58() !== deployment.accounts.insurance ||
+  deriveInstrumentPda(0, coreProgramId, marketContext)[0].toBase58() !== deployment.accounts.instrument
 )) throw Error('Deployment namespace mismatch');
 export const config = {
   marketSeed:deployment.marketSeed,

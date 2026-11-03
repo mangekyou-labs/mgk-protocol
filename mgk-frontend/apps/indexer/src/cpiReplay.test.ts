@@ -100,6 +100,24 @@ describe('CPI settlement history through syncChunk', () => {
     const {result, fills, store} = await replay(tx);
     try {expect(result.success).toBe(true); expect(result.fillsInserted).toBe(1); expect(fills[0]?.qty).toBe(3);} finally {store.close();}
   });
+  it.each(['failed call', 'rolled back ancestor'])('advances past malformed scoped bytes in a %s and indexes the next committed call', async fault => {
+    const tx = nestedTransaction();
+    if (fault === 'rolled back ancestor') rollbackAncestor(tx);
+    else tx.meta.logMessages[3] = `Program ${core} failed: custom program error: 0x1`;
+    const malformed = tx.meta.innerInstructions[0]!.instructions.find(ix => ix.programIdIndex === 1)!;
+    malformed.data = bs58.encode([29]);
+    const valid = nestedTransaction();
+    const store = createStore(':memory:');
+    const {batchData, resultsData} = accounts();
+    const connection = {getBlocks: async () => [100, 101], getBlock: async (slot: number) => ({blockTime: 1700000000, transactions: slot === 100 ? [tx] : [valid]}),
+      getAccountInfo: async (pk: PublicKey) => ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
+    try {
+      const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 101});
+      expect(result.success).toBe(true);
+      expect(result.fillsInserted).toBe(1);
+      expect(store.getSyncState().processedThroughSlot).toBe(101);
+    } finally {store.close();}
+  });
   it('never reuses a receipt from a failed attempt for a successful call without a receipt', async () => {
     const tx = nestedTransaction();
     tx.meta.innerInstructions[0]!.instructions.push({...tx.meta.innerInstructions[0]!.instructions[0]!});
