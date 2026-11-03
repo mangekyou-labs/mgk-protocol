@@ -65,12 +65,27 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
       blockSlots.push(...slots);
     }
 
-    for (const slot of blockSlots) {
-      const block = await connection.getBlock(slot, {
-        maxSupportedTransactionVersion: 1,
-        commitment: 'confirmed',
-        ...{encoding: 'json'},
-      });
+    // Fetch blocks with bounded concurrency; sequential fetching replayed
+    // slower than the chain produces slots, so the cursor fell behind forever.
+    // Blocks are still decoded strictly in slot order below.
+    const fetchBlock = (slot: number) => connection.getBlock(slot, {
+      maxSupportedTransactionVersion: 1,
+      commitment: 'confirmed',
+      ...{encoding: 'json'},
+    });
+    const blocks: Awaited<ReturnType<typeof fetchBlock>>[] = new Array(blockSlots.length);
+    let fetchIndex = 0;
+    const fetchWorker = async () => {
+      while (fetchIndex < blockSlots.length) {
+        const i = fetchIndex++;
+        blocks[i] = await fetchBlock(blockSlots[i]!);
+      }
+    };
+    await Promise.all(Array.from({length: Math.min(8, blockSlots.length)}, fetchWorker));
+
+    for (let bi = 0; bi < blockSlots.length; bi++) {
+      const slot = blockSlots[bi]!;
+      const block = blocks[bi];
       if (block?.blockTime != null) blockTimes.set(slot, block.blockTime * 1000);
       if (!block?.transactions) throw new Error(`Block ${slot} unavailable; cursor held for retry`);
 
