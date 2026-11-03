@@ -1,11 +1,12 @@
 # Issue #39 rollout readiness — 2026-11-03
 
 Issue #39 remains **open** and PR #72 remains **draft**. D′ is deployed and
-funded, and both recovery procedures have been exercised. The keeper currently
-waits below its fee-SOL floor; its next bounded top-up requires the operator.
+funded, and both recovery procedures have been exercised. The keeper resumed
+after the operator’s 0.2 SOL top-up at slot 518239892.
 The exhaustion recovery and flat withdrawal completed at slot 518207459.
-P0-31 still lacks complete fault/alert evidence; indexer backfill and the small
-post-recovery reduce-only close remain release blockers. CI passed for indexer follow-up
+P0-31 still lacks complete maker-fault/alert evidence; the small
+post-recovery reduce-only close remains a release blocker. Indexer backfill is
+caught up and the historical batch-414 fill counts reconcile. CI passed for indexer follow-up
 `77764221ef097b8d15d2e375abeb544640359348`. This is not a production sign-off.
 
 ## Dated correction — public rollout and rehearsal evidence
@@ -158,6 +159,16 @@ The oracle was [suspended](evidence/issue-39-2026-11-03/p031-followup-oracle-sus
 ### Follow-up CI verification — 12:39 UTC
 
 Fresh `gh pr checks 72` passes all checks for `7776422`: [SBF runtime smoke and Rust tests/lint](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351383), [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351459), [frontend tests and layout fixtures](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351564), plus both Vercel previews. The operator helper's nine non-signing safety tests also passed again. No live close or delivered alert is inferred from CI.
+
+### Keeper recovery and completed backfill — 14:05 UTC
+
+The operator’s [confirmed 0.2 SOL top-up](evidence/issue-39-2026-11-03/p032-keeper-topup-confirmed.json), signature `HAwbeFew7YC5yB4P2X32N27JFPnH6MSz5KbvaWGKspkWpEY8vr5cxyjh482UtzJh8c4BYQjAa7Tj5BRe5n4fC8e`, landed at slot 518239892. Recipient delta was +200,000,000 lamports; payer delta −200,005,000, including 5,000 network fee. The keeper resumed without restart: batch 537 was Collecting and settlement lock 0.
+
+At 14:05:25 UTC, [all aggregate checks were green](evidence/issue-39-2026-11-03/indexer-caught-up-status.json). Cursor 518240027 was six slots behind fresh confirmed tip 518240033. Keeper balance was 195,675,160 lamports. This completes the previously outstanding catch-up observation; balances and health remain timestamped, not permanent guarantees.
+
+The [historical taker fill](evidence/issue-39-2026-11-03/indexer-caught-up-taker-fills.json) shows 300 lots in batch 414 at slot 518204880. [API trades](evidence/issue-39-2026-11-03/indexer-caught-up-trades.json) contain three maker rows of 100 lots plus one taker row of 300. [Spent on-chain results](evidence/issue-39-2026-11-03/indexer-batch414-results.json) identify three distinct maker orders 1773–1775 and taker order 1776. [Reconciliation](evidence/issue-39-2026-11-03/indexer-batch414-reconciliation.json) confirms matching price/quantity/role multiplicities: the three similar maker rows are real separate fills, not replay duplication. This reconciles the observed batch, not every stored database row. The [book](evidence/issue-39-2026-11-03/indexer-caught-up-book.json) remains two-sided.
+
+The one-lot post-recovery open/reduce-only close and maker-depth/externally delivered alert evidence remain outstanding. The agent’s read-only paired-state observer is prepared; the operator signs each transaction locally after simulation.
 
 ## Historical investigation — retained as observed
 

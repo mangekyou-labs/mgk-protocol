@@ -1,0 +1,54 @@
+{
+  "observedAt": "2026-11-03T14:05:25.986Z",
+  "freshTip": 518240033,
+  "status": {
+    "severity": "ok",
+    "chainTip": 518240032,
+    "lastIndexedSlot": 518240027,
+    "checks": {
+      "oracle": {
+        "severity": "ok",
+        "ageSeconds": 9
+      },
+      "batch": {
+        "severity": "ok",
+        "batchId": "537",
+        "phase": 0,
+        "ageSeconds": 2,
+        "address": "DdzvAeDoNidLuihR9QJLzz6CHHmtjoibVvxERPZdKQph"
+      },
+      "makerDepth": {
+        "severity": "ok",
+        "bid": true,
+        "ask": true
+      },
+      "fees": {
+        "severity": "ok",
+        "balances": {
+          "oracle": "492975000",
+          "keeper": "195675160",
+          "maker": "1097895000"
+        },
+        "floorLamports": "10000000"
+      },
+      "insurance": {
+        "severity": "ok",
+        "lamports": "1487142900",
+        "floorLamports": "1000000000"
+      },
+      "pause": {
+        "severity": "ok",
+        "flags": 0
+      },
+      "indexer": {
+        "severity": "ok",
+        "lagSlots": 5,
+        "syncing": true
+      },
+      "rpc": {
+        "severity": "ok",
+        "reachable": true
+      }
+    }
+  }
+}

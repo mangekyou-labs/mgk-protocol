@@ -1,0 +1,15 @@
+{
+  "fills": [
+    {
+      "slot": 518204880,
+      "batch_id": 414,
+      "instrument_id": 0,
+      "taker_side": 0,
+      "price": 92657140,
+      "qty": 300,
+      "role": "taker",
+      "tx_signature": "M2ZqZjdoaWdYTVQ5TUtkUUI2ZGRVQVNHWnlnUDhUV215YTNZa2JFNERIOHJmQTN3WHpIeWNaRUJxTVZWalM3N0s3N21XWnJ1ZFlmVGtaVVZmQmQ4R1Fnag==",
+      "ts_estimate": 207281952000
+    }
+  ]
+}
