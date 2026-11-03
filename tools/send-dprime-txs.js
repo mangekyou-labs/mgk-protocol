@@ -98,13 +98,20 @@ async function main() {
     console.log(`step ${step.step} ${step.action}: confirmed ${signature} (slot ${slot})`);
   }
   // Finalize the schema-2 manifest with deployed addresses and the Initialize slot.
+  // The oracle address is read back from the instrument's bound oracleAddr,
+  // never from the build summary: a resumed build can name a different
+  // (unprovisioned) oracle account while steps 1-5 are already sent.
+  const { decodeAccount } = require('../mgk-frontend/packages/layout');
+  const instrumentInfo = await conn.getAccountInfo(new PublicKey(summary.accounts.instrument));
+  if (!instrumentInfo) throw new Error('instrument account missing at manifest finalize');
+  const boundOracle = new PublicKey(Uint8Array.from(decodeAccount('Instrument', instrumentInfo.data).oracleAddr)).toBase58();
   const manifestPath = join(__dirname, '..', 'deployments', 'devnet-dprime.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const deployed = (address) => ({ status: 'deployed', address });
   manifest.accounts = {
     registry: deployed(summary.accounts.registry),
     instrument: deployed(summary.accounts.instrument),
-    oracle: deployed(summary.accounts.oracle),
+    oracle: deployed(boundOracle),
     insurance: deployed(summary.accounts.vault),
     maker: deployed('DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o'),
   };

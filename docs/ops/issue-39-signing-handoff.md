@@ -128,3 +128,27 @@ control: **+5.1 SOL to `GBz4U7gb…`** (→ ≈6.599 SOL) and **+3 SOL to
 keypair (`solana-keygen new`) and shares only its public key for the build.
 D′ provisioning requires its own explicit approval; the upgrade approval
 does not cover it.
+
+### D′ executed (operator-signed, 2026-11-03)
+
+Approved steps 1–7 as tabled. All confirmed; verified read-only at slot
+518145644. `deployments/devnet-dprime.json` is finalized (schema 2,
+`ready: true`, start slot 518144057):
+
+| Step | Signature | Slot |
+| --- | --- | ---: |
+| Oracle create+init+activate (`CAQQ1icL…`) | `34E4Y52A…` | 518144053 |
+| Scoped Initialize | `4W5iTbRT…` | 518144057 |
+| InitializeBook ×3 | `5emgBCTJ…` | 518144061 |
+| CreateBatch 0 | `5MPLcssx…` | 518144065 |
+| TopUp insurance 3 SOL | `2wtPEVSg…` | 518144069 |
+| InitPortfolioForUser (maker) | `2ExhtGMx…` | 518145535 |
+| Deposit maker collateral 3 SOL | `eq7gMTBK…` | 518145539 |
+
+Decoded: vault insurance 3,000,000,000, maker portfolio user `DPs1NM3T…`
+with free collateral/equity 3,000,000,000, instrument `oracleAddr` bound to
+`CAQQ1icL…`. Two sender bugs were found and fixed along the way: creation
+guards must check on-chain ownership (not merely return an address), and
+plain `InitPortfolio` cannot create a fresh PDA — `InitPortfolioForUser`
+can. The manifest oracle is now read back from the instrument binding,
+because a resumed build can name an unprovisioned oracle account.
