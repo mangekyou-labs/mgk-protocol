@@ -27,12 +27,7 @@ async function main(): Promise<void> {
   await app.register(cors, { origin: true });
 
   const manifest = loadDeployment();
-  const store = createStore(DB_PATH);
-  store.db.exec("CREATE TABLE IF NOT EXISTS deployment_identity (id INTEGER PRIMARY KEY CHECK(id=1), manifest TEXT NOT NULL)");
-  const identity = JSON.stringify(manifest);
-  const existing = store.db.prepare("SELECT manifest FROM deployment_identity WHERE id=1").get() as {manifest:string}|undefined;
-  if (existing && existing.manifest !== identity) throw new Error("History disk belongs to a different deployment; use a fresh DB_PATH");
-  store.db.prepare("INSERT OR IGNORE INTO deployment_identity VALUES (1, ?)").run(identity);
+  const store = createStore(DB_PATH, JSON.stringify(manifest));
   const monitoring = loadMonitoring();
   const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)})});
   const CORE_PROGRAM_ID = manifest.programs.perps_core;

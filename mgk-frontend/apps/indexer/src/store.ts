@@ -116,8 +116,29 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 `;
 
-export function createStore(dbPath = ':memory:'): Store {
+export function createStore(dbPath = ':memory:', deploymentIdentity?: string): Store {
   const db = new Database(dbPath);
+  // Bind before migrations or seed rows can erase evidence of unscoped history.
+  if (deploymentIdentity !== undefined) {
+    try {
+      db.transaction(() => {
+        const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {name: string}[];
+        const existing = tables.some(table => table.name === 'deployment_identity')
+          ? db.prepare('SELECT manifest FROM deployment_identity WHERE id=1').get() as {manifest: string} | undefined
+          : undefined;
+        if (existing && existing.manifest !== deploymentIdentity) {
+          throw new Error('History disk belongs to a different deployment; use a fresh DB_PATH');
+        }
+        if (!existing) {
+          const nonempty = tables.filter(table => !table.name.startsWith('sqlite_')).some(table =>
+            db.prepare(`SELECT 1 FROM "${table.name.replaceAll('"', '""')}" LIMIT 1`).get() !== undefined);
+          if (nonempty) throw new Error('Unbound history disk contains data; use a fresh DB_PATH');
+          db.exec('CREATE TABLE IF NOT EXISTS deployment_identity (id INTEGER PRIMARY KEY CHECK(id=1), manifest TEXT NOT NULL)');
+          db.prepare('INSERT INTO deployment_identity VALUES (1, ?)').run(deploymentIdentity);
+        }
+      })();
+    } catch (error) { db.close(); throw error; }
+  }
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);
   // Older identities collapse equal fills or settlements from different batches.

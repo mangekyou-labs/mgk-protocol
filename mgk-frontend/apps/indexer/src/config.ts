@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PublicKey } from '@solana/web3.js';
-import {deriveRegistryPda, deriveVaultPda} from '@mgk/sdk';
+import {deriveRegistryPda, deriveVaultPda, deriveInstrumentPda} from '@mgk/sdk';
 import { loadManifest } from '../../../packages/layout/manifest.js';
 
 const deploymentFile = (name: string) => fileURLToPath(new URL(`../../../../deployments/${name}`, import.meta.url));
@@ -14,7 +14,8 @@ export function loadDeployment(path = process.env.DEPLOYMENT_MANIFEST ?? deploym
     const core = new PublicKey(manifest.programs.perps_core);
     const context = {marketSeed: manifest.marketSeed};
     if (deriveRegistryPda(core, context)[0].toBase58() !== manifest.accounts.registry ||
-        deriveVaultPda(core, context)[0].toBase58() !== manifest.accounts.insurance) throw Error('Deployment namespace mismatch');
+        deriveVaultPda(core, context)[0].toBase58() !== manifest.accounts.insurance ||
+        deriveInstrumentPda(0, core, context)[0].toBase58() !== manifest.accounts.instrument) throw Error('Deployment namespace mismatch');
   }
   return manifest;
 }

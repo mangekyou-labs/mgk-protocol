@@ -127,3 +127,30 @@ it('invalidates legacy collapsed history and its durable cursor for complete rep
     store.close();
   } finally {rmSync(directory, {recursive:true, force:true});}
 });
+
+
+it.each(['fills', 'sync_state'])('rejects unbound history containing %s before assigning a deployment', table => {
+  const directory = mkdtempSync(join(tmpdir(), 'mgk-identity-'));
+  const path = join(directory, 'history.db');
+  try {
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE ${table} (value INTEGER); INSERT INTO ${table} VALUES (99);`);
+    legacy.close();
+    expect(() => createStore(path, 'scoped-market-A')).toThrow('fresh DB_PATH');
+    const unchanged = new Database(path);
+    expect(unchanged.prepare(`SELECT value FROM ${table}`).get()).toEqual({value: 99});
+    expect(unchanged.prepare("SELECT name FROM sqlite_master WHERE name='deployment_identity'").get()).toBeUndefined();
+    unchanged.close();
+  } finally {rmSync(directory, {recursive:true, force:true});}
+});
+it('binds a fresh history disk and permits reopening only for the same deployment', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mgk-identity-'));
+  const path = join(directory, 'history.db');
+  try {
+    const store = createStore(path, 'scoped-market-A');
+    store.updateSyncSuccess(100, 1000); store.close();
+    const reopened = createStore(path, 'scoped-market-A');
+    expect(reopened.getSyncState().processedThroughSlot).toBe(100); reopened.close();
+    expect(() => createStore(path, 'scoped-market-B')).toThrow('different deployment');
+  } finally {rmSync(directory, {recursive:true, force:true});}
+});

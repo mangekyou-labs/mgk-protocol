@@ -53,6 +53,7 @@ export function coreInvocations(message: Message | MessageV0, meta: Pick<Confirm
   return instructions.map((ix, index) => {
     const frame = frames[index]!;
     if (ix.depth !== undefined && ix.depth !== frame.depth) throw new Error('Core instruction/log depth mismatch');
+    if (!committed(frame)) return null;
     const data=unwrapInstruction('core',ix.data,marketSeed);
     return data ? {...ix, data, keys, success: committed(frame), logs: frame.logs} : null;
   }).filter((ix): ix is NonNullable<typeof ix> => ix!==null);
