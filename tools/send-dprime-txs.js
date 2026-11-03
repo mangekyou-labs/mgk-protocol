@@ -21,7 +21,6 @@ const { Connection, Keypair, PublicKey, Transaction } = require('@solana/web3.js
 
 const RPC = process.env.RPC_URL || 'https://api.devnet.solana.com';
 const DIR = process.env.DPRIME_TX_DIR;
-if (!DIR) throw new Error('required env: DPRIME_TX_DIR');
 const load = (env) => {
   const p = process.env[env];
   if (!p || !existsSync(p)) throw new Error(`required env: ${env} (path to your keypair file)`);
@@ -33,19 +32,32 @@ const EXPECTED = {
   ORACLE_ACCOUNT_KEYPAIR: null, // fresh account; any pubkey, recorded below
   MAKER_KEYPAIR: 'DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o',
 };
-// Guard per step: an account/value whose presence means "already done".
-// Steps 5/7 guard on decoded balances so a lost sent.json cannot double-fund.
+const CORE_ID = '9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT';
+const MATCHER_ID = '68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK';
+const ORACLE_ID = 'GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm';
+// Guard per step: resolves to an address only when that step's provisioned
+// state is actually on chain, else null. Creation steps require the right
+// owner (a merely funded system account is NOT provisioned). Steps 5/7 guard
+// on decoded balances so a lost sent.json cannot double-fund.
+const owned = (getAddress, owner, len) => async (s, conn) => {
+  const address = getAddress(s);
+  const info = await conn.getAccountInfo(new PublicKey(address));
+  return info && info.owner.toBase58() === owner && (!len || info.data.length === len) ? address : null;
+};
 const GUARDS = [
-  (s) => s.accounts.oracle, (s) => s.accounts.registry, (s) => s.accounts.book,
-  (s) => s.accounts.batch0,
+  owned((s) => s.accounts.oracle, ORACLE_ID, 128),
+  owned((s) => s.accounts.registry, CORE_ID),
+  owned((s) => s.accounts.book, MATCHER_ID),
+  owned((s) => s.accounts.batch0, CORE_ID),
   async (s, conn) => { const v = await conn.getAccountInfo(new PublicKey(s.accounts.vault));
     return v && v.data.readBigUInt64LE(16) >= 3000000000n ? s.accounts.vault : null; },
-  (s) => s.accounts.makerPortfolio,
+  owned((s) => s.accounts.makerPortfolio, CORE_ID),
   async (s, conn) => { const p = await conn.getAccountInfo(new PublicKey(s.accounts.makerPortfolio));
     return p && p.data.readBigInt64LE(176) >= 3000000000n ? s.accounts.makerPortfolio : null; },
 ];
 
 async function main() {
+  if (!DIR) throw new Error('required env: DPRIME_TX_DIR');
   const summary = JSON.parse(readFileSync(join(DIR, 'dprime-summary.json'), 'utf8'));
   const sentPath = join(DIR, 'sent.json');
   const sent = existsSync(sentPath) ? JSON.parse(readFileSync(sentPath, 'utf8')) : {};
@@ -66,6 +78,10 @@ async function main() {
     if (sent[step.step]) { console.log(`step ${step.step} ${step.action}: already sent ${sent[step.step].signature}`); continue; }
     const guard = await GUARDS[step.step - 1]?.(summary, conn);
     if (guard) { console.log(`step ${step.step} ${step.action}: already provisioned (${guard}), skipping`); continue; }
+    if (step.step === 1) {
+      const existing = await conn.getAccountInfo(new PublicKey(summary.accounts.oracle));
+      if (existing) throw new Error(`oracle account ${summary.accounts.oracle} already exists on chain (owner ${existing.owner.toBase58()}, ${existing.lamports} lamports) but is not a provisioned PriceOracle. Generate a FRESH oracle account keypair and rebuild the unsigned set with its pubkey.`);
+    }
     const tx = Transaction.from(Buffer.from(readFileSync(join(DIR, step.file), 'utf8'), 'base64'));
     const needed = step.signers.map((p) => byPubkey.get(p)).filter(Boolean);
     if (needed.length !== step.signers.length) throw new Error(`step ${step.step}: missing signer(s) ${step.signers}`);
@@ -97,4 +113,5 @@ async function main() {
   console.log(`manifest updated: ${manifestPath} (start_slot ${sent[2]?.slot})`);
 }
 
+module.exports = { GUARDS };
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
