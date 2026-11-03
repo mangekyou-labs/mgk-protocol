@@ -1,6 +1,8 @@
 //! Independent instruction vectors. Every copied parser statement is checked against the
 //! actual Rust handler before it is executed here. A changed read, type, optional default,
 //! length guard, or dispatch fails check-layouts instead of silently changing the wire table.
+//! Wire bumps the program now derives are pinned both ways: the derive must be present
+//! and the ignored byte must stay unread (see `check_bump_not_read`).
 //! Regenerate with cargo run -p mgk-perps-core --example export_instruction_fixtures.
 use mgk_perps_matcher::state::order::Side;
 use pinocchio::{program_error::ProgramError, pubkey::Pubkey};
@@ -14,6 +16,22 @@ fn check(source: &str, expected: &str) {
         compact(source).contains(&compact(expected)),
         "Program parser drift: {expected}"
     );
+}
+fn check_absent(source: &str, forbidden: &str) {
+    // CPI buffers (`ix_data`, `cpi_data`) are scrubbed: their indices are
+    // not instruction-data reads. Only the bare wire `data` is checked.
+    let haystack = compact(source)
+        .replace("ix_data", "ix_blob")
+        .replace("cpi_data", "cpi_blob");
+    assert!(
+        !haystack.contains(&compact(forbidden)),
+        "Program parser drift: handler must not read ignored wire byte: {forbidden}"
+    );
+}
+fn check_bump_not_read(source: &str, index: usize) {
+    check_absent(source, &format!("data[{index}]"));
+    check_absent(source, &format!("data[{index}.."));
+    check_absent(source, &format!("data.get({index}"));
 }
 fn handler<'a>(source: &'a str, name: &str) -> &'a str {
     let start = source.find(&format!("fn {name}(")).expect("handler exists");
@@ -173,6 +191,7 @@ fn main() -> Result<(), ProgramError> {
             ];
             read!(source, let user = Pubkey::from(<[u8; 32]>::try_from(&data[0..32]).unwrap()););
             check(source, "let bump = crate::pda::derive_portfolio_pda_in(context, &user, program_id).1;");
+            check_bump_not_read(source, 32);
             let bump = data[32];
             fixtures.push(json!({"program":"core","name":"InitPortfolio","enabled":true,"bytes": ([&[1u8][..], data].concat()),"params":{"user": user.to_vec(),"bump": bump.to_string()}}));
         }
@@ -313,6 +332,7 @@ fn main() -> Result<(), ProgramError> {
         let _ = source;
         check(source, "if data.len() < 4 {");
         check(source, "crate::pda::derive_batch_pda_in(context, next_id, program_id)");
+        check_bump_not_read(source, 4);
         {
             let data: &[u8] = &[19, 56, 93, 130, 167];
             read!(source, let num_commitments = u16::from_le_bytes(data[0..2].try_into().unwrap()) as usize;);
@@ -372,6 +392,7 @@ fn main() -> Result<(), ProgramError> {
             read!(source, let maker_fee_bps = i16::from_le_bytes(data[24..26].try_into().unwrap()););
             read!(source, let oracle_addr = Pubkey::from(<[u8; 32]>::try_from(&data[26..58]).unwrap()););
             check(source, "let bump = crate::pda::derive_instrument_pda_in(context, instrument_id, program_id).1;");
+            check_bump_not_read(source, 58);
             let bump = data[58];
             fixtures.push(json!({"program":"core","name":"AddInstrument","enabled":true,"bytes": ([&[10u8][..], data].concat()),"params":{"instrumentId": instrument_id.to_string(),"tickSize": tick_size.to_string(),"lotSize": lot_size.to_string(),"imrBps": imr_bps.to_string(),"mmrBps": mmr_bps.to_string(),"takerFeeBps": taker_fee_bps.to_string(),"makerFeeBps": maker_fee_bps.to_string(),"oracleAddr": oracle_addr.to_vec(),"bump": bump.to_string()}}));
         }
@@ -461,6 +482,8 @@ fn main() -> Result<(), ProgramError> {
         {
             let data: &[u8] = &[19];
             check(source, "let bump = crate::pda::derive_vault_pda_in(context, program_id).1;");
+            check_bump_not_read(source, 0);
+            check_absent(source, "data.first()");
             let bump = data[0];
             fixtures.push(json!({"program":"core","name":"InitVault","enabled":true,"bytes": ([&[15u8][..], data].concat()),"params":{"bump": bump.to_string()}}));
         }
@@ -903,6 +926,7 @@ fn main() -> Result<(), ProgramError> {
             let data: &[u8] = &[19, 56, 93];
             read!(source, let instrument_id = u16::from_le_bytes([data[0], data[1]]););
             check(source, "let bump = mgk_common::book::book_pda_in(context, program_id, instrument_id).1;");
+            check_bump_not_read(source, 2);
             let bump = data[2];
             fixtures.push(json!({"program":"matcher","name":"InitializeBook","enabled":true,"bytes": ([&[7u8][..], data].concat()),"params":{"instrumentId": instrument_id.to_string(),"bump": bump.to_string()}}));
         }
