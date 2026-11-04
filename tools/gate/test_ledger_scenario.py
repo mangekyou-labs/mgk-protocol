@@ -19,6 +19,21 @@ def run(request):
 
 
 class LedgerScenarioTests(unittest.TestCase):
+    def test_seeded_position_realizes_against_its_exact_entry(self):
+        # Long 3 lots at 301/2 micro-USD, close 1 lot at 151 USD: realized
+        # 1/1000 SOL * (151e6 - 150.5e6) = 500 micro-USD at 100 USD/SOL is
+        # 5_000 lamports, paid out of the fund.
+        out = run({"fund": "1000000", "collateral": {"A": "0"}, "events": [
+            {"kind": "position", "account": "A", "quantity_lots": "3",
+             "entry_numerator": "301000000", "entry_denominator": "2"},
+            {"account": "A", "quantity_lots": "-1", "fill_price": "151000000",
+             "conversion_price": "100000000", "maker": True},
+        ]})
+        self.assertEqual(out["realized_lamports"], {"A": "5000"})
+        self.assertEqual(out["collateral"]["A"], "5000")
+        self.assertEqual(out["fund"], "995000")
+        self.assertEqual(out["positions"]["A"]["qty"], "2")
+
     def test_stress_vectors_reproduce_exact_conversion_drift(self):
         # Issue #8 vectors through the adapter: all-maker fills, so the fund
         # delta is the pure conversion drift quoted in the README.
