@@ -51,4 +51,4 @@ export const instructions: {
   Deactivate: {disc:4; fields:[string,string][]; enabled:boolean};
  };
 };
-export function encodeInstruction(program:'core'|'matcher'|'oracle',name:string,params?:Record<string,unknown>):Uint8Array;
+export function encodeInstruction(program:'core'|'matcher'|'oracle',name:string,params?:Record<string,unknown>,marketSeed?:import("./market").MarketSeed):Uint8Array;

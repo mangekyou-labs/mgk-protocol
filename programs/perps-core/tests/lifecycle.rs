@@ -3147,14 +3147,14 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
     batch.data[B_MARK_VALID] = 1; // valid mark
     pt.add_account(batch_key, batch);
     // Already-initialised batch account: creating the next batch over it must
-    // fail late with AlreadyInitialized and roll everything back.
+    // fail with AlreadyInitialized without changing any account.
     let mut bad_next = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
     stamp_header(&mut bad_next.data, discriminator::BATCH);
-    bad_next.data[B_ID].copy_from_slice(&99u64.to_le_bytes());
+    bad_next.data[B_ID].copy_from_slice(&8u64.to_le_bytes());
     pt.add_account(bad_next_key, bad_next);
     let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
     stamp_header(&mut registry.data, discriminator::REGISTRY);
-    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&7u64.to_le_bytes());
+    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&8u64.to_le_bytes());
     registry.data[R_T_MAX].copy_from_slice(&20u64.to_le_bytes());
     pt.add_account(pdas.registry, registry);
     // Replace the zeroed genesis vault with an initialised (stamped) one.
@@ -3319,7 +3319,7 @@ async fn test_settlement_transition_account_writes_and_late_error_rollback() {
         .unwrap();
     assert_eq!(
         u64::from_le_bytes(registry.data[R_BATCH_ID_COUNTER].try_into().unwrap()),
-        8
+        9
     );
     assert_eq!(
         u64::from_le_bytes(registry.data[R_T_MAX].try_into().unwrap()),
@@ -3462,6 +3462,7 @@ async fn test_issue22_reservations_block_withdrawal_and_release_on_cancel() {
     registry.data[offset_of!(Registry, max_orders_per_batch)] = 12;
     registry.data[offset_of!(Registry, bump)] =
         Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID).1;
+    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&1u64.to_le_bytes());
     pt.add_account(pdas.registry, registry);
     let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
     stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
@@ -3845,11 +3846,17 @@ struct SettleKeys {
 }
 
 /// Seed a registry that names `governance` and holds the pause flags.
-fn seed_governed_registry(pt: &mut ProgramTest, pdas: &TestPdas, governance: &Pubkey, flags: u8) {
+fn seed_governed_registry(
+    pt: &mut ProgramTest,
+    pdas: &TestPdas,
+    governance: &Pubkey,
+    flags: u8,
+    current_batch: u64,
+) {
     let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
     stamp_header(&mut registry.data, discriminator::REGISTRY);
     registry.data[R_GOVERNANCE].copy_from_slice(governance.as_ref());
-    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&7u64.to_le_bytes());
+    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&(current_batch + 1).to_le_bytes());
     registry.data[R_T_MAX].copy_from_slice(&20u64.to_le_bytes());
     registry.data[R_INSTRUMENT_COUNT].copy_from_slice(&1u16.to_le_bytes());
     registry.data[offset_of!(Registry, max_orders_per_batch)] = 12;
@@ -3872,7 +3879,7 @@ fn seed_settlement(
     fills: &[(usize, u64, i64)],
 ) -> SettleKeys {
     let governance = Keypair::new();
-    seed_governed_registry(pt, pdas, &governance.pubkey(), 0);
+    seed_governed_registry(pt, pdas, &governance.pubkey(), 0, 7);
     pt.add_account(pdas.vault, vault);
     let batch = Pubkey::find_program_address(&[BATCH_SEED, &7u64.to_le_bytes()], &CORE_ID).0;
     let next = Pubkey::find_program_address(&[BATCH_SEED, &8u64.to_le_bytes()], &CORE_ID).0;
@@ -3990,9 +3997,12 @@ async fn post_gate_fixture(
     let up = derive_user_pdas(&user.pubkey(), 0, 0);
     let oracle = Pubkey::new_unique();
     seed_valid_oracle(&mut pt, oracle, pdas.instrument);
-    pt.add_account(user.pubkey(), Account::new(1_000_000_000, 0, &system_program::id()));
+    pt.add_account(
+        user.pubkey(),
+        Account::new(1_000_000_000, 0, &system_program::id()),
+    );
     let governance = Keypair::new();
-    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), pause_flags);
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), pause_flags, 0);
     let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
     stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
     instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle.as_ref());
@@ -4073,11 +4083,17 @@ async fn test_e2e_top_up_is_permissionless_and_fund_withdrawal_is_limited_to_sur
     }
     let (mut pt, pdas) = program_test_with_pdas();
     let governance = Keypair::new();
-    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0);
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0, 0);
     // 1_000 lots of open interest need a fund of 400_000_000 lamports.
-    pt.add_account(pdas.vault, with_open_interest(vault_account(0, 0, 0), 1_000, 400));
+    pt.add_account(
+        pdas.vault,
+        with_open_interest(vault_account(0, 0, 0), 1_000, 400),
+    );
     let stranger = Keypair::new();
-    pt.add_account(stranger.pubkey(), Account::new(5_000_000_000, 0, &system_program::id()));
+    pt.add_account(
+        stranger.pubkey(),
+        Account::new(5_000_000_000, 0, &system_program::id()),
+    );
     let mut ctx = pt.start_with_context().await;
     let rent = vault_rent();
 
@@ -4173,7 +4189,7 @@ async fn test_e2e_under_backed_vault_reverts_the_lamport_move() {
     }
     let (mut pt, pdas) = program_test_with_pdas();
     let governance = Keypair::new();
-    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0);
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), 0, 0);
     // One lamport missing: the ledger claims more than the vault holds.
     let mut vault = vault_account(0, 1_000_000_000, 0);
     vault.lamports -= 1;
@@ -4598,14 +4614,20 @@ async fn test_e2e_top_up_withdraw_fund_and_unpause_reject_wrong_address_accounts
     let (mut pt, pdas) = program_test_with_pdas();
     let governance = Keypair::new();
     let attacker = Keypair::new();
-    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), paused);
+    seed_governed_registry(&mut pt, &pdas, &governance.pubkey(), paused, 0);
     pt.add_account(pdas.vault, vault_account(0, 1_000_000_000, 0));
     let decoy_vault = Pubkey::new_unique();
     pt.add_account(decoy_vault, vault_account(0, 1_000_000_000, 0));
     let decoy_registry = Pubkey::new_unique();
-    let with_decoy_registry = TestPdas { registry: decoy_registry, ..pdas };
-    let with_decoy_vault = TestPdas { vault: decoy_vault, ..pdas };
-    seed_governed_registry(&mut pt, &with_decoy_registry, &attacker.pubkey(), paused);
+    let with_decoy_registry = TestPdas {
+        registry: decoy_registry,
+        ..pdas
+    };
+    let with_decoy_vault = TestPdas {
+        vault: decoy_vault,
+        ..pdas
+    };
+    seed_governed_registry(&mut pt, &with_decoy_registry, &attacker.pubkey(), paused, 0);
     let mut ctx = pt.start_with_context().await;
     let payer = ctx.payer.pubkey();
     let gov = governance.pubkey();

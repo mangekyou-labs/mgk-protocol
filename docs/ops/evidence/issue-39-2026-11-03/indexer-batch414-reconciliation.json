@@ -1,0 +1,17 @@
+{
+  "status": "pass",
+  "scope": "Batch 414 API fill multiplicities equal the four spent on-chain result fills; this does not audit the whole database.",
+  "batchId": 414,
+  "slot": 518204880,
+  "rowCount": 4,
+  "makerOrderIds": [
+    "1773",
+    "1774",
+    "1775"
+  ],
+  "takerOrderIds": [
+    "1776"
+  ],
+  "makerQuantity": 300,
+  "takerQuantity": 300
+}

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+if (require.main === module) require('./market-context').assertLegacyCliManifest();
 const {decodeAccount,layouts} = require('../mgk-frontend/packages/layout/index.js');
 const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
 const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');

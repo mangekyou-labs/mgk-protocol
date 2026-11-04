@@ -51,6 +51,7 @@ pub(crate) fn compute_user_cap(free_collateral: i128, max_leverage: u16) -> u128
 /// Legacy commitment-based CLOB clear is retired for DFBA.
 #[allow(clippy::too_many_arguments)]
 pub fn process_clear_batch(
+    context: mgk_common::market::MarketContext,
     _program_id: &Pubkey,
     batch_account: &AccountInfo,
     book_account: &AccountInfo,
@@ -62,7 +63,7 @@ pub fn process_clear_batch(
     _portfolio_accounts: &[AccountInfo],
     creation_accounts: Option<(&AccountInfo, &AccountInfo)>,
 ) -> ProgramResult {
-    crate::matcher_cpi::validate_registry(registry_account)?;
+    crate::matcher_cpi::validate_registry(context, registry_account)?;
     let registry = unsafe { load_account::<Registry>(registry_account)? };
     // A trading pause blocks only new exposure; clearing has its own flag.
     if registry.is_clears_paused() {
@@ -75,13 +76,14 @@ pub fn process_clear_batch(
     }
     let batch = unsafe { load_account::<Batch>(batch_account)? };
 
-    crate::matcher_cpi::validate_batch(_program_id, batch_account, batch.batch_id)?;
-    crate::matcher_cpi::validate_book(matcher_program, book_account, None)?;
-    if results_account.key() != &mgk_common::matcher::results_pda(batch.batch_id).0 {
+    crate::matcher_cpi::validate_batch(context, _program_id, batch_account, batch.batch_id)?;
+    crate::pda::validate_current_batch(batch, registry)?;
+    crate::matcher_cpi::validate_book(context, matcher_program, book_account, None)?;
+    if results_account.key() != &mgk_common::matcher::results_pda_in(context, batch.batch_id).0 {
         return Err(ProgramError::InvalidSeeds);
     }
     if results_account.data_len() > 0 {
-        mgk_common::matcher::validate_results(results_account, batch.batch_id)?;
+        mgk_common::matcher::validate_results_in(context, results_account, batch.batch_id)?;
     }
     mgk_common::validate_writable(registry_account)?;
     // DFBA: close_collecting lands in Clearing; also accept legacy Revealing.
@@ -133,6 +135,7 @@ pub fn process_clear_batch(
             AccountMeta::readonly(system.key()),
         ];
         crate::matcher_cpi::signed(
+            context,
             registry_account,
             matcher_program,
             &metas,
@@ -147,6 +150,7 @@ pub fn process_clear_batch(
         )?;
     } else {
         crate::matcher_cpi::signed(
+            context,
             registry_account,
             matcher_program,
             cpi_instruction.accounts,

@@ -74,7 +74,7 @@ export const useBookStore = create<BookStore>((set, get) => ({
     try {
       const { connection, programId, instrumentId, bookAddress } = currentParams;
 
-      const bookPk = bookAddress ?? sdk.deriveBookPda(instrumentId, programId)[0];
+      const bookPk = bookAddress ?? sdk.deriveBookPda(instrumentId, programId, config.marketContext)[0];
       const accounts = await connection.getMultipleAccountsInfo([bookPk]);
       const acc = accounts[0] ?? null;
       if (!acc) {

@@ -12,7 +12,7 @@ use mgk_common::MgkError;
 pub fn process_init_portfolio(
     portfolio_account: &AccountInfo,
     user: &Pubkey,
-    _bump: u8,
+    bump: u8,
 ) -> ProgramResult {
     // Portfolio size follows the actual repr(C) layout.
     const PORTFOLIO_SIZE: usize = core::mem::size_of::<Portfolio>();
@@ -41,7 +41,7 @@ pub fn process_init_portfolio(
     }
 
     let portfolio_data = unsafe { init_account_mut::<Portfolio>(portfolio_account)? };
-    portfolio_data.initialize_in_place(*user, 0);
+    portfolio_data.initialize_in_place(*user, bump);
     msg!("Portfolio initialized");
     Ok(())
 }

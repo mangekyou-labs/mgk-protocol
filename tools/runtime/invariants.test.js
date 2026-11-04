@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { Keypair } = require('@solana/web3.js');
-const { InvariantChecker, audit, readOnly } = require('./invariants');
+const { InvariantChecker, audit, readOnly, pda, u64 } = require('./invariants');
 const { market, encodeAccount, CORE } = require('./invariant-fixtures');
 
 const tx = { label: 'fixture transaction', signature: 'FixtureSig111' };
@@ -12,6 +12,39 @@ const rejectsWith = (promise, invariant) => assert.rejects(promise, error => {
   assert.ok(error.violations.some(v => v.invariant === invariant), error.message);
   assert.match(error.message, new RegExp(`invariant "${invariant}" violated after transaction "fixture transaction" \\(FixtureSig111\\)`));
   return true;
+});
+
+test('audits isolate markets sharing programs, users and batch numbers', async () => {
+  const { PublicKey } = require('@solana/web3.js');
+  const { decodeAccount, decodeResults, layouts } = require('../../mgk-frontend/packages/layout');
+  const m = market();
+  const marketSeed = Keypair.generate().publicKey.toBase58();
+  const registry = pda([Buffer.from('registry'), new PublicKey(marketSeed).toBuffer()], CORE);
+  const child = (tag, suffix = [], owner = CORE) =>
+    pda([Buffer.from(tag), new PublicKey(registry).toBuffer(), ...suffix], owner);
+  // A second market has identical users/ids but independent balances. Leave
+  // the default market unhealthy to catch readers accidentally auditing it.
+  for (const [address, account] of [...m.chain.accounts]) {
+    let scoped;
+    if (address === m.addresses.registry) scoped = registry;
+    else if (address === m.addresses.vault) scoped = child('vault');
+    else if (account.data[0] === layouts.Portfolio.discriminator)
+      scoped = child('portfolio', [decodeAccount('Portfolio', account.data).user]);
+    else if (account.data[0] === layouts.Batch.discriminator)
+      scoped = child('batch', [u64(decodeAccount('Batch', account.data).batchId)]);
+    else scoped = child('results', [u64(decodeResults(account.data).batchId)], m.programs.matcher);
+    m.chain.set(scoped, { ...account, data: Buffer.from(account.data) });
+  }
+  m.chain.accounts.get(m.addresses.vault).lamports = 0;
+  const rpc = (method, params) => m.chain.rpc(method, params);
+  const scoped = await audit(rpc, { ...m.programs, marketSeed });
+  assert.equal(scoped.accounts.vault, child('vault'));
+  assert.equal(scoped.accounts.portfolios, 2);
+  assert.equal(scoped.accounts.batches, 3);
+  assert.equal(scoped.accounts.results, 2);
+  assert.deepEqual(scoped.violations, []);
+  const legacy = await audit(rpc, m.programs);
+  assert.ok(legacy.violations.some(v => v.invariant === 'vault balance'));
 });
 
 test('a consistent market passes every evaluable invariant in a read-only audit', async () => {

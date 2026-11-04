@@ -4,6 +4,7 @@ import type { Store } from './store.js';
 import { decodeBatchEvent } from './decoder.js';
 
 export interface SubscriberConfig {
+  marketSeed?:string|null;
   rpcUrl: string;
   coreProgramId: string;
   matcherProgramId: string;
@@ -46,7 +47,7 @@ export function createSubscriber(
     try {
       // Broadcast fills that arrived since last cycle (from backfill or previous polls)
       broadcastNewFills();
-      const [registryPda] = sdk.deriveRegistryPda(corePk);
+      const [registryPda] = sdk.deriveRegistryPda(corePk,{marketSeed:config.marketSeed});
       const accounts = await connection.getMultipleAccountsInfo([registryPda]);
       const regData = accounts[0];
       if (!regData) return;
@@ -56,7 +57,7 @@ export function createSubscriber(
 
       if (batchId === 0n) return;
 
-      const [batchPda] = sdk.deriveBatchPda(batchId, corePk);
+      const [batchPda] = sdk.deriveBatchPda(batchId, corePk,{marketSeed:config.marketSeed});
       const batchAccounts = await connection.getMultipleAccountsInfo([batchPda]);
       const batchData = batchAccounts[0];
       if (!batchData) return;

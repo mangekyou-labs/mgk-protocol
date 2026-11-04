@@ -27,37 +27,37 @@ export function useAccountActions() {
     if (kind !== 'init' && (amount <= 0n || amount > 18446744073709551615n)) throw new Error('Enter a positive SOL amount with at most 9 decimals, within the u64 lamport limit.');
     pendingAccountActions.add(walletKey);
     try {
-      const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId);
+      const [portfolioPda] = sdk.derivePortfolioPda(publicKey, config.coreProgramId, config.marketContext);
       const [account] = await connection.getMultipleAccountsInfo([portfolioPda], 'confirmed');
       if (account && !account.owner.equals(config.coreProgramId)) throw new Error('Portfolio does not match the deployment manifest.');
       const portfolio = account ? sdk.state.decodePortfolio(new Uint8Array(account.data)) : null;
       if (portfolio && !portfolio.user.equals(publicKey)) throw new Error('Portfolio does not match the connected wallet.');
       const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
       const key = (pubkey: PublicKey, writable = false, signer = false) => ({ pubkey, isSigner: signer, isWritable: writable });
-      const instruction = (keys: ReturnType<typeof key>[], data: Uint8Array) => new TransactionInstruction({ keys, programId: config.coreProgramId, data: Buffer.from(data) });
+      const instruction = (keys: ReturnType<typeof key>[], data: Uint8Array) => new TransactionInstruction({ keys, programId: config.coreProgramId, data: Buffer.from(config.marketSeed ? sdk.wrapInstruction('core',data,config.marketSeed) : data) });
       if (!portfolio) {
         if (kind === 'withdraw') throw new Error('No portfolio to withdraw from.');
         tx.add(instruction([key(publicKey, true, true), key(portfolioPda, true), key(SystemProgram.programId)], sdk.programs.encodeInitPortfolioForUser(publicKey.toBuffer())));
       } else if (kind === 'init') throw new Error('Portfolio already exists. Deposit SOL to add collateral.');
       if (kind === 'deposit') {
-        const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+        const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId, config.marketContext)[0];
         tx.add(instruction([key(portfolioPda, true), key(publicKey, true, true), key(SystemProgram.programId), key(vault, true)], sdk.programs.encodeDeposit(amount)));
       }
       if (kind === 'withdraw' && portfolio) {
-        const registryAddress = config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId)[0];
+        const registryAddress = config.registryAddress ?? sdk.deriveRegistryPda(config.coreProgramId, config.marketContext)[0];
         const registryAccount = await connection.getAccountInfo(registryAddress, 'confirmed');
         if (registryAccount && !registryAccount.owner.equals(config.coreProgramId)) throw new Error('Registry does not match the deployment manifest.');
         const registry = registryAccount ? sdk.state.decodeRegistry(new Uint8Array(registryAccount.data)) : null;
         let batch: sdk.state.BatchState | null = null;
         if (registry && registry.batchIdCounter > 0n) {
-          const batchAddress = sdk.deriveBatchPda(registry.batchIdCounter - 1n, config.coreProgramId)[0];
+          const batchAddress = sdk.deriveBatchPda(registry.batchIdCounter - 1n, config.coreProgramId, config.marketContext)[0];
           const batchAccount = await connection.getAccountInfo(batchAddress, 'confirmed');
           if (batchAccount && !batchAccount.owner.equals(config.coreProgramId)) throw new Error('Current batch does not match the deployment manifest.');
           batch = batchAccount ? sdk.state.decodeBatch(new Uint8Array(batchAccount.data)) : null;
         }
         const { reason } = withdrawalEligibility({ portfolio, registry, batch, amount });
         if (reason) throw new Error(reason);
-        const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+        const vault = config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId, config.marketContext)[0];
         const keys = [key(portfolioPda, true), key(publicKey, true, true), key(vault, true), key(registryAddress)];
         // Flat portfolios without reservations need no oracle, including during outages.
         if (portfolio.positions.length || portfolio.reservedCollateral > 0n) {

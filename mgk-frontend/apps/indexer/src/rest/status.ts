@@ -17,6 +17,9 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
   const {connection, store, manifest, monitoring} = cfg;
   const core = new PublicKey(manifest.programs.perps_core);
   const matcher = new PublicKey(manifest.programs.perps_matcher);
+  // A verified ClearBatch time is immutable for this batch address. Reuse only
+  // that historical fact; current phase and age are still read on every poll.
+  const clearTimes = new Map<string, Promise<number>>();
   async function account(name: 'Registry'|'Instrument'|'PriceOracle'|'Vault', address: string | null, owner: PublicKey) {
     if (!address) throw new Error('Manifest address pending');
     const info = await connection.getAccountInfo(new PublicKey(address), 'confirmed');
@@ -26,6 +29,19 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
   // Frozen Batch has no clear timestamp. Find the successful ClearBatch instruction
   // in confirmed chain history, including across signature-history pages.
   async function clearedAt(batch: PublicKey): Promise<number> {
+    const address = batch.toBase58();
+    const existing = clearTimes.get(address);
+    if (existing) return existing;
+    const pending = readClearedAt(batch);
+    clearTimes.set(address, pending);
+    if (clearTimes.size > 64) clearTimes.delete(clearTimes.keys().next().value!);
+    try { return await pending; }
+    catch (error) {
+      if (clearTimes.get(address) === pending) clearTimes.delete(address);
+      throw error;
+    }
+  }
+  async function readClearedAt(batch: PublicKey): Promise<number> {
     let before: string | undefined;
     while (true) {
       const page = await connection.getSignaturesForAddress(batch, {limit: 1000, before}, 'confirmed');
@@ -35,7 +51,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
           commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
         });
         if (!tx?.meta || tx.meta.err) throw new Error('Clear transaction history unavailable');
-        if (coreInvocations(tx.transaction.message, tx.meta, core).some(ix =>
+        if (coreInvocations(tx.transaction.message, tx.meta, core,manifest.marketSeed).some(ix =>
           ix.success && ix.data[0] === instructions.core.ClearBatch.disc &&
           ix.accountKeyIndexes.some(i => ix.keys.get(i)?.equals(batch)))) {
           const time = tx.blockTime ?? await connection.getBlockTime(entry.slot);
@@ -76,19 +92,19 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
         run('fees', async () => {
           const balances: Record<string, string> = {};
           let severity: Severity = 'ok';
-          for (const [role, address] of Object.entries(monitoring.feePayers)) {
+          await Promise.all(Object.entries(monitoring.feePayers).map(async ([role, address]) => {
             if (!address) throw new Error(`${role} fee payer not configured`);
             const balance = await connection.getBalance(new PublicKey(address), 'confirmed');
             if (!Number.isSafeInteger(balance)) throw new Error('Unsafe fee balance');
             balances[role] = String(balance);
             if (BigInt(balance) < BigInt(monitoring.feeFloorLamports)) severity = 'critical';
-          }
+          }));
           return {severity, balances, floorLamports: monitoring.feeFloorLamports};
         }),
         run('makerDepth', async () => {
           const instrument = decodeAccount('Instrument', (await account('Instrument', manifest.accounts.instrument, core)).data);
           if (new PublicKey(instrument.oracleAddr).toBase58() !== manifest.accounts.oracle) throw new Error('Instrument oracle mismatch');
-          const bookPk = sdk.deriveBookPda(instrument.instrumentId, matcher)[0];
+          const bookPk = sdk.deriveBookPda(instrument.instrumentId, matcher,{marketSeed:manifest.marketSeed,coreProgramId:core})[0];
           const info = await connection.getAccountInfo(bookPk, 'confirmed');
           if (!info || !info.owner.equals(matcher)) throw new Error('Book missing or wrong owner');
           decodeAccount('OrderBook', info.data);
@@ -103,7 +119,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
             await run('batch', async () => {
               if (!registry.batchIdCounter) throw new Error('No current batch');
               const batchId = registry.batchIdCounter - 1n;
-              const batchPk = sdk.deriveBatchPda(batchId, core)[0];
+              const batchPk = sdk.deriveBatchPda(batchId, core,{marketSeed:manifest.marketSeed})[0];
               const info = await connection.getAccountInfo(batchPk, 'confirmed');
               if (!info || !info.owner.equals(core)) throw new Error('Current batch missing or wrong owner');
               const batch = decodeAccount('Batch', info.data);

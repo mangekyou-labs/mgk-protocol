@@ -1,0 +1,99 @@
+{
+  "commit": "77764221ef097b8d15d2e375abeb544640359348",
+  "samples": [
+    {
+      "sample": 0,
+      "at": 1793709314427,
+      "cursor": 518148920,
+      "tip": 518217421,
+      "lag": 68501,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 1,
+      "at": 1793709330165,
+      "cursor": 518149432,
+      "tip": 518217487,
+      "lag": 68055,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 2,
+      "at": 1793709345930,
+      "cursor": 518149944,
+      "tip": 518217553,
+      "lag": 67609,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 3,
+      "at": 1793709361668,
+      "cursor": 518150200,
+      "tip": 518217619,
+      "lag": 67419,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 4,
+      "at": 1793709377404,
+      "cursor": 518150712,
+      "tip": 518217685,
+      "lag": 66973,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 5,
+      "at": 1793709393168,
+      "cursor": 518151224,
+      "tip": 518217753,
+      "lag": 66529,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 6,
+      "at": 1793709408898,
+      "cursor": 518151480,
+      "tip": 518217817,
+      "lag": 66337,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 7,
+      "at": 1793709424675,
+      "cursor": 518151992,
+      "tip": 518217884,
+      "lag": 65892,
+      "health": "degraded",
+      "indexerTip": 518216675
+    },
+    {
+      "sample": 8,
+      "at": 1793709440426,
+      "cursor": 518152248,
+      "tip": 518217949,
+      "lag": 65701,
+      "health": "degraded",
+      "indexerTip": 518216675
+    }
+  ],
+  "measurement": {
+    "seconds": 125.999,
+    "replaySlotsPerSec": 26.41290803895269,
+    "chainSlotsPerSec": 4.190509448487687,
+    "netCatchupSlotsPerSec": 22.222398590465005,
+    "estimatedCatchupMinutes": 49.27535892261904,
+    "verdict": "CATCHING_UP"
+  },
+  "limits": [
+    "125.999-second window; rates and projected catch-up time can change.",
+    "Atomic 256-slot commits; instant cursor lag alone is not replay speed.",
+    "Backfill has not completed."
+  ]
+}

@@ -1,4 +1,5 @@
 "use strict";
+const {marketSeedBytes}=require("./market");
 function exact(value, keys) {
   if (
     !value ||
@@ -16,14 +17,18 @@ function loadManifest(raw) {
     "programs",
     "accounts",
     "start_slot",
+    ...(raw?.schema_version===2 ? ["market_seed"] : []),
   ]);
   if (
-    raw.schema_version !== 1 ||
+    ![1,2].includes(raw.schema_version) ||
     typeof raw.name !== "string" ||
     !raw.name.trim() ||
     !["localnet", "devnet", "testnet", "mainnet-beta"].includes(raw.cluster)
   )
     throw new Error("Manifest: invalid version, name or cluster");
+  const marketSeed=raw.schema_version===2 ? raw.market_seed : null;
+  if(raw.schema_version===2 && typeof marketSeed!=="string") throw Error("Manifest: market_seed must be a public key");
+  marketSeedBytes(marketSeed);
   const seen = new Set();
   const address = (value) => {
     if (
@@ -79,6 +84,7 @@ function loadManifest(raw) {
     startSlot = raw.start_slot.slot;
   }
   return {
+    marketSeed,
     name: raw.name,
     cluster: raw.cluster,
     programs,

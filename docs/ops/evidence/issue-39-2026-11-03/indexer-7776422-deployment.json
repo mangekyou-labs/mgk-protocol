@@ -1,0 +1,20 @@
+{
+  "observedAt": "2026-11-03T12:34:38.137925+00:00",
+  "serviceId": "srv-d9a9gu6cjfls739fl4e0",
+  "deployId": "dep-dbkt80h5efls73fjvddg",
+  "status": "live",
+  "commit": "77764221ef097b8d15d2e375abeb544640359348",
+  "finishedAt": "2026-11-03T12:32:19.594142Z",
+  "statusLatencyMilliseconds": [
+    1456,
+    797,
+    1400
+  ],
+  "statusSamples": 3,
+  "preview": "https://mgk-frontend-lp15mqic5-gadillacers-projects.vercel.app/trade",
+  "limits": [
+    "Keeper still below fee floor; batch 534 Cleared.",
+    "History replay incomplete.",
+    "External alert delivery unverified."
+  ]
+}

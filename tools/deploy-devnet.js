@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+if (require.main === module) require('./market-context').assertLegacyCliManifest();
 'use strict';
 /**
  * One-shot deploy + protocol init for the SOL devnet demo market (issue #38).

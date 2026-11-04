@@ -1,0 +1,419 @@
+# Issue #39 rollout readiness — 2026-11-03
+
+All required D′ drill rows now pass for the recorded deployment and preview:
+P0-31 outage status/UI, recovery and delivered external alert; P0-32 recovery
+and the paired one-lot reduce-only close; P1-4 pause UI. The operator confirmed
+receipt of the real outage email after UptimeRobot sent it at 01:09:19 UTC on
+November 4. PR #72 can leave draft after the final evidence commit passes CI;
+#39 stays open until merge. This is not a production sign-off. Keeper remains
+suspended below its fee floor, and a free-instance restart reset indexer replay
+following the November 3 catch-up; these current operating limits remain visible.
+
+## Dated correction — public rollout and rehearsal evidence
+
+This update supersedes the earlier local-only observations retained below.
+The operator signed public devnet transactions; the agent used read-only chain
+probes and the authorized Render suspend/resume actions. The agent did not read
+keypair files or sign/send transactions. Production frontend settings were not
+changed; the restored trade UI was deployed as a D′ preview.
+
+The shared manifest is [devnet-dprime.json](../../deployments/devnet-dprime.json),
+with market seed `GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4`, registry
+`CbwTpmDgb6KKfBpv156754dXBpCoKPyjGt1kmJAb8mtR`, and start slot `518144057`.
+D′ uses the same program IDs as the default market, with separate registry,
+vault, portfolios, book and batches. Its initial insurance and maker collateral
+were 3 SOL each. The [deployment record](../ai/deployment/2026-11-03-issue-39-dprime.md)
+records executable hashes, service pins and the preview.
+
+### Current D′ gate assessment
+
+| Required row | Assessment | Evidence and remaining limits |
+| --- | --- | --- |
+| P0-31 | **pass for recorded deployment** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker alone left resting GTC depth `ok`; the [November 4 cancellation drill](#maker-depth-outage-and-recovery--november-4-0058-utc) proves missing-depth critical status, browser warning and restored quotes. [Real incident and email delivery](#external-monitor-and-delivered-alert--november-4-0109-utc) are now verified, including operator-confirmed receipt. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
+| P0-32 | **pass for recorded deployment** | Post-upgrade batch 201 stalled Cleared >120 s and recovered. Genuine exhaustion produced debt and auto-pause, followed by repayment, withdrawals-before-trading unpause and successful flat withdrawal. The [November 4 follow-up](#post-recovery-reduce-only-close--november-4-0030-utc) adds a confirmed one-lot reduce-only close and paired state/settlement audit, +1 → 0, zero violations. |
+| P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
+
+An earlier batch-92 Cleared rehearsal preceded the matcher upgrade at slot
+518171780, so it does not qualify the current executable. Batch 201's 178 s
+stall and subsequent recovery occurred after that upgrade and are the current
+Cleared-runbook evidence. Do not present the old batch-92 capture as a new pass.
+
+### Insurance exhaustion and recovery
+
+At 11:47:17 UTC, the [pre-crash account snapshot](evidence/issue-39-2026-11-03/p032-precrash.json)
+showed taker +300 lots, maker −300, fund 80,150,434 lamports and zero debt.
+Taker equity was 799,849,566 lamports, exceeding the original 0.4 SOL estimate:
+[transaction history](evidence/issue-39-2026-11-03/p032-taker-transactions.json)
+confirms two separate 0.4 SOL deposits before the buy. This explains the smaller
+actual shortfall. The oracle service was suspended at 11:47:35 UTC; the operator
+then posted the $20 crash price.
+
+The maker's `LiquidateUser` succeeded at slot **518205530**, signature
+`2jKZ9AXRCSz8mg9G6JfSuFax3P7vi4J1qxeUeVkxNzhkTiVWEf9eBUcHTKe2jA6S7WY7FBfN6CDhNWQfYtW7cbEL`.
+Both positions became flat, fund reached zero, debt became **212,857,100
+lamports**, and pause flags became **3**. The [account observation summary](evidence/issue-39-2026-11-03/p032-exhaustion-observation.json)
+explains its provenance; the [status response](evidence/issue-39-2026-11-03/p032-exhausted-status.json)
+independently records zero insurance and flags 3. The taker's attempted
+reduce-only close failed simulation with custom 606 because no position remained;
+that attempt did not send a close transaction.
+
+The operator's confirmed recovery transactions are recorded with logs, fees,
+slots and lamport deltas in the history linked above and in the
+[signature list](evidence/issue-39-2026-11-03/p032-operator-recovery-signatures.json):
+
+| Operation | Slot | Result |
+| --- | --- | --- |
+| TopUp 1.7 SOL | 518206463 | Debt repaid first; fund 1,487,142,900 lamports |
+| Unpause withdrawals | 518206499 | Flags 3 → 1 |
+| Unpause trading | 518206526 | Flags 1 → 0 |
+| Flat deposit 0.05 SOL | 518206563 | Vault +50,000,000 lamports |
+| Flat withdraw 0.05 SOL | 518207459 | Vault −50,000,000; wallet +49,995,000 after 5,000 lamport fee |
+
+The first withdrawal simulations returned custom 602 despite flags 0 because
+batch 432 was Cleared with the global settlement lock set. `Withdraw` uses the
+same message for the governance pause and the settlement lock. Resuming the
+oracle at 11:52:53 UTC allowed the keeper to settle it. The operator's temporary
+withdrawal helper then waited for a clear lock and retried only rejected
+simulations; it never retries a sent transaction or uncertain confirmation.
+Its five safety tests passed before operator use.
+
+The [recovery status](evidence/issue-39-2026-11-03/p032-recovery-status.json)
+shows oracle, batch, maker depth, fees, insurance, pause and RPC all `ok`, with
+only indexer `warn` (58,079 slots behind). The
+[recovery accounts](evidence/issue-39-2026-11-03/p032-recovery-live.json) show
+zero taker equity and no position after withdrawal. A later Cleared phase in
+that snapshot is a normal new batch, not evidence of another governance pause.
+
+The [read-only recovery audit](evidence/issue-39-2026-11-03/p032-recovery-audit.json)
+at slot 518207977 reports **zero violations**: vault identity, signed auction
+quantity, receipt application, nonnegative withdrawable balance, collateral
+and open-interest consistency pass where evaluable. Eligible fill size cannot
+be evaluated with no cleared batch awaiting settlement; the reduce invariant
+needs paired snapshots around a settling transaction. These are **not evaluated**,
+not passes. No open positions remain for the net-position consistency check.
+
+### Remaining work
+
+All three required D′ rows have recorded evidence. Finish the evidence commit
+and hosted checks, then mark PR #72 ready for review; keep #39 open until merge.
+No repeat exhaustion, keeper funding or trade is needed to complete these drills.
+The genuine liquidation proves exhaustion, and the small close supplies the
+paired reduce invariant. Current keeper suspension and below-floor fee balance
+are disclosed operating limits. Backfill caught up and batch-414 fills reconciled
+on November 3; a later free-instance restart reset replay, which continues under
+a read-only watcher. Free Render instances have ephemeral storage and can sleep:
+keep `/healthz` warm during drills and do not reset replay for documentation updates.
+Record actual service/source pins and rerun affected evidence after behavior
+changes; identical SHAs across services are not a requirement.
+
+### CI verification — 12:22 UTC
+
+Fresh `gh pr checks 72` reports all checks passed for `41df659`: candidate SBF
+runtime smoke and Rust tests/lint in [Verify](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790023),
+frontend tests and layout fixtures in [Frontend](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790027),
+and [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41632790115).
+Both Vercel previews also passed. This resolves the prior CI blocker; it does not
+replace live D′ evidence. The local rustc-1.79 layout-build limitation is separate
+from these successful hosted checks.
+
+### Follow-up investigation — 12:24–12:30 UTC
+
+The keeper fee check is critical again: its balance was 9,233,120 lamports,
+below the 10M floor, and batch 534 remained Cleared with settlement lock 1.
+The [rent audit](evidence/issue-39-2026-11-03/keeper-rent-audit.json) shows the
+latest 30 transactions all succeeded. They debited 60,043,200 lamports: 150,000
+in fees and 59,893,200 retained as account rent. An ordinary full batch creates
+4,445,000 lamports of results rent and 1,544,320 of next-batch rent, plus 15,000
+network fees: **0.00600432 SOL per batch**. Earlier green health is historical,
+not the current keeper state. A bounded operator top-up can resume the existing
+batch without restarting the keeper; it must include this account-rent budget.
+
+The [replay measurement](evidence/issue-39-2026-11-03/indexer-throughput.json)
+compares the indexer cursor against a fresh confirmed chain tip. Its old hosted
+rate of 5.34 slots/s versus 4.22 chain slots/s implies roughly 14 hours to close
+the observed 57,483-slot gap. Short windows can show no cursor movement because
+256 slots commit atomically; that alone does not prove a stuck replay.
+Moving core-program filtering before SDK block deserialization reduced local
+CPU from 4.02 s to 1.32 s on the same 256 slots; wall time fell from 14.65 s to
+12.06 s. This is local measurement, not proof of hosted catch-up. Network request
+count and bytes are unchanged; deployment and fresh hosted measurement remain
+necessary.
+
+Live browser polling also exposed status requests exceeding its four-second
+deadline. The follow-up status change caches only verified, immutable
+ClearBatch timestamps and reads fee balances concurrently; phase, balances and
+age remain live. Failed history reads are retried on later polls. The regression
+test fails before timestamp reuse and passes after it. Browser outage evidence
+must still be collected against the deployed service.
+
+### Deployed follow-up — 12:32 UTC
+
+Indexer commit `7776422` is [live](evidence/issue-39-2026-11-03/indexer-7776422-deployment.json), deploy `dep-dbkt80h5efls73fjvddg`, without a worker/program upgrade. Three status requests completed in 797–1,456 ms. The preview now shows the actual [fee/batch warning](evidence/issue-39-2026-11-03/p031-fees-batch-banner.png) against [critical live status](evidence/issue-39-2026-11-03/p031-followup-fees-status.json), rather than timing out and hiding those warnings.
+
+The [126-second hosted measurement](evidence/issue-39-2026-11-03/indexer-hosted-7776422.json) records replay at **26.41 slots/s** against chain growth of **4.19 slots/s**. Lag decreased from 68,501 to 65,701 slots; the measured net rate projects roughly 49 minutes of awake time to catch up. This is a projection, not completed backfill. The justified performance deploy reset ephemeral replay to the manifest start slot. No further redeploy is needed for these documentation updates.
+
+The oracle was [suspended](evidence/issue-39-2026-11-03/p031-followup-oracle-suspended.json) at 12:35:40 UTC. At 12:36:43 UTC its age was 63 s and [status was critical](evidence/issue-39-2026-11-03/p031-followup-oracle-critical.json); the deployed preview displayed the [stale-oracle banner](evidence/issue-39-2026-11-03/p031-oracle-banner.png). Render accepted [resume](evidence/issue-39-2026-11-03/p031-followup-oracle-resumed.json) at 12:36:49 UTC; [fresh publication recovered](evidence/issue-39-2026-11-03/p031-followup-oracle-recovered.json) at 12:37:50 UTC, age 1 s; the [recovered preview](evidence/issue-39-2026-11-03/p031-oracle-recovered-banner.png) cleared its stale-oracle warning. This adds the missing oracle/fee outage UI evidence. It does not prove delivery to email/Slack, missing maker-depth behavior, or keeper recovery: batch 534 still requires the operator's fee top-up.
+
+### Follow-up CI verification — 12:39 UTC
+
+Fresh `gh pr checks 72` passes all checks for `7776422`: [SBF runtime smoke and Rust tests/lint](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351383), [browser smoke](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351459), [frontend tests and layout fixtures](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351564), plus both Vercel previews. The operator helper's nine non-signing safety tests also passed again. No live close or delivered alert is inferred from CI.
+
+### Keeper recovery and completed backfill — 14:05 UTC
+
+The operator’s [confirmed 0.2 SOL top-up](evidence/issue-39-2026-11-03/p032-keeper-topup-confirmed.json), signature `HAwbeFew7YC5yB4P2X32N27JFPnH6MSz5KbvaWGKspkWpEY8vr5cxyjh482UtzJh8c4BYQjAa7Tj5BRe5n4fC8e`, landed at slot 518239892. Recipient delta was +200,000,000 lamports; payer delta −200,005,000, including 5,000 network fee. The keeper resumed without restart: batch 537 was Collecting and settlement lock 0.
+
+At 14:05:25 UTC, [all aggregate checks were green](evidence/issue-39-2026-11-03/indexer-caught-up-status.json). Cursor 518240027 was six slots behind fresh confirmed tip 518240033. Keeper balance was 195,675,160 lamports. This completes the previously outstanding catch-up observation; balances and health remain timestamped, not permanent guarantees.
+
+The [historical taker fill](evidence/issue-39-2026-11-03/indexer-caught-up-taker-fills.json) shows 300 lots in batch 414 at slot 518204880. [API trades](evidence/issue-39-2026-11-03/indexer-caught-up-trades.json) contain three maker rows of 100 lots plus one taker row of 300. [Spent on-chain results](evidence/issue-39-2026-11-03/indexer-batch414-results.json) identify three distinct maker orders 1773–1775 and taker order 1776. [Reconciliation](evidence/issue-39-2026-11-03/indexer-batch414-reconciliation.json) confirms matching price/quantity/role multiplicities: the three similar maker rows are real separate fills, not replay duplication. This reconciles the observed batch, not every stored database row. The [book](evidence/issue-39-2026-11-03/indexer-caught-up-book.json) remains two-sided.
+
+The one-lot post-recovery open/reduce-only close and maker-depth/externally delivered alert evidence remain outstanding. The agent’s read-only paired-state observer is prepared; the operator signs each transaction locally after simulation.
+
+### Post-recovery reduce-only close — November 4, 00:30 UTC
+
+The operator's second bounded 0.2 SOL keeper top-up landed at slot 518395246;
+0.05 SOL collateral deposit at 518395329. A one-lot buy was confirmed at slot
+518396316 and settled in batch 589. The reduce-only sell was confirmed at slot
+**518396411**, signature
+`5Vu7JQKpHH8tXn65aEBAiZbQGNQGpNrV69YtuJjhi4v2W7qxjatw76ECKtx8GTCzsmvybniNAWJroeptcxRBj2VT`.
+Its approved limit was $91.87803, unchanged when binding the transaction to fresh
+batch 591. [Independent confirmed RPC verification](evidence/issue-39-2026-11-04/p032-small-close-confirmed.json)
+retains all four transactions and their successful metadata. Earlier rejected
+open preparations did not sign or send. Batch rollover after operator approval
+now rebinds only the batch account, preserves approved economics, and repeats
+unsigned simulation before a single send. An incorrect temporary account-count
+check was corrected before any open submission.
+
+The read-only observer captured [before](evidence/issue-39-2026-11-04/p032-reduce-before.json)
+at slot 518396445, [settlement](evidence/issue-39-2026-11-04/p032-reduce-settlement.json)
+`2fwzhB6povLpAi4ozXfpg8Vz6xNtVhdr4woKEdernATgLxGEzWbyQuSq2WAiYZL7h4nNLWr8Cg2LzdVBdC68WM7B`
+at slot **518396452**, and [after](evidence/issue-39-2026-11-04/p032-reduce-after.json)
+at slot 518396456. The [paired audit](evidence/issue-39-2026-11-04/p032-reduce-paired-audit.json)
+evaluates one reduce-only fill, order 5384, quantity 1: exposure **+1 → 0**.
+It reports zero snapshot/transition violations over the atomic vault, registry,
+all discovered canonical market portfolios, target batch and receipt. Successful
+SettleBatch metadata and independent owner-checked raw portfolio decoding agree.
+
+The separate [end-of-run snapshot audit](evidence/issue-39-2026-11-04/p032-small-close-snapshot-audit.json)
+at slot 518397103 reports zero violations across two portfolios and 602 receipts.
+Its single-snapshot reduce check remains not evaluable; the paired audit above
+provides that evidence. Checks without eligible state remain not evaluable.
+Both portfolios are flat; taker equity is 49,998,032 lamports, insurance
+1,487,143,902, debt 0, pause flags 0. The deposit remains as collateral.
+[Deployment verification](evidence/issue-39-2026-11-04/deployment-verification.json)
+confirms unchanged executable hashes and actual source pins.
+
+[Status at 00:31 UTC](evidence/issue-39-2026-11-04/p032-small-close-status.json)
+shows oracle, batch, depth, fees, insurance, pause and RPC green. Indexer lag is
+237,723 slots after a free-instance restart; November 3's caught-up observation
+is historical. A read-only catch-up watcher is running again. The keeper was
+suspended at 00:32:11 UTC to conserve rent after the flat close, but its in-flight
+ClearBatch completed first: [later state](evidence/issue-39-2026-11-04/p032-post-close-keeper-stopped.json)
+has batch 601 Cleared and settlement lock 1. Its balance subsequently fell below
+the 10M floor. This does not invalidate the recorded close; the market must be
+unlocked before maker quote cancellation. No further trading or repeat
+insurance-exhaustion drill is needed. UptimeRobot opens at its login page;
+external alert configuration and actual delivery remain unverified.
+
+### Maker-depth outage and recovery — November 4, 00:58 UTC
+
+The operator's one-shot empty SettleBatch confirmed at slot **518403506**,
+releasing the settlement lock and creating batch 602 Collecting. After maker
+suspension, CancelAllRestingOrders confirmed at **518403603**. Both successful
+transactions, each with a 5,000-lamport fee, were independently fetched from RPC
+in [confirmed evidence](evidence/issue-39-2026-11-04/p031-maker-drill-confirmed.json).
+No keeper top-up, new trade or repeat insurance exhaustion occurred.
+
+At 00:58:44 UTC the [live depth check](evidence/issue-39-2026-11-04/p031-maker-depth-critical.json)
+reported critical, bid false, ask false. The first browser command failed because
+Playwright CLI requires a function argument. The wizard's exit handler resumed
+maker; while live depth was still critical, the agent corrected the command and
+captured the actual [missing-depth warning](evidence/issue-39-2026-11-04/p031-maker-depth-banner.png).
+No status interception or mocked responses were used. Historical book rows
+remain visible because indexer replay is behind; they are not live depth evidence.
+
+Maker [resumption](evidence/issue-39-2026-11-04/p031-maker-resume.json) restored
+quotes. At 00:59:42 UTC the [live check](evidence/issue-39-2026-11-04/p031-maker-depth-ok.json)
+reported ok with both sides present. The [recovery screenshot](evidence/issue-39-2026-11-04/p031-maker-depth-recovered.png)
+shows the depth warning removed and maker quotes displayed. No signed transaction
+was repeated. Keeper remains suspended; low-fee and delayed-batch warnings remain
+expected, and replay is still catching up. P0-31's missing-depth/UI evidence is
+complete for this recorded preview; external alert delivery remains unverified.
+The monitoring browser still opens at UptimeRobot login, requiring operator
+account authentication before monitor configuration or delivery can be checked.
+
+## Historical investigation — retained as observed
+
+The following sections describe the earlier 02:03 UTC investigation and local
+candidate verification. Statements such as “not deployed” or “not run” below are
+historical and superseded by the dated correction above; they are retained to
+preserve the evidence boundary.
+
+## Source and evidence boundary
+
+The readiness branch started from integration commit
+`52a7bdba0606700fe94be3fcc2714c3cb16e0da9` (master's merge of #38).
+The deployed manifest is [deployments/devnet.json](../../deployments/devnet.json),
+with start slot `517959329`. The earlier provisioning branch
+`feature-issue-17-provisioning` at `727221f` predates that merge; its worker and
+service behavior must not be treated as evidence that current master is deployed.
+The manifest pins addresses, not the currently running hosted service commit.
+
+The read-only investigation captured confirmed devnet `getMultipleAccounts`
+at **2026-11-03 02:03:20 UTC**, context slot **518059091**, from
+`https://api.devnet.solana.com`. Its raw response was retained locally in
+`/tmp/mgk-issue-39-chain.json` during the investigation; that temporary file is not
+a durable repository artifact. Values below are a timestamped observation, not a
+continuing health guarantee. A subsequent readiness-worktree refresh encountered
+sandbox DNS failure and did not replace this observation.
+
+Before decoding, the readiness check verified non-executable accounts, their
+owners, RPC space against decoded byte length, and sufficient layout size.
+`decodeAccount` from the shared layout package then validated discriminator and
+layout version. All four observed lengths exactly matched the checked-in layouts:
+
+| Manifest account | Expected / observed owner | Bytes | Header discriminator / version | Observed state |
+| --- | --- | --- | --- | --- |
+| Registry | core `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` | 94 | 1 / 1 | batch counter 1; pause flags 0; one instrument |
+| Instrument | core `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` | 352 | 6 / 1 | instrument 0 active; mark price 0 |
+| PriceOracle | oracle `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm` | 128 | 9 / 1 | active; price 0; timestamp 0; no valid fresh price |
+| Vault / insurance | core `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` | 80 | 5 / 2 | insurance 20,000,000,000 lamports; uncovered debt 0; long/short OI 0 |
+
+Vault v2 is intentional: do not assume all accounts use version 1. The insurance
+figure is the decoded `insuranceFund`, not the account's rent-inclusive balance.
+These observations do not establish that a current batch has progressed or that
+quotes, settlement, or any worker are live.
+
+## Public fee payer configuration
+
+[deployments/monitoring.json](../../deployments/monitoring.json) now names the
+known provisioned public accounts. In the same confirmed snapshot, all three
+were non-executable system-owned accounts with empty data:
+
+| Role | Public address | Observed lamports |
+| --- | --- | --- |
+| Keeper | `FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2` | 500,000,000 |
+| Oracle | `72dFyhGoA5uNep2XFTv4saMJVPecSNcthXZkaquUXHue` | 500,000,000 |
+| Maker | `DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o` | 1,000,000,000 |
+
+Each exceeded the configured fee floor of 10,000,000 lamports at observation.
+This removes the missing-address configuration blocker in `/api/status`; it does
+not establish a green aggregate status or that hosted workers use these signers.
+The rollout budget's keeper/oracle 2 SOL each and demo maker 10 SOL remain funding
+targets, distinct from the minimum fee health floor. Funded maker public address
+does not prove a deposited and funded maker portfolio.
+
+## Candidate hosted endpoints
+
+Hostnames below were inferred from service names, not verified through an
+operator-owned deployment record. The follow-up capture began at
+**2026-11-03 02:04:09 UTC** (local raw evidence:
+`/tmp/mgk-issue-39-endpoints-retry.json`).
+
+| Candidate endpoint | Observed result | Interpretation limit |
+| --- | --- | --- |
+| `https://mgk-indexer.onrender.com/api/healthz` | HTTP 200; `status: healthy`, RPC reachable; processed/indexed slot and last successful sync null | HTTP/RPC liveness does not prove backfill, current manifest, or rollout readiness |
+| `https://mgk-indexer.onrender.com/api/status` | HTTP 404 | Required aggregate status was unavailable at this candidate URL; the response alone does not identify the deployed commit |
+| `https://mgk-oracle.onrender.com/healthz` | HTTP 200; `lastError: waiting for PRICE_ORACLE_ADDRESS/INSTRUMENT_ADDRESS (set at #38 deploy)` | Matches the old provisioning contract; not fresh oracle publication or evidence current master is deployed |
+| `https://mgk-keeper.onrender.com/healthz` | HTTP 503 | Candidate request failed; does not establish the state of the intended worker deployment |
+
+Earlier requests timed out for the indexer/oracle/keeper, and the candidate maker
+`https://mgk-maker.onrender.com/healthz` returned 404. Current `render.yaml`
+defines oracle, keeper, and maker as background workers without HTTP servers;
+worker HTTP routes are not their readiness contract. Confirm actual service IDs,
+pinned commits, public URLs, configured manifest and monitoring paths, and
+sanitized logs before drawing deployment conclusions. External uptime monitor
+provisioning and actual email/Slack alert delivery remain unverified.
+
+## D′ isolation blocker and selected direction
+
+R3 in [the rollout plan](../plans/sol-devnet-demo-rollout.md) requires an isolated
+D′ under the **same program IDs**. The deployed candidate observed above has a
+singleton registry and vault: its batch counter, insurance fund, debt, and pause
+flags cannot isolate D′ from the demo. Adding another instrument is insufficient.
+The legacy `tools/init-protocol.js` is not an isolated D′ provisioner.
+
+The user selected **market isolation under the same program IDs**, accepting a
+program upgrade and rerunning all gate evidence. The local implementation follows
+[ADR 0005](../adr/0005-isolate-markets-under-shared-program-ids.md): an explicit
+market identity scopes registry, child accounts, instructions, workers, and
+indexer storage while preserving legacy addresses and layouts. Real local SBF
+tests exercise isolated settlement, insurance exhaustion, and pause recovery.
+
+This candidate is **not deployed**. Upgrading changes the frozen executable bytes
+and invalidates every prior gate result. Rerun all gate evidence against the
+upgraded candidate, including default-market compatibility and every D′ row.
+
+## Remaining rollout work and evidence
+
+Start current pinned services in the required order: oracle, validate a fresh
+nonzero quorum-backed publication, then keeper, maker, and indexer. Verify maker
+portfolio funding, batch progress, two-sided quotes, indexer backfill, aggregate
+status, and delivered alerts. Operator provisioning must keep RPC credentials
+and signer material outside the repository. Admin funding and pause/unpause
+operations require the authorized signature flow after the isolation implementation
+is available for deployment and rehearsal.
+
+| Required D′ row | Status | Evidence still required |
+| --- | --- | --- |
+| P0-31 | **not run** | Stop oracle and maker, lower fee SOL below floor, capture fail-closed behavior after 60 s and fired status/UI checks, then restore |
+| P0-32 | **not run** | Rehearse both runbooks with genuine Cleared >120 s and genuine uncovered debt; prove recovery, withdrawals unpaused before trading |
+| P1-4 | **not run** | Browser evidence of the pause banner and paused-state UI |
+
+Stopping the maker leaves GTC orders on chain; existing `makerDepth` tests resting
+bid/ask presence, not process liveness or quote age. Agree the fault scenario
+that removes/depletes quotes or change that contract before claiming its check
+fired. Stopping oracle alone may allow a 2 s keeper to settle before staleness;
+coordinate a real batch remaining Cleared before stale settlement attempts.
+Pause-only simulation does not prove insurance exhaustion.
+
+Follow [Cleared >2 min](../runbooks/cleared-unsettled.md) and
+[insurance exhaustion](../runbooks/insurance-exhausted.md). For each D′ row retain
+timestamps, deployment and service commits, batch IDs, confirmed signatures,
+status JSON, delivered alerts, before/after snapshots, and browser artifacts
+where applicable. Run `tools/runtime/audit.js` after recovery; settlement
+invariant 5 also needs paired pre/post snapshots. Gate reporting must keep D′
+rows unrun until that evidence exists; local test tier L cannot replace D′.
+
+## Local validation of the isolation candidate
+
+Fresh integrated verification passed:
+
+- Rust clippy with all targets/features and warnings denied, followed by all-feature
+  tests: 524 passed, six existing tests ignored. Candidate SBF artifacts built.
+- Two real-SBF market-isolation scenarios: default plus two scoped markets,
+  cross-market substitution and replay rejection, real insurance exhaustion,
+  debt repayment, and withdrawals-before-trading recovery.
+- Real keeper and maker CLI scenarios in both default and scoped contexts:
+  four passed. Default lifecycle smoke, book growth, and indexer startup passed.
+- Harness/audit/context tests: 47 passed; worker/layout tests: 54 passed.
+- Indexer: 115 tests passed and TypeScript build passed. Web: 488 tests passed
+  and typecheck passed. SDK build and 156 tests passed.
+- Both standards and spec reviews completed; all three findings were fixed and
+  rechecked, including regression coverage for cross-market storage/configuration
+  and failed malformed CPI handling.
+
+The web production build could not fetch Google Fonts in this environment.
+These local checks do not qualify any public rollout or D′ gate row.
+
+### External monitor and delivered alert — November 4, 01:09 UTC
+
+The operator created UptimeRobot keyword monitor `804540855` for the public
+`/api/status` endpoint. It alerts when `"severity":"critical"` exists, using the
+free plan's five-minute polling interval and the operator's account email contact.
+Slack is not configured. Warning severity remains visible in status; this monitor
+does not implement warning escalation. The monitoring manifest now describes the
+actual configuration. The parent spec requires external polling and an alert
+channel chosen during implementation; the 60-second oracle fail-closed criterion
+is separate from the external monitor interval.
+
+[Incident/delivery evidence](evidence/issue-39-2026-11-04/p031-external-alert-delivery.json)
+records real incident `376176044692358857`: critical keyword first detected at
+01:08:31 UTC, incident opened 01:09:18 UTC, and provider activity log reported
+email SUCCESS at **01:09:19 UTC / 08:09:19 GMT+7**. The operator explicitly
+confirmed receipt of the outage email. Exact inbox arrival time was not supplied
+and is not inferred from send time. No test notification was used. The provider's
+response preview showed keeper 6,943,680 lamports below the 10M floor, with fresh
+oracle and both maker depth sides present. Allowlisted preview fields are retained;
+the full-response download returned HTTP 403 and is not claimed as an artifact.
+This completes the missing P0-31 delivery evidence; earlier dated pending
+assessments above are superseded. No program or service was redeployed to collect it.

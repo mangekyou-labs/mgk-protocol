@@ -1,0 +1,65 @@
+{
+  "observedAt": "2026-11-03T11:57:35.634Z",
+  "slot": 518207977,
+  "accounts": {
+    "vault": "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+    "portfolios": 2,
+    "batches": 452,
+    "results": 451
+  },
+  "invariants": [
+    {
+      "name": "vault balance",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "per-auction signed base quantity sums to 0",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "fills never exceed eligible submitted size",
+      "status": "not evaluable",
+      "reason": "no cleared batch awaits settlement"
+    },
+    {
+      "name": "each receipt applied exactly once",
+      "status": "pass",
+      "evaluated": 451
+    },
+    {
+      "name": "a valid reduce never increases exposure",
+      "status": "not evaluable",
+      "reason": "needs the state before and after the settling transaction"
+    },
+    {
+      "name": "no withdrawable balance is negative",
+      "status": "pass",
+      "evaluated": 1
+    }
+  ],
+  "checks": [
+    {
+      "name": "portfolio equity is never negative",
+      "status": "pass",
+      "evaluated": 2
+    },
+    {
+      "name": "vault collateral equals total portfolio equity",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "open interest equals settled positions",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "settled positions net to zero per instrument",
+      "status": "not evaluable",
+      "reason": "no open positions"
+    }
+  ],
+  "violations": []
+}

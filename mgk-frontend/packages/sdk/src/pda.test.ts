@@ -140,3 +140,14 @@ describe('deriveBookPda', () => {
     expect(bookOnMatcher.toBase58()).not.toBe(bookOnCore.toBase58());
   });
 });
+
+describe('same program IDs with independent market contexts',()=>{
+ it('separates all address roles for A, B, and legacy with the same user and counters',()=>{
+  const contexts=[undefined,{marketSeed:new Uint8Array(32).fill(7),coreProgramId:CORE},{marketSeed:new Uint8Array(32).fill(8),coreProgramId:CORE}];
+  const roles=contexts.map(context=>[
+   deriveRegistryPda(CORE,context),deriveVaultPda(CORE,context),deriveInstrumentPda(INSTR,CORE,context),derivePortfolioPda(USER,CORE,context),deriveBatchPda(BATCH,CORE,context),deriveCommitmentPda(BATCH,USER,SALT,CORE,context),deriveBookPda(INSTR,MATCHER,context),
+  ].map(([key])=>key.toBase58()));
+  for(let role=0;role<roles[0]!.length;role++)expect(new Set(roles.map(row=>row[role])).size).toBe(3);
+  expect(()=>deriveBookPda(INSTR,MATCHER,{marketSeed:new Uint8Array(32)})).toThrow(/coreProgramId/);
+ });
+});

@@ -77,7 +77,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const { user, connection, programId } = params;
-      const [pda] = sdk.derivePortfolioPda(user, programId);
+      const [pda] = sdk.derivePortfolioPda(user, programId, config.marketContext);
       const accounts = await connection.getMultipleAccountsInfo([pda], 'confirmed');
       if (currentParams !== params || id !== requestId) return;
       const acc = accounts[0] ?? null;

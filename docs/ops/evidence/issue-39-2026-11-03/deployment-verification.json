@@ -1,0 +1,95 @@
+{
+  "observedAt": "2026-11-03T11:59:41.297Z",
+  "programs": [
+    {
+      "imageBytes": 261824,
+      "imageSha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "paddingBytes": 0,
+      "paddingZero": true,
+      "name": "perps_core",
+      "address": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "programData": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU",
+      "deploymentSlot": "518135007",
+      "bytes": 261824,
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d"
+    },
+    {
+      "imageBytes": 83360,
+      "imageSha256": "f3e1829749fbb467504dce8a59b53e5a266f15c5d66e3050097b43d1a485553b",
+      "paddingBytes": 3824,
+      "paddingZero": true,
+      "name": "perps_matcher",
+      "address": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "programData": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH",
+      "deploymentSlot": "518171780",
+      "bytes": 87184,
+      "sha256": "48e4dcea45d144259b99fe2b3c336515e5bf9c874fc0e96d307c949361589f19"
+    },
+    {
+      "imageBytes": 13808,
+      "imageSha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "paddingBytes": 0,
+      "paddingZero": true,
+      "name": "oracle",
+      "address": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "programData": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ",
+      "deploymentSlot": "517922158",
+      "bytes": 13808,
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a"
+    }
+  ],
+  "services": [
+    {
+      "id": "srv-d9a9gu6cjfls739fl4e0",
+      "name": "mgk-indexer",
+      "suspended": "not_suspended",
+      "branch": "feature-issue-39-integration",
+      "autoDeploy": "no",
+      "plan": "free",
+      "liveDeploy": {
+        "id": "dep-dbkrkiek1f9s73dqkpn0",
+        "commit": "318e2c76ec2223d7afb9617acff67cd2eff9334b",
+        "finishedAt": "2026-11-03T10:42:18.065132Z"
+      }
+    },
+    {
+      "id": "srv-dbk6u1c9v7es73bsrlk0",
+      "name": "mgk-oracle",
+      "suspended": "not_suspended",
+      "branch": "feature-issue-39-integration",
+      "autoDeploy": "no",
+      "plan": "free",
+      "liveDeploy": {
+        "id": "dep-dbkpns67bikc73fib9eg",
+        "commit": "edf8b6566362f8927c3d2aceb8c8c4c122ef5d72",
+        "finishedAt": "2026-11-03T08:32:21.457256Z"
+      }
+    },
+    {
+      "id": "srv-dbk6u0bbc2fs73ejiqp0",
+      "name": "mgk-keeper",
+      "suspended": "not_suspended",
+      "branch": "feature-issue-39-integration",
+      "autoDeploy": "no",
+      "plan": "free",
+      "liveDeploy": {
+        "id": "dep-dbkpns8u01pc73e05p2g",
+        "commit": "edf8b6566362f8927c3d2aceb8c8c4c122ef5d72",
+        "finishedAt": "2026-11-03T08:32:23.659258Z"
+      }
+    },
+    {
+      "id": "srv-dbkpc5rbc2fs73a0kvpg",
+      "name": "mgk-maker",
+      "suspended": "not_suspended",
+      "branch": "feature-issue-39-integration",
+      "autoDeploy": "no",
+      "plan": "free",
+      "liveDeploy": {
+        "id": "dep-dbkpnsajnfac739ki290",
+        "commit": "edf8b6566362f8927c3d2aceb8c8c4c122ef5d72",
+        "finishedAt": "2026-11-03T08:32:18.244077Z"
+      }
+    }
+  ]
+}

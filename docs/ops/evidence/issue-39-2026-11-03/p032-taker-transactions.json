@@ -1,0 +1,260 @@
+[
+  {
+    "signature": "64WG88CPcP4NE7s3vwJVXg3cp3Nfna3QEa8FQxT2hTRgz3kieNaqstzbTQcXBjgVUCTLgX1pMdJ1G1pf1q2AdStk",
+    "slot": 518207459,
+    "blockTime": 1793706930,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: Withdraw",
+      "Program log: Withdraw successful",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 36753 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": 49995000
+      },
+      {
+        "address": "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+        "lamports": -50000000
+      }
+    ]
+  },
+  {
+    "signature": "FHHfzcjK2B5VeYH93spVVGfK4LH3WQitDNFF5b27BPyJbi4xQp7p3FwxzLN9g8No7iybqFTaF4CydomLwtkYwca",
+    "slot": 518206563,
+    "blockTime": 1793706716,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: Deposit",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: Deposit successful",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 33221 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -50005000
+      },
+      {
+        "address": "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+        "lamports": 50000000
+      }
+    ]
+  },
+  {
+    "signature": "2jKZ9AXRCSz8mg9G6JfSuFax3P7vi4J1qxeUeVkxNzhkTiVWEf9eBUcHTKe2jA6S7WY7FBfN6CDhNWQfYtW7cbEL",
+    "slot": 518205530,
+    "blockTime": 1793706468,
+    "error": null,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: LiquidateUser",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 389197 of 1399850 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o",
+        "lamports": -5000
+      }
+    ]
+  },
+  {
+    "signature": "3fjf7higXMT9MKdQB6ddUASGZygP8TWmya3YkbE4DH8rfA3wXzHycZEBqMVVjS77K77mWZrudYfTkZUVfBd8GQgj",
+    "slot": 518204880,
+    "blockTime": 1793706313,
+    "error": null,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: SettleBatch",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: SettleBatch: next batch PDA created",
+      "Program data: bWdrLXNldHRsZW1lbnQtdjE= ngEAAAAAAAAEAGQAAAAAAAAAZAAAAAAAAABkAAAAAAAAACwBAAAAAAAA",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 17021 of 1103020 compute units",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 313897 of 1399850 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+        "lamports": -1549320
+      },
+      {
+        "address": "BnvpcuqPK8fr6y1yvAxqh4s2tX5MYVbsM2M4TK8GqNLN",
+        "lamports": 1544320
+      }
+    ]
+  },
+  {
+    "signature": "33ZuUQQ4goVeRfQ6NyCAgijCb22wLrzhBMF4DSpgqdyXXyesNbhZgRjafgjEQpeBKcakhRSD9NqyABVZ1HEvSacR",
+    "slot": 518204850,
+    "blockTime": 1793706306,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: PostOrder",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+      "Program log: Instruction: PlaceResting",
+      "Program log: PlaceResting: order placed",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 24428 of 67822 compute units",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+      "Program log: PostOrder: placed",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 156755 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -5000
+      }
+    ]
+  },
+  {
+    "signature": "1rBNXC6RpE1JuT3vZqNhLrdrXRAVdcCNpELuXvmmyNE6o882dwtAtxLcSfKSiysZG7YRxXY1YQG2yKcnkoByVWa",
+    "slot": 518192209,
+    "blockTime": 1793703279,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: Deposit",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: Deposit successful",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 33221 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -400005000
+      },
+      {
+        "address": "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+        "lamports": 400000000
+      }
+    ]
+  },
+  {
+    "signature": "m4tnkVie4co63KrxkeE17hmEUNfNK9jwQKy6jVZY9N1NWjiDZ8Jvvc5JxwubpCd7kHtAXhAmrqieBipu3m5rWJx",
+    "slot": 518191443,
+    "blockTime": 1793703096,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: InitPortfolioForUser",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: InitPortfolioForUser: created portfolio at PDA via invoke_signed",
+      "Program log: InitPortfolioForUser: portfolio initialized for user",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 28396 of 400000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: Deposit",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: Deposit successful",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 33221 of 371604 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -415123080
+      },
+      {
+        "address": "9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr",
+        "lamports": 15118080
+      },
+      {
+        "address": "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+        "lamports": 400000000
+      }
+    ]
+  },
+  {
+    "signature": "46AtKMU3C2UoakAU6vSSPXTVAjJcAge61x99Go9osksCUyDg4mCCs6SMcV939AEn1ck91Fw3ALyKQXN8mhPEoemR",
+    "slot": 518206463,
+    "blockTime": 1793706691,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: TopUp",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program log: TopUp successful",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 23674 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -1700005000
+      },
+      {
+        "address": "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+        "lamports": 1700000000
+      }
+    ]
+  },
+  {
+    "signature": "5QapKBzoC3RioViHSAFfpMSEe2nTf7j1JsBLktw5qX15YXzQnEUhcPKsJzW4VHWkisbrFfC2YTRsQgDw6qTvRBHv",
+    "slot": 518206499,
+    "blockTime": 1793706700,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: Unpause",
+      "Program log: Unpause: flags written",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 37459 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -5000
+      }
+    ]
+  },
+  {
+    "signature": "3tfaVuqkHo8DxDLD5rRpzzgAwagk43do9c9rnzEDkmm8rTKsGQLHXxjCx1zxpaZp93xzygD2TtKytpBjL6hFwbAZ",
+    "slot": 518206526,
+    "blockTime": 1793706707,
+    "error": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: Unpause",
+      "Program log: Unpause: flags written",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 37464 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ],
+    "fee": 5000,
+    "deltas": [
+      {
+        "address": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+        "lamports": -5000
+      }
+    ]
+  }
+]

@@ -8,6 +8,12 @@ const authority = Keypair.generate();
 const keys = Array.from({ length: 8 }, () =>
   Keypair.generate().publicKey.toBase58(),
 );
+const context=require('./market-context').createMarketContext(new PublicKey(keys[0]));
+keys[3]=context.registry.toBase58();
+const instrumentId=Buffer.from(layouts.Instrument.fixture).readUInt16LE(layouts.Instrument.fields.instrumentId[0]);
+const id=Buffer.alloc(2);id.writeUInt16LE(instrumentId);
+keys[4]=context.pda([Buffer.from('instrument'),id])[0].toBase58();
+keys[6]=context.pda([Buffer.from('vault')])[0].toBase58();
 const manifest = {
   schema_version: 1,
   name: "oracle-test",
@@ -342,4 +348,32 @@ test("wrong owner, binding and inactive accounts block the worker before fetchin
     assert.equal(fetches, 0);
     assert.equal(f.published.length, 0);
   }
+});
+test('oracle publication rejects a namespace paired with legacy state before reading prices',async()=>{
+ const f=fixture();let fetched=false;
+ await assert.rejects(createOracleWorker({...f.options,manifest:{...manifest,schema_version:2,market_seed:Keypair.generate().publicKey.toBase58()},customFetch:async()=>{fetched=true;}}),/Noncanonical/);
+ assert.equal(fetched,false);
+});
+
+// Real devnet getGenesisHash value (44 chars). A truncated constant here made
+// every devnet worker fail startup validation against a live RPC.
+const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+test("devnet worker accepts the real genesis hash and rejects a foreign cluster", async () => {
+  const f = fixture();
+  const connection = { ...f.connection, getGenesisHash: async () => DEVNET_GENESIS };
+  const worker = await createOracleWorker({
+    ...f.options,
+    manifest: { ...manifest, cluster: "devnet" },
+    connection,
+  });
+  assert.equal((await worker.tick()).status, "published");
+  const foreign = fixture();
+  await assert.rejects(
+    createOracleWorker({
+      ...foreign.options,
+      manifest: { ...manifest, cluster: "devnet" },
+      connection: { ...foreign.connection, getGenesisHash: async () => "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" },
+    }),
+    /RPC cluster differs/,
+  );
 });

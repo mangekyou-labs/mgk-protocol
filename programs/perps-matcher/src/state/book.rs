@@ -137,12 +137,22 @@ fn alloc_level_slot(book: &mut OrderBook, side: Side) -> Option<usize> {
 /// chain. The book's `next_order_id` is bumped and assigned to the new
 /// resting order. `best_bid`/`best_ask` are updated if this is a new best.
 pub fn place_resting(state: &mut BookState, order: &LimitOrder) -> Result<u64, BookError> {
-    if state.is_full() {
-        return Err(BookError::Full);
-    }
     if order.qty == 0 {
         return Err(BookError::ZeroQty);
     }
+
+    // Allocate the resting slot before mutating levels: reuse the first
+    // cleared (tombstoned) slot, else append. Removal tombstones slots, so
+    // append-only allocation permanently filled the book after 256 lifetime
+    // orders even with an empty live book.
+    let reuse_slot = state.resting[..state.resting_count]
+        .iter()
+        .position(|r| *r == RestingOrder::default());
+    let slot = match reuse_slot {
+        Some(i) => i,
+        None if state.resting_count < MAX_RESTING_ORDERS => state.resting_count,
+        None => return Err(BookError::Full),
+    };
 
     let side = order.side;
     let price = order.price;
@@ -172,9 +182,10 @@ pub fn place_resting(state: &mut BookState, order: &LimitOrder) -> Result<u64, B
         },
     };
 
-    // Allocate resting slot.
-    let slot = state.resting_count;
-    state.resting_count += 1;
+    // Commit the append only for a fresh slot; a reused slot keeps the count.
+    if reuse_slot.is_none() {
+        state.resting_count += 1;
+    }
 
     // Assign order_id.
     let order_id = state.book.next_order_id;
@@ -668,6 +679,31 @@ mod tests {
         assert_eq!(state.book.bid_count, 1);
         assert_eq!(state.resting_count, 1);
         assert!(!state.resting[0].is_maker); // default taker
+    }
+
+    #[test]
+    fn test_place_resting_reuses_cleared_slots_after_full() {
+        // Regression: removal used to tombstone slots while placement only
+        // appended, so the book permanently filled after 256 lifetime orders.
+        let mut state = BookState::new();
+        for i in 0..MAX_RESTING_ORDERS {
+            place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).unwrap();
+            let _ = i;
+        }
+        assert_eq!(state.resting_count, MAX_RESTING_ORDERS);
+        assert!(place_resting(&mut state, &make_order(1, Side::Buy, 100, 5)).is_err());
+        let user = state.resting[0].user;
+        let removed = cancel_all_for_user(&mut state, &user);
+        assert_eq!(removed, MAX_RESTING_ORDERS);
+        // Placement must reuse cleared slots without growing resting_count.
+        place_resting(&mut state, &make_order(2, Side::Sell, 101, 7)).unwrap();
+        assert_eq!(state.resting_count, MAX_RESTING_ORDERS);
+        assert_eq!(state.book.asks[0].order_count, 1);
+        let live = state.resting[..state.resting_count]
+            .iter()
+            .filter(|r| r.qty > r.filled_qty)
+            .count();
+        assert_eq!(live, 1);
     }
 
     #[test]

@@ -13,6 +13,7 @@ import { createHealthTracker, type HealthTracker } from './healthTracker.js';
 export interface SyncChunkParams {
   connection: Connection;
   store: Store;
+  marketSeed?: string | null;
   corePk: PublicKey;
   matcherPk: PublicKey;
   startSlot: number;
@@ -64,19 +65,43 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
       blockSlots.push(...slots);
     }
 
-    for (const slot of blockSlots) {
-      const block = await connection.getBlock(slot, {
-        maxSupportedTransactionVersion: 1,
-        commitment: 'confirmed',
-        ...{encoding: 'json'},
-      });
+    // Fetch blocks with bounded concurrency; sequential fetching replayed
+    // slower than the chain produces slots, so the cursor fell behind forever.
+    // Blocks are still decoded strictly in slot order below.
+    const fetchBlock = (slot: number) => connection.getBlock(slot, {
+      maxSupportedTransactionVersion: 1,
+      commitment: 'confirmed',
+      ...{encoding: 'json'},
+    });
+    const blocks: Awaited<ReturnType<typeof fetchBlock>>[] = new Array(blockSlots.length);
+    let fetchIndex = 0;
+    const fetchWorker = async () => {
+      while (fetchIndex < blockSlots.length) {
+        const i = fetchIndex++;
+        blocks[i] = await fetchBlock(blockSlots[i]!);
+      }
+    };
+    await Promise.all(Array.from({length: Math.min(8, blockSlots.length)}, fetchWorker));
+
+    for (let bi = 0; bi < blockSlots.length; bi++) {
+      const slot = blockSlots[bi]!;
+      const block = blocks[bi];
       if (block?.blockTime != null) blockTimes.set(slot, block.blockTime * 1000);
       if (!block?.transactions) throw new Error(`Block ${slot} unavailable; cursor held for retry`);
 
       for (const txResp of block.transactions) {
         if (!txResp.meta) throw new Error('Transaction metadata unavailable');
         if (txResp.meta.err) continue;
-        for (const ix of coreInvocations(txResp.transaction.message, txResp.meta, corePk)) {
+        // Cheap prefilter: a core invocation requires the core program among
+        // the message keys (static or lookup-loaded). Skipping the rest avoids
+        // full invocation-log parsing for every devnet transaction in the block.
+        const msg = txResp.transaction.message;
+        const involvesCore =
+          msg.staticAccountKeys.some((k) => k.equals(corePk)) ||
+          (txResp.meta.loadedAddresses?.writable ?? []).some((k) => k.equals(corePk)) ||
+          (txResp.meta.loadedAddresses?.readonly ?? []).some((k) => k.equals(corePk));
+        if (!involvesCore) continue;
+        for (const ix of coreInvocations(msg, txResp.meta, corePk, params.marketSeed)) {
           if (!ix.success || ix.data[0] !== instructions.core.SettleBatch.disc) continue;
           const staticKeys = Array.from({length: ix.keys.length}, (_, i) => ix.keys.get(i)!);
 
@@ -86,10 +111,15 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
           const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
           if (!batchInfo || !batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
           const batch = decodeAccount('Batch', batchInfo.data);
+          if (params.marketSeed && !sdk.deriveBatchPda(batch.batchId, corePk, {marketSeed: params.marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
           if (batch.status !== 3) throw new Error('Settlement batch not settled');
           const resultsIdx = ix.accountKeyIndexes[3];
           const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
           if (!resultsPk) throw new Error('Settlement missing results address');
+          if (params.marketSeed) {
+            const expected = sdk.deriveResultsPda(batch.batchId, matcherPk, {marketSeed: params.marketSeed, coreProgramId: corePk})[0];
+            if (!expected.equals(resultsPk)) throw new Error('Settlement results outside selected market');
+          }
           const accInfo = await connection.getAccountInfo(resultsPk, 'confirmed');
           if (!accInfo || !accInfo.owner.equals(matcherPk)) throw new Error('Settlement results unavailable or wrong owner');
           const results = sdk.state.decodeResults(accInfo.data);
@@ -183,6 +213,7 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
 export interface SyncerConfig {
   connection: Connection;
   store: Store;
+  marketSeed?: string | null;
   coreProgramId: string;
   matcherProgramId: string;
   startSlot?: number;
@@ -253,7 +284,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
 
   async function pollBatchState(): Promise<void> {
     try {
-      const [registryPda] = sdk.deriveRegistryPda(corePk);
+      const [registryPda] = sdk.deriveRegistryPda(corePk,{marketSeed:config.marketSeed});
       const accounts = await connection.getMultipleAccountsInfo([registryPda]);
       const regData = accounts[0];
       if (!regData) return;
@@ -262,7 +293,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
       const batchId = registry.batchIdCounter - 1n;
       if (batchId < 0n) return;
 
-      const [batchPda] = sdk.deriveBatchPda(batchId, corePk);
+      const [batchPda] = sdk.deriveBatchPda(batchId, corePk,{marketSeed:config.marketSeed});
       const batchAccounts = await connection.getMultipleAccountsInfo([batchPda]);
       const batchData = batchAccounts[0];
       if (!batchData) return;
@@ -345,6 +376,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
           const result = await syncChunk({
             connection,
             store,
+            marketSeed:config.marketSeed,
             corePk,
             matcherPk,
             startSlot: chunkStart,

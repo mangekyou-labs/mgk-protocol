@@ -117,8 +117,12 @@ A permissionless operator that advances batches by clearing and settling them; i
 _Avoid_: Cranker, liquidator
 
 **Demo market**:
-One deployment of the programs with its own accounts; replacing a layout means starting a new demo market, never migrating the old one.
+One isolated set of registry, vault, instrument, portfolio, batch, book and results accounts. Markets may share layout-compatible program executables; their collateral, insurance and pause controls remain separate. Replacing a layout means starting a new demo market, never migrating the old one.
 _Avoid_: Environment, instance
+
+**Market context**:
+The default namespace or a 32-byte market seed carried by an instruction and propagated through its CPI calls. It determines the canonical addresses belonging to one market.
+_Avoid_: Instrument ID (instrument numbers can repeat across markets)
 
 ### Release
 

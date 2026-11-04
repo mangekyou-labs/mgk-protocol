@@ -1,0 +1,36 @@
+{
+  "trades": [
+    {
+      "slot": 518204880,
+      "batch_id": 414,
+      "price": 92657140,
+      "qty": 100,
+      "taker_side": 0,
+      "is_maker": 1
+    },
+    {
+      "slot": 518204880,
+      "batch_id": 414,
+      "price": 92657140,
+      "qty": 100,
+      "taker_side": 0,
+      "is_maker": 1
+    },
+    {
+      "slot": 518204880,
+      "batch_id": 414,
+      "price": 92657140,
+      "qty": 100,
+      "taker_side": 0,
+      "is_maker": 1
+    },
+    {
+      "slot": 518204880,
+      "batch_id": 414,
+      "price": 92657140,
+      "qty": 300,
+      "taker_side": 0,
+      "is_maker": 0
+    }
+  ]
+}

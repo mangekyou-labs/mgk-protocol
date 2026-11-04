@@ -130,20 +130,18 @@ export function usePostOrder() {
         const registryPda = resolveRegistryAddress(config.coreProgramId);
         const [portfolioPda] = sdk.derivePortfolioPda(
           publicKey,
-          config.coreProgramId,
-        );
+          config.coreProgramId, config.marketContext);
         // M9: book is a matcher-owned keypair account (config.bookAddress).
         // PDA fallback only if no configured book (future multi-instrument).
         const bookPda =
           config.bookAddress ??
-          sdk.deriveBookPda(params.instrumentId, config.matcherProgramId)[0];
+          sdk.deriveBookPda(params.instrumentId, config.matcherProgramId, config.marketContext)[0];
 
         const instrumentPda = config.instrumentAddress ?? sdk.deriveInstrumentPda(
           params.instrumentId,
-          config.coreProgramId,
-        )[0];
+          config.coreProgramId, config.marketContext)[0];
         const vaultPda =
-          config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId)[0];
+          config.vaultAddress ?? sdk.deriveVaultPda(config.coreProgramId, config.marketContext)[0];
 
         const [registryAcc, portfolioAcc, bookAcc, instrumentAcc] =
           await connection.getMultipleAccountsInfo([
@@ -208,7 +206,7 @@ export function usePostOrder() {
             { pubkey: vaultPda, isSigner: false, isWritable: false },
           ],
           programId: config.coreProgramId,
-          data: Buffer.from(ixData),
+          data: Buffer.from(config.marketSeed ? sdk.wrapInstruction('core',ixData,config.marketSeed) : ixData),
         });
 
         setOrder({

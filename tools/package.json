@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test ops-health.test.js ops-liquidate.test.js ops-oracle.test.js oracle-worker.test.js keeper-worker.test.js maker-worker.test.js oracle-confidence.test.js set-funding-params.test.js vercel-json.test.js render-blueprint.test.js gate/report.test.js gate/latency.test.js gate/soak.test.js",
+    "test": "node --test market-context.test.js ops-health.test.js ops-liquidate.test.js ops-oracle.test.js oracle-worker.test.js keeper-worker.test.js maker-worker.test.js oracle-confidence.test.js set-funding-params.test.js vercel-json.test.js render-blueprint.test.js send-dprime-txs.test.js health-server.test.js worker-cli-health.test.js gate/report.test.js gate/latency.test.js gate/soak.test.js",
     "maker": "node maker-worker-cli.js --loop",
     "maker:once": "node maker-worker-cli.js --once"
   },

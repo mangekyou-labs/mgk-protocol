@@ -15,7 +15,9 @@ pub const MATCHER_CANCEL_RESTING: u8 = 1;
 /// 3. [] Matcher program
 ///
 /// Data: order_id(8)
+#[allow(clippy::too_many_arguments)]
 pub fn process_cancel_resting_order(
+    context: mgk_common::market::MarketContext,
     program_id: &Pubkey,
     portfolio_account: &AccountInfo,
     user_account: &AccountInfo,
@@ -39,10 +41,18 @@ pub fn process_cancel_resting_order(
         return Err(MgkError::Unauthorized.into());
     }
 
-    crate::risk::unlocked(registry_account)?;
-    let index = portfolio.orders.iter().position(|o| o.remaining_qty != 0 && o.order_id == order_id)
+    crate::risk::unlocked(context, registry_account)?;
+    let index = portfolio
+        .orders
+        .iter()
+        .position(|o| o.remaining_qty != 0 && o.order_id == order_id)
         .ok_or(MgkError::InvalidOrder)?;
-    crate::matcher_cpi::validate_book(matcher_program, book_account, Some(portfolio.orders[index].instrument_id))?;
+    crate::matcher_cpi::validate_book(
+        context,
+        matcher_program,
+        book_account,
+        Some(portfolio.orders[index].instrument_id),
+    )?;
 
     // Build CPI to matcher's CancelResting (disc 1).
     // Wire: discriminator(1) + user(32) + order_id(8) = 41 bytes
@@ -52,6 +62,7 @@ pub fn process_cancel_resting_order(
     cpi_data[33..41].copy_from_slice(&order_id.to_le_bytes());
 
     crate::matcher_cpi::trader(
+        context,
         registry_account,
         user_account,
         book_account,

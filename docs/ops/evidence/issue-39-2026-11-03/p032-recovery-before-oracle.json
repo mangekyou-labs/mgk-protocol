@@ -1,0 +1,97 @@
+{
+  "observedAt": "2026-11-03T11:52:44.918Z",
+  "portfolios": {
+    "taker": {
+      "address": "9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr",
+      "equity": "50000000",
+      "positions": []
+    },
+    "maker": {
+      "address": "6e1YB5TKEGnBTj2ke8UPfTRE5jQtGBDJNrKHTk1QyGV1",
+      "equity": "4092857100",
+      "positions": []
+    }
+  },
+  "vault": {
+    "balance": "4142857100",
+    "bump": 254,
+    "insuranceFund": "1487142900",
+    "openInterestLong": "0",
+    "openInterestShort": "0",
+    "uncoveredBadDebt": "0"
+  },
+  "registry": {
+    "baseDeposit": "1000000",
+    "batchIdCounter": "433",
+    "bump": 251,
+    "governance": {
+      "type": "Buffer",
+      "data": [
+        225,
+        175,
+        161,
+        51,
+        94,
+        249,
+        109,
+        133,
+        209,
+        220,
+        207,
+        23,
+        17,
+        19,
+        63,
+        91,
+        93,
+        225,
+        169,
+        106,
+        44,
+        134,
+        18,
+        170,
+        162,
+        203,
+        75,
+        240,
+        110,
+        50,
+        194,
+        249
+      ]
+    },
+    "instrumentCount": 1,
+    "marginalSizeCap": 64,
+    "maxOrdersPerBatch": 64,
+    "nMin": 1,
+    "pauseFlags": 0,
+    "tMaxSlots": "25",
+    "tMinSlots": "10",
+    "tRevealSlots": "25",
+    "volatilityMultiplier": 10000
+  },
+  "settlementLock": 1,
+  "batch": {
+    "askClearingPrice": "0",
+    "batchId": "432",
+    "bidClearingPrice": "0",
+    "bump": 0,
+    "clearingPrice": "0",
+    "closeSlot": "518205779",
+    "commitDeadlineSlot": "518205770",
+    "liqPaused": 1,
+    "markValid": 0,
+    "matchedAskQty": "0",
+    "matchedBidQty": "0",
+    "revealDeadlineSlot": "518205779",
+    "shuffleSeed": "0",
+    "slashedDeposits": "0",
+    "status": 4,
+    "totalCommitments": 0,
+    "totalNotional": "0",
+    "totalRevealed": 0,
+    "totalSettled": 0,
+    "totalVolume": "0"
+  }
+}

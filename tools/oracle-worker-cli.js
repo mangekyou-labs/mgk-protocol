@@ -6,6 +6,7 @@ const { setTimeout: sleep } = require("node:timers/promises");
 const { Connection, Keypair } = require("@solana/web3.js");
 const { loadManifest } = require("../mgk-frontend/packages/layout/manifest");
 const { createOracleWorker, INTERVAL_MS } = require("./oracle-worker");
+const { createHealthState, markCycle, markError, startHealthServer } = require("./health-server");
 
 async function main() {
   const keyPath =
@@ -59,36 +60,46 @@ async function main() {
     hermesUrl: process.env.PYTH_HERMES_URL,
     pythApiKey: process.env.PYTH_API_KEY,
   });
+  const health = createHealthState("oracle");
+  const healthServer = process.argv.includes("--loop") && process.env.PORT
+    ? startHealthServer(health)
+    : null;
   const abort = new AbortController();
   process.once("SIGTERM", () => abort.abort());
   process.once("SIGINT", () => abort.abort());
-  do {
-    const started = Date.now();
-    try {
-      const result = await worker.tick();
-      console.log(
-        JSON.stringify({
-          service: "oracle",
-          status: result.status,
-          signature: result.signature,
-          venues: result.venues,
-          unavailableVenues: result.unavailableVenues,
-          price: result.price?.toString(),
-          confidence: result.confidence?.toString(),
-        }),
-      );
-    } catch {
-      // RPC/fetch exceptions can contain credentials and URLs; never log the raw exception.
-      console.error(
-        JSON.stringify({ service: "oracle", status: "publication_failed" }),
-      );
-      if (process.argv.includes("--once")) process.exitCode = 1;
-    }
-    if (process.argv.includes("--once") || abort.signal.aborted) break;
-    await sleep(Math.max(0, INTERVAL_MS - (Date.now() - started)), undefined, {
-      signal: abort.signal,
-    }).catch(() => {});
-  } while (!abort.signal.aborted);
+  try {
+    do {
+      const started = Date.now();
+      try {
+        const result = await worker.tick();
+        markCycle(health, result.status);
+        console.log(
+          JSON.stringify({
+            service: "oracle",
+            status: result.status,
+            signature: result.signature,
+            venues: result.venues,
+            unavailableVenues: result.unavailableVenues,
+            price: result.price?.toString(),
+            confidence: result.confidence?.toString(),
+          }),
+        );
+      } catch {
+        markError(health);
+        // RPC/fetch exceptions can contain credentials and URLs; never log the raw exception.
+        console.error(
+          JSON.stringify({ service: "oracle", status: "publication_failed" }),
+        );
+        if (process.argv.includes("--once")) process.exitCode = 1;
+      }
+      if (process.argv.includes("--once") || abort.signal.aborted) break;
+      await sleep(Math.max(0, INTERVAL_MS - (Date.now() - started)), undefined, {
+        signal: abort.signal,
+      }).catch(() => {});
+    } while (!abort.signal.aborted);
+  } finally {
+    healthServer?.close();
+  }
 }
 function fatal(error) {
   const safe =

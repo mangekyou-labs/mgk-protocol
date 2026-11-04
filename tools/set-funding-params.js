@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+const {createMarketContext}=require('./market-context');
+const {loadManifest}=require('../mgk-frontend/packages/layout/manifest');
 const {encodeInstruction} = require('../mgk-frontend/packages/layout/instructions.js');
 const {decodeAccount} = require('../mgk-frontend/packages/layout/index.js');
 const { confirmSignature } = require('../mgk-frontend/packages/layout/confirmation.js');
@@ -71,7 +73,7 @@ function le16(v) {
  * Encode the SetFundingParams wire payload: disc(1) + coefficient_bps(i64 LE) + max_rate_bps(i64 LE) + interval_slots(u64 LE)
  * Returns a 25-byte Buffer.
  */
-function encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots) {
+function encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots, marketSeed) {
   // Validate types and ranges
   if (!Number.isInteger(coefficientBps)) {
     throw new Error('coefficient_bps must be an integer');
@@ -92,7 +94,7 @@ function encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots) {
     throw new Error('interval_slots must be non-zero');
   }
 
-  return Buffer.from(encodeInstruction('core','SetFundingParams',{coefficientBps,maxRateBps,intervalSlots}));
+  return Buffer.from(encodeInstruction('core','SetFundingParams',{coefficientBps,maxRateBps,intervalSlots},marketSeed));
 }
 
 // ---------------------------------------------------------------------------
@@ -126,8 +128,9 @@ function buildSetFundingParamsInstruction({
   maxRateBps,
   intervalSlots,
   coreProgramId = CORE_ID,
+  marketSeed,
 }) {
-  const data = encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots);
+  const data = encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots,marketSeed);
 
   return new TransactionInstruction({
     keys: [
@@ -190,9 +193,11 @@ async function setFundingParams({
   intervalSlots,
   instrumentAccount,
   coreProgramId = CORE_ID,
+  marketSeed,
 }) {
-  const [regPDA] = pda([Buffer.from('registry')], coreProgramId);
-  const instPDA = instrumentAccount || pda([Buffer.from('instrument'), le16(0)], coreProgramId)[0];
+  const context=createMarketContext(coreProgramId,marketSeed);
+  const regPDA=context.registry;
+  const instPDA = instrumentAccount || context.pda([Buffer.from('instrument'), le16(0)])[0];
 
   // Read current state
   const beforeInfo = await connection.getAccountInfo(instPDA);
@@ -200,6 +205,10 @@ async function setFundingParams({
     throw new Error('instrument account missing or too small');
   }
 
+  if(marketSeed) {
+    const instrument=decodeAccount('Instrument',beforeInfo.data);
+    if(!beforeInfo.owner?.equals(coreProgramId) || !context.pda([Buffer.from('instrument'),le16(instrument.instrumentId)])[0].equals(instPDA)) throw Error('Instrument namespace mismatch');
+  }
   const before = decodeInstrumentFunding(beforeInfo.data);
   const beforeCumFunding = decodeCumFunding(beforeInfo.data);
 
@@ -223,7 +232,7 @@ async function setFundingParams({
   }
 
   // Build and send transaction
-  const data = encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots);
+  const data = encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots,marketSeed);
   const tx = new Transaction().add(
     new TransactionInstruction({
       keys: [
@@ -287,6 +296,9 @@ async function main() {
   // Validate args before connecting
   encodeSetFundingParams(coefficientBps, maxRateBps, intervalSlots);
 
+  const manifest=process.env.DEPLOYMENT_MANIFEST ? loadManifest(JSON.parse(readFileSync(process.env.DEPLOYMENT_MANIFEST,'utf8'))) : null;
+  if(manifest && !manifest.ready) throw Error('Deployment manifest pending');
+  if(manifest && instrumentPubkey && String(instrumentPubkey)!==manifest.accounts.instrument) throw Error('Instrument override differs from manifest');
   const rpc = process.env.RPC_URL || process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com';
   let rpcHost = 'invalid-rpc';
   try {
@@ -310,7 +322,9 @@ async function main() {
     coefficientBps,
     maxRateBps,
     intervalSlots,
-    instrumentAccount: instrumentPubkey,
+    instrumentAccount: manifest ? new PublicKey(manifest.accounts.instrument) : instrumentPubkey,
+    coreProgramId:manifest ? new PublicKey(manifest.programs.perps_core) : CORE_ID,
+    marketSeed:manifest?.marketSeed,
   });
 }
 

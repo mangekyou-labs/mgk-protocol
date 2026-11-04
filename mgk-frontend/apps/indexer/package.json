@@ -14,7 +14,7 @@
   "dependencies": {
     "@fastify/cors": "^10.0.0",
     "@mgk/sdk": "workspace:*",
-    "@solana/web3.js": "^1.95.8",
+    "@solana/web3.js": "^1.99.0",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.9.0",
     "@types/ws": "^8.5.13",

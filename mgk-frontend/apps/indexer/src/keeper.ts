@@ -1,6 +1,6 @@
 // The indexer is read-only. Run the manifest-bound tools worker separately.
 import { Connection, PublicKey } from '@solana/web3.js';
-import { state } from '@mgk/sdk';
+import { state,deriveCommitmentPda,type MarketContext } from '@mgk/sdk';
 import type { Store } from './store.js';
 const { COMMITMENT_SIZE } = state;
 
@@ -45,6 +45,7 @@ export async function findCommitmentsForBatch(
   connection: Connection,
   programId: PublicKey,
   batchId: bigint,
+  context?:MarketContext,
 ): Promise<CommitmentAccount[]> {
   const batchIdBuf = Buffer.alloc(8);
   batchIdBuf.writeBigUInt64LE(batchId, 0);
@@ -60,8 +61,8 @@ export async function findCommitmentsForBatch(
   const commitments: CommitmentAccount[] = [];
   for (const { pubkey, account } of accounts) {
     const data = Buffer.from(account.data);
-    const { batchId: bid, user, status } = state.decodeCommitment(data);
-    if (bid !== batchId) continue;
+    const { batchId: bid, user, status, nonce } = state.decodeCommitment(data);
+    if (bid !== batchId || !pubkey.equals(deriveCommitmentPda(bid,user,nonce,programId,context)[0])) continue;
     commitments.push({ pubkey, batchId: bid, user, status });
   }
   return commitments;

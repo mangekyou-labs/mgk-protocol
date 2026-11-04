@@ -1,0 +1,48 @@
+{
+  "bids": [
+    {
+      "price": "97000000",
+      "totalQty": "300",
+      "orderCount": 1,
+      "firstOrderOffset": 6
+    },
+    {
+      "price": "92732175",
+      "totalQty": "100",
+      "orderCount": 1,
+      "firstOrderOffset": 0
+    },
+    {
+      "price": "92639350",
+      "totalQty": "100",
+      "orderCount": 1,
+      "firstOrderOffset": 1
+    },
+    {
+      "price": "92546525",
+      "totalQty": "100",
+      "orderCount": 1,
+      "firstOrderOffset": 2
+    }
+  ],
+  "asks": [
+    {
+      "price": "92917825",
+      "totalQty": "100",
+      "orderCount": 1,
+      "firstOrderOffset": 3
+    },
+    {
+      "price": "93010650",
+      "totalQty": "100",
+      "orderCount": 1,
+      "firstOrderOffset": 4
+    },
+    {
+      "price": "93103475",
+      "totalQty": "100",
+      "orderCount": 1,
+      "firstOrderOffset": 5
+    }
+  ]
+}

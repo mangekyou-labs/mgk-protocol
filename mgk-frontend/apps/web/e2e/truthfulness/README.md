@@ -2,7 +2,7 @@
 
 This suite drives the actual trade route through an injected synthetic Phantom-compatible wallet. It proves what the interface says after controlled RPC/indexer observations. It never signs, sends, executes on chain, or verifies accounting. Settlement is an explicit fixture observation supplied by the test, not a wallet transaction or a keeper simulation.
 
-The dedicated suite leaves `playwright.config.ts` and its maintenance checks intact. Historical e2e files and their obsolete `mockPhantom` account offsets are not included. Current Rust-exported `packages/layout/program-layouts.json` supplies account sizes, discriminators, layout versions and field offsets; `instruction-fixtures.json` supplies instruction discriminators. The deployed candidate's manifest supplies program/account addresses, and the real SDK/UI decoders consume the fixtures.
+The dedicated suite is separate from the disconnected live-shell smoke checks in `playwright.config.ts`. Historical e2e files and their obsolete `mockPhantom` account offsets are not included. Current Rust-exported `packages/layout/program-layouts.json` supplies account sizes, discriminators, layout versions and field offsets; `instruction-fixtures.json` supplies instruction discriminators. The deployed candidate's manifest supplies program/account addresses, and the real SDK/UI decoders consume the fixtures.
 
 ## Local controlled proof
 
@@ -12,7 +12,7 @@ From `mgk-frontend/apps/web` after the locked workspace install and Chromium ins
 NO_DNA=1 pnpm e2e:truthfulness:local
 ```
 
-The runner builds the SDK, copies frontend source and deployment metadata to a temporary directory, supplies a visibly labelled synthetic manifest, mounts the real trade route with the existing providers/header, builds with `next build --webpack`, starts a loopback production server and runs Playwright. It excludes `.env*`, pins public service endpoints, copies artifacts back even after failures, stops the server and removes the copy. The repository's immutable maintenance layout and pending deployment manifest are never edited. This result is **controlled local UI evidence**, not a deployed candidate or release-gate pass.
+The runner builds the SDK, copies frontend source and deployment metadata to a temporary directory, supplies a visibly labelled synthetic manifest, mounts the real trade route with the existing providers/header, builds with `next build --webpack`, starts a loopback production server and runs Playwright. It excludes `.env*`, pins public service endpoints, copies artifacts back even after failures, stops the server and removes the copy. The repository's layout and deployment manifest are never edited. This result is **controlled local UI evidence**, not a deployed candidate or release-gate pass.
 
 For preparing the same explicitly labelled test-only source tree for a preview, run `NO_DNA=1 node scripts/truthfulness-local.cjs --prepare-only`. It prints `CONTROLLED_STAGING_ROOT`; the caller owns deployment and cleanup. Use the printed repository root, with the application in `mgk-frontend/apps/web`. Set `NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com`, `NEXT_PUBLIC_INDEXER_URL=http://localhost:4000`, and `NEXT_PUBLIC_HERMES_URL=https://hermes.pyth.network` when building that synthetic preview. An ordinary browser sees the preview warning and cannot pass deployment validation against synthetic accounts. Never promote this tree to the trading deployment.
 

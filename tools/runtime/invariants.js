@@ -4,6 +4,7 @@
 // arithmetic beyond sums, comparisons and PDA derivation.
 const { PublicKey, ComputeBudgetProgram } = require('@solana/web3.js');
 const { layouts, decodeAccount, decodeResults } = require('../../mgk-frontend/packages/layout');
+const { createMarketContext } = require('../market-context');
 
 const INVARIANTS = Object.freeze({
   vault: 'vault balance',
@@ -53,8 +54,8 @@ class InvariantViolation extends Error {
   }
 }
 
-const u64 = value => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(value)); return b; };
 const pda = (seeds, program) => PublicKey.findProgramAddressSync(seeds, new PublicKey(program))[0].toBase58();
+const u64 = value => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(value)); return b; };
 const key = bytes => new PublicKey(bytes).toBase58();
 const min = (a, b) => a < b ? a : b;
 const max = (a, b) => a > b ? a : b;
@@ -68,7 +69,11 @@ function programsFrom(source) {
   const core = byName('perps_core'), matcher = byName('perps_matcher');
   if (!core) throw new Error('program source names no perps core program');
   if (!matcher) throw new Error('program source names no perps matcher program');
-  return { core: String(core), matcher: String(matcher) };
+  const selected = { core: String(core), matcher: String(matcher) };
+  if (source?.schema_version === 2) {
+    selected.marketSeed = require('../../mgk-frontend/packages/layout/manifest').loadManifest(source).marketSeed;
+  }
+  return selected;
 }
 
 function parseAccountInfo(address, value) {
@@ -108,10 +113,14 @@ const initializedBy = (item, owner) => Boolean(item && item.owner === owner && i
 async function readProtocolState(rpc, programs) {
   rpc = readOnly(rpc);
   const core = String(programs.core), matcher = String(programs.matcher);
+  const context = createMarketContext(core, programs.marketSeed);
+  const registryAddress = context.registry.toBase58();
+  const child = (tag, suffix = [], owner = core) =>
+    context.pda([Buffer.from(tag), ...suffix], new PublicKey(owner))[0].toBase58();
   const snapshot = { programs: { core, matcher }, vault: null, vaultProblem: null, initialized: false,
     portfolios: new Map(), batches: new Map(), results: new Map() };
-  const vaultAddress = pda([Buffer.from('vault')], core);
-  const [vault, registry] = await readAccounts(rpc, [vaultAddress, pda([Buffer.from('registry')], core)]);
+  const vaultAddress = child('vault');
+  const [vault, registry] = await readAccounts(rpc, [vaultAddress, registryAddress]);
   if (initializedBy(vault, core)) {
     const rent = await rpc('getMinimumBalanceForRentExemption', [vault.data.length]);
     snapshot.vault = { ...vault, rent: BigInt(rent), state: decode('Vault', vault) };
@@ -122,24 +131,24 @@ async function readProtocolState(rpc, programs) {
   for (const item of await programAccounts(rpc, core, layouts.Portfolio.size)) {
     if (item.data[0] !== layouts.Portfolio.discriminator) continue;
     const state = decode('Portfolio', item);
-    if (pda([Buffer.from('portfolio'), state.user], core) !== item.address) continue;
+    if (child('portfolio', [state.user]) !== item.address) continue;
     if (state.positionsLen > state.positions.length) throw new Error(`${item.address}: invalid position count`);
     snapshot.portfolios.set(item.address, { ...item, state });
   }
   for (const item of await programAccounts(rpc, core, layouts.Batch.size)) {
     if (item.data[0] !== layouts.Batch.discriminator) continue;
     const state = decode('Batch', item);
-    if (pda([Buffer.from('batch'), u64(state.batchId)], core) !== item.address) continue;
+    if (child('batch', [u64(state.batchId)]) !== item.address) continue;
     snapshot.batches.set(state.batchId, { ...item, state });
   }
   const ids = [...snapshot.batches.keys()];
-  const results = await readAccounts(rpc, ids.map(id => pda([Buffer.from('results'), u64(id)], matcher)));
+  const results = await readAccounts(rpc, ids.map(id => child('results', [u64(id)], matcher)));
   results.forEach((item, index) => {
     if (initializedBy(item, matcher)) snapshot.results.set(ids[index], { ...item, state: decode('BatchResults', item) });
   });
   // Once the registry exists (or any protocol account does) the vault must exist too.
   snapshot.initialized = initializedBy(registry, core) || snapshot.portfolios.size > 0 || snapshot.batches.size > 0;
-  snapshot.portfolioOf = user => snapshot.portfolios.get(pda([Buffer.from('portfolio'), user], core));
+  snapshot.portfolioOf = user => snapshot.portfolios.get(child('portfolio', [user]));
   return snapshot;
 }
 
@@ -398,8 +407,8 @@ function checkTransition(before, after, transaction) {
 
 // Runs every invariant around one transaction: snapshot before, snapshot after.
 class InvariantChecker {
-  constructor({ rpc, core, matcher }) {
-    this.read = () => readProtocolState(rpc, { core, matcher });
+  constructor({ rpc, core, matcher, marketSeed }) {
+    this.read = () => readProtocolState(rpc, { core, matcher, marketSeed });
   }
 
   async before() { return this.read(); }

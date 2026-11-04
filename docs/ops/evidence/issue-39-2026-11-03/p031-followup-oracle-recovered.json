@@ -1,0 +1,53 @@
+{
+  "observedAt": "2026-11-03T12:37:50.703Z",
+  "status": {
+    "severity": "critical",
+    "chainTip": 518218075,
+    "lastIndexedSlot": 518153272,
+    "checks": {
+      "oracle": {
+        "severity": "ok",
+        "ageSeconds": 1
+      },
+      "batch": {
+        "severity": "critical",
+        "batchId": "534",
+        "phase": 4,
+        "ageSeconds": 1339,
+        "address": "xCry8vDtooX3YvdHw4qP88xXqcCzxuWNWRwtywcNd9S"
+      },
+      "makerDepth": {
+        "severity": "ok",
+        "bid": true,
+        "ask": true
+      },
+      "fees": {
+        "severity": "critical",
+        "balances": {
+          "oracle": "495515000",
+          "maker": "1097915000",
+          "keeper": "9233120"
+        },
+        "floorLamports": "10000000"
+      },
+      "insurance": {
+        "severity": "ok",
+        "lamports": "1487142900",
+        "floorLamports": "1000000000"
+      },
+      "pause": {
+        "severity": "ok",
+        "flags": 0
+      },
+      "indexer": {
+        "severity": "warn",
+        "lagSlots": 64803,
+        "syncing": true
+      },
+      "rpc": {
+        "severity": "ok",
+        "reachable": true
+      }
+    }
+  }
+}

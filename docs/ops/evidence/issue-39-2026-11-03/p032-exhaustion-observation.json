@@ -1,0 +1,23 @@
+{
+  "observedAt": "2026-11-03T11:48:57.994Z",
+  "source": "Read-only checkpoint command output captured in the operator-agent session; selected fields transcribed here. The temporary probe output file was subsequently overwritten during recovery; this is an observation summary, not the original raw account dump.",
+  "taker": {
+    "equity": "0",
+    "positions": []
+  },
+  "maker": {
+    "equity": "4092857100",
+    "positions": []
+  },
+  "vault": {
+    "balance": "4092857100",
+    "insuranceFund": "0",
+    "openInterestLong": "0",
+    "openInterestShort": "0",
+    "uncoveredBadDebt": "212857100"
+  },
+  "registry": {
+    "batchIdCounter": "433",
+    "pauseFlags": 3
+  }
+}

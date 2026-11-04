@@ -1,0 +1,11 @@
+{
+  "observedAt": "2026-11-03T14:06:57.139Z",
+  "signature": "HAwbeFew7YC5yB4P2X32N27JFPnH6MSz5KbvaWGKspkWpEY8vr5cxyjh482UtzJh8c4BYQjAa7Tj5BRe5n4fC8e",
+  "slot": 518239892,
+  "fee": 5000,
+  "payer": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+  "payerDelta": -200005000,
+  "recipient": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+  "recipientDelta": 200000000,
+  "err": null
+}

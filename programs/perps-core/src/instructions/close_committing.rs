@@ -29,8 +29,7 @@ pub fn process_close_committing(
         return Err(MgkError::InvalidInstruction.into());
     }
 
-    // Note: On Solana 4.x, batches are keypairs (not PDAs), so we skip the
-    // derive_batch_pda validation that existed here previously.
+    // Entrypoint authenticates the canonical current batch before delegation.
 
     // Check if we can close: either past deadline OR have enough commitments
     let clock = Clock::get()?;

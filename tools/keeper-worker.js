@@ -1,4 +1,5 @@
 "use strict";
+const {createMarketContext}=require("./market-context");
 const {
   PublicKey,
   Transaction,
@@ -46,13 +47,13 @@ async function createKeeperWorker({
     throw Error("Keeper supports devnet/localnet only");
   if (
     manifest.cluster === "devnet" &&
-    (await connection.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+    (await connection.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
   )
     throw Error("RPC cluster differs from manifest");
   const core = new PublicKey(manifest.programs.perps_core),
     matcher = new PublicKey(manifest.programs.perps_matcher);
-  const pda = (seeds, owner = core) =>
-    PublicKey.findProgramAddressSync(seeds, owner);
+  const context=createMarketContext(core,manifest.marketSeed);
+  const pda = (seeds, owner = core) => context.pda(seeds,owner);
   const registry = new PublicKey(manifest.accounts.registry),
     instrument = new PublicKey(manifest.accounts.instrument),
     vault = new PublicKey(manifest.accounts.insurance),
@@ -90,7 +91,7 @@ async function createKeeperWorker({
       new TransactionInstruction({
         programId: core,
         keys,
-        data: Buffer.from(encodeInstruction("core", name, params)),
+        data: Buffer.from(encodeInstruction("core", name, params, manifest.marketSeed)),
       }),
     );
     tx.sign(payer);

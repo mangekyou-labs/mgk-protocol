@@ -9,7 +9,7 @@ export function resolveRegistryAddress(
   programId: PublicKey,
   registryAddress: PublicKey | null = config.registryAddress,
 ): PublicKey {
-  return registryAddress ?? sdk.deriveRegistryPda(programId)[0];
+  return registryAddress ?? sdk.deriveRegistryPda(programId, config.marketContext)[0];
 }
 
 /**
@@ -46,7 +46,7 @@ export async function resolveOpenBatch(params: {
   let best: { batchPda: PublicKey; batchId: bigint; batch: sdk.state.BatchState } | null =
     null;
   for (const id of candidates) {
-    const [pda] = sdk.deriveBatchPda(id, params.programId);
+    const [pda] = sdk.deriveBatchPda(id, params.programId, config.marketContext);
     const acc = await params.connection.getAccountInfo(pda);
     if (!acc || acc.data.length < sdk.state.BATCH_SIZE) continue;
     const batch = sdk.state.decodeBatch(new Uint8Array(acc.data));
@@ -68,5 +68,5 @@ export async function resolveBatchAddress(params: {
   batchId: bigint;
   programId: PublicKey;
 }): Promise<PublicKey> {
-  return sdk.deriveBatchPda(params.batchId, params.programId)[0];
+  return sdk.deriveBatchPda(params.batchId, params.programId, config.marketContext)[0];
 }
