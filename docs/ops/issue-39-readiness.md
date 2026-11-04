@@ -1,13 +1,13 @@
 # Issue #39 rollout readiness — 2026-11-03
 
-Issue #39 remains **open** and PR #72 remains **draft**. D′ is deployed and
-funded, and both recovery procedures have been exercised. The keeper resumed
-after the operator’s 0.2 SOL top-up at slot 518239892.
-The exhaustion recovery and flat withdrawal completed at slot 518207459.
-P0-31 still lacks complete maker-fault/alert evidence; the small
-post-recovery reduce-only close remains a release blocker. Indexer backfill is
-caught up and the historical batch-414 fill counts reconcile. CI passed for indexer follow-up
-`77764221ef097b8d15d2e375abeb544640359348`. This is not a production sign-off.
+Issue #39 remains **open** and PR #72 remains **draft**. P0-32's recovery
+procedures and post-recovery one-lot reduce-only close now pass for the recorded
+D′ deployment. The paired audit at settlement slot 518396452 evaluated one
+reduce-only fill, +1 → 0 lots, with zero violations. P1-4 passes for the recorded
+preview. P0-31 still lacks missing-maker-depth/UI and delivered external alert
+evidence. Backfill caught up on November 3, but a later free-instance restart
+reset ephemeral replay; the November 4 status is behind again. This is not a
+production sign-off.
 
 ## Dated correction — public rollout and rehearsal evidence
 
@@ -30,7 +30,7 @@ records executable hashes, service pins and the preview.
 | Required row | Assessment | Evidence and remaining limits |
 | --- | --- | --- |
 | P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker left resting GTC depth `ok`; missing executable maker depth and actual external alert delivery remain unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
-| P0-32 | **procedures exercised; final gate review pending** | The post-upgrade batch-201 stall/recovery above also exercises the Cleared >2 min runbook. The exhaustion sequence below proves real debt, auto-pause, debt repayment, ordered unpause and a successful flat withdrawal. No successful taker reduce-only close occurred: liquidation removed the position first. Runbook follow-up and transaction-paired invariant evidence remain explicit limits. |
+| P0-32 | **pass for recorded deployment** | Post-upgrade batch 201 stalled Cleared >120 s and recovered. Genuine exhaustion produced debt and auto-pause, followed by repayment, withdrawals-before-trading unpause and successful flat withdrawal. The [November 4 follow-up](#post-recovery-reduce-only-close--november-4-0030-utc) adds a confirmed one-lot reduce-only close and paired state/settlement audit, +1 → 0, zero violations. |
 | P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
 
 An earlier batch-92 Cleared rehearsal preceded the matcher upgrade at slot
@@ -94,14 +94,14 @@ not passes. No open positions remain for the net-position consistency check.
 
 ### Remaining work
 
-Keep #39 open and PR #72 draft until P0-31 and P0-32 have their full required
-evidence. Confirm actual external alert delivery, complete the missing maker
-fault/UX evidence, and complete the insurance runbook's small successful
-reduce-only close after recovery, retaining paired snapshots for invariant 5.
+Keep #39 open and PR #72 draft until P0-31 has its full required evidence.
+Confirm actual external alert delivery and complete the missing maker fault/UX
+evidence. P0-32 now has its successful small close and paired invariant evidence.
 The genuine liquidation already proves exhaustion; do not repeat the destructive
 drill solely because liquidation beat the originally planned taker close.
-Complete indexer backfill, show the early fills without duplicates, and recheck
-health. Free Render instances have ephemeral storage and can sleep after idle
+Backfill caught up and batch-414 fills reconciled on November 3; a later
+free-instance restart reset replay, so observe catch-up again and recheck health.
+Free Render instances have ephemeral storage and can sleep after idle
 periods: keep `/healthz` warm during drills and do not redeploy/reset the indexer
 just to update documentation. Record each actual service/source pin and rerun
 affected evidence after behavior changes; identical SHAs across services are not
@@ -169,6 +169,52 @@ At 14:05:25 UTC, [all aggregate checks were green](evidence/issue-39-2026-11-03/
 The [historical taker fill](evidence/issue-39-2026-11-03/indexer-caught-up-taker-fills.json) shows 300 lots in batch 414 at slot 518204880. [API trades](evidence/issue-39-2026-11-03/indexer-caught-up-trades.json) contain three maker rows of 100 lots plus one taker row of 300. [Spent on-chain results](evidence/issue-39-2026-11-03/indexer-batch414-results.json) identify three distinct maker orders 1773–1775 and taker order 1776. [Reconciliation](evidence/issue-39-2026-11-03/indexer-batch414-reconciliation.json) confirms matching price/quantity/role multiplicities: the three similar maker rows are real separate fills, not replay duplication. This reconciles the observed batch, not every stored database row. The [book](evidence/issue-39-2026-11-03/indexer-caught-up-book.json) remains two-sided.
 
 The one-lot post-recovery open/reduce-only close and maker-depth/externally delivered alert evidence remain outstanding. The agent’s read-only paired-state observer is prepared; the operator signs each transaction locally after simulation.
+
+### Post-recovery reduce-only close — November 4, 00:30 UTC
+
+The operator's second bounded 0.2 SOL keeper top-up landed at slot 518395246;
+0.05 SOL collateral deposit at 518395329. A one-lot buy was confirmed at slot
+518396316 and settled in batch 589. The reduce-only sell was confirmed at slot
+**518396411**, signature
+`5Vu7JQKpHH8tXn65aEBAiZbQGNQGpNrV69YtuJjhi4v2W7qxjatw76ECKtx8GTCzsmvybniNAWJroeptcxRBj2VT`.
+Its approved limit was $91.87803, unchanged when binding the transaction to fresh
+batch 591. [Independent confirmed RPC verification](evidence/issue-39-2026-11-04/p032-small-close-confirmed.json)
+retains all four transactions and their successful metadata. Earlier rejected
+open preparations did not sign or send. Batch rollover after operator approval
+now rebinds only the batch account, preserves approved economics, and repeats
+unsigned simulation before a single send. An incorrect temporary account-count
+check was corrected before any open submission.
+
+The read-only observer captured [before](evidence/issue-39-2026-11-04/p032-reduce-before.json)
+at slot 518396445, [settlement](evidence/issue-39-2026-11-04/p032-reduce-settlement.json)
+`2fwzhB6povLpAi4ozXfpg8Vz6xNtVhdr4woKEdernATgLxGEzWbyQuSq2WAiYZL7h4nNLWr8Cg2LzdVBdC68WM7B`
+at slot **518396452**, and [after](evidence/issue-39-2026-11-04/p032-reduce-after.json)
+at slot 518396456. The [paired audit](evidence/issue-39-2026-11-04/p032-reduce-paired-audit.json)
+evaluates one reduce-only fill, order 5384, quantity 1: exposure **+1 → 0**.
+It reports zero snapshot/transition violations over the atomic vault, registry,
+all discovered canonical market portfolios, target batch and receipt. Successful
+SettleBatch metadata and independent owner-checked raw portfolio decoding agree.
+
+The separate [end-of-run snapshot audit](evidence/issue-39-2026-11-04/p032-small-close-snapshot-audit.json)
+at slot 518397103 reports zero violations across two portfolios and 602 receipts.
+Its single-snapshot reduce check remains not evaluable; the paired audit above
+provides that evidence. Checks without eligible state remain not evaluable.
+Both portfolios are flat; taker equity is 49,998,032 lamports, insurance
+1,487,143,902, debt 0, pause flags 0. The deposit remains as collateral.
+[Deployment verification](evidence/issue-39-2026-11-04/deployment-verification.json)
+confirms unchanged executable hashes and actual source pins.
+
+[Status at 00:31 UTC](evidence/issue-39-2026-11-04/p032-small-close-status.json)
+shows oracle, batch, depth, fees, insurance, pause and RPC green. Indexer lag is
+237,723 slots after a free-instance restart; November 3's caught-up observation
+is historical. A read-only catch-up watcher is running again. The keeper was
+suspended at 00:32:11 UTC to conserve rent after the flat close, but its in-flight
+ClearBatch completed first: [later state](evidence/issue-39-2026-11-04/p032-post-close-keeper-stopped.json)
+has batch 601 Cleared and settlement lock 1. Its balance subsequently fell below
+the 10M floor. This does not invalidate the recorded close; the market must be
+unlocked before maker quote cancellation. No further trading or repeat
+insurance-exhaustion drill is needed. UptimeRobot opens at its login page;
+external alert configuration and actual delivery remain unverified.
 
 ## Historical investigation — retained as observed
 

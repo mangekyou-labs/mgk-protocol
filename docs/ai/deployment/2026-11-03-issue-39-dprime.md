@@ -50,3 +50,22 @@ Recovery transaction details and audit limits are in the readiness assessment. P
 Render confirmed the indexer performance/status deployment live at 12:32:19 UTC. The [sanitized deployment observation](../../ops/evidence/issue-39-2026-11-03/indexer-7776422-deployment.json) records the new pin and three successful status requests (797–1,456 ms). The D′ preview now displays the actual delayed-batch and low-fee-SOL warnings; [browser evidence](../../ops/evidence/issue-39-2026-11-03/p031-fees-batch-banner.png) accompanies the [critical status](../../ops/evidence/issue-39-2026-11-03/p031-followup-fees-status.json). This performance deployment reset ephemeral replay storage, as expected. Catch-up and external alert delivery remain separate verification requirements. No worker or program upgrade occurred.
 
 All hosted checks subsequently passed for `7776422`, verified with `gh pr checks 72` at 12:39 UTC: [SBF/Rust](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351383), [browser](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351459), and [frontend/layout](https://github.com/mangekyou-labs/mgk-protocol/actions/runs/41636351564). The [hosted replay measurement](../../ops/evidence/issue-39-2026-11-03/indexer-hosted-7776422.json) shows 26.41 slots/s against chain growth of 4.19 slots/s over 126 seconds. Replay remains incomplete.
+
+## Post-recovery close — November 4, 00:30 UTC
+
+P0-32's one-lot reduce-only close settled in batch 591 at slot 518396452. The
+[paired audit](../../ops/evidence/issue-39-2026-11-04/p032-reduce-paired-audit.json)
+reports +1 → 0 lots and zero violations. Independent RPC transaction verification
+and raw pre/post portfolio decoding agree; the readiness assessment links the
+full evidence. No program, worker, indexer or frontend deployment was changed.
+[Fresh executable/service verification](../../ops/evidence/issue-39-2026-11-04/deployment-verification.json)
+confirms the same program bytes and source pins.
+
+Both portfolios are flat. Keeper suspension after the close did not prevent the
+in-flight empty batch 601 reaching Cleared and its balance dropping below the
+fee floor. Settlement lock 1 must be released before the maker-depth drill.
+Indexer replay restarted after free-instance sleep; the previously caught-up
+November 3 observation is historical. No documentation-only redeploy is needed.
+P0-31 maker-depth/UI and delivered external alert evidence remain pending; keep
+PR #72 draft and #39 open. CI for documentation head `68062fd` was freshly
+checked: SBF runtime, Rust lint/tests, frontend/layout and browser checks passed.

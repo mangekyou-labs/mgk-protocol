@@ -1,0 +1,445 @@
+{
+  "observedAt": "2026-11-04T00:31:52.155Z",
+  "status": "pass",
+  "transactions": [
+    {
+      "action": "topup-keeper",
+      "signature": "2KwjwMoP9t7RQbzt8v9e1v1TpwtPMKLzFNruKWqx8rg5iKPETcrcAafgRu264tXrfavwAqyU1oSDSg9jsL9oZr7j",
+      "slot": 518395246,
+      "fee": 5000,
+      "err": null,
+      "detail": "Keeper fee-only transfer to FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2; current balance 9541240",
+      "amount": "0.2 SOL = 200000000 lamports (~33 batches; mostly newly created account rent)",
+      "transaction": {
+        "transaction": {
+          "signatures": [
+            "2KwjwMoP9t7RQbzt8v9e1v1TpwtPMKLzFNruKWqx8rg5iKPETcrcAafgRu264tXrfavwAqyU1oSDSg9jsL9oZr7j"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 1
+            },
+            "accountKeys": [
+              "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+              "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+              "11111111111111111111111111111111"
+            ],
+            "recentBlockhash": "EX3UPUh6iiaJxtAo15KYtV12ToffFuWs82mdok3FfKdx",
+            "instructions": [
+              {
+                "programIdIndex": 2,
+                "accounts": [
+                  0,
+                  1
+                ],
+                "data": "3Bxs3zz3fjzUYuEP",
+                "stackHeight": 1
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "preBalances": [
+            8919455732,
+            9541240,
+            1
+          ],
+          "postBalances": [
+            8719450732,
+            209541240,
+            1
+          ],
+          "innerInstructions": [],
+          "logMessages": [
+            "Program 11111111111111111111111111111111 invoke [1]",
+            "Program 11111111111111111111111111111111 success"
+          ],
+          "preTokenBalances": [],
+          "postTokenBalances": [],
+          "rewards": [],
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "computeUnitsConsumed": 150,
+          "costUnits": 1481
+        },
+        "version": "legacy",
+        "slot": 518395246,
+        "transactionIndex": 3,
+        "blockTime": 1793751919
+      }
+    },
+    {
+      "action": "deposit",
+      "signature": "2MXW2zgAFLm8RhBBMTQikCBA4BvoNt7pXgPwfz9MwWZ8zEPNZv3AhLEKSuSRtduVMckdqWixrXjw2JpFLGMMRkdD",
+      "slot": 518395329,
+      "fee": 5000,
+      "err": null,
+      "detail": "Deposit collateral; recipient vault D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+      "amount": "0.05 SOL = 50000000 lamports",
+      "transaction": {
+        "transaction": {
+          "signatures": [
+            "2MXW2zgAFLm8RhBBMTQikCBA4BvoNt7pXgPwfz9MwWZ8zEPNZv3AhLEKSuSRtduVMckdqWixrXjw2JpFLGMMRkdD"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2
+            },
+            "accountKeys": [
+              "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+              "9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr",
+              "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+              "11111111111111111111111111111111",
+              "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT"
+            ],
+            "recentBlockhash": "F3bbrbJnNFgEa12zavk1TZ5hkAXwDmcCyRkFS48FJMFx",
+            "instructions": [
+              {
+                "programIdIndex": 4,
+                "accounts": [
+                  1,
+                  0,
+                  3,
+                  2
+                ],
+                "data": "VveyRDTeiNf1TS3v4AnLd4yxS71NRpFamcswwrqK5M2FVR56YcaiBqXUj",
+                "stackHeight": 1
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "preBalances": [
+            8719450732,
+            15118080,
+            5581056640,
+            1,
+            833120
+          ],
+          "postBalances": [
+            8669445732,
+            15118080,
+            5631056640,
+            1,
+            833120
+          ],
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 3,
+                  "accounts": [
+                    0,
+                    2
+                  ],
+                  "data": "3Bxs4NRZ15a54oAf",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+            "Program log: Instruction: Deposit",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program log: Deposit successful",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 33221 of 200000 compute units",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+          ],
+          "preTokenBalances": [],
+          "postTokenBalances": [],
+          "rewards": [],
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "computeUnitsConsumed": 33221,
+          "costUnits": 34923
+        },
+        "version": "legacy",
+        "slot": 518395329,
+        "transactionIndex": 16,
+        "blockTime": 1793751939
+      }
+    },
+    {
+      "action": "open",
+      "signature": "589g5m9hupJrvWHF3BbVdvFvjWyeQjcyUSa8wE1qEdC9WEQcVnNTrYy2q1LCtQp3Luc9bHRjKfYGjjru8mWyPQUX",
+      "slot": 518396316,
+      "fee": 5000,
+      "err": null,
+      "detail": "BUY 1 lot (0.001 SOL base), limit USD 92.036945, batch 588; portfolio 9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr; book 7bbMK7jCC1V69hDbFvezdVfWvVW1LRR916AQdjLY6s9y; submitted batch 589; unchanged approved limit and quantity",
+      "amount": "0 SOL transfer",
+      "transaction": {
+        "transaction": {
+          "signatures": [
+            "589g5m9hupJrvWHF3BbVdvFvjWyeQjcyUSa8wE1qEdC9WEQcVnNTrYy2q1LCtQp3Luc9bHRjKfYGjjru8mWyPQUX"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 6
+            },
+            "accountKeys": [
+              "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+              "7bbMK7jCC1V69hDbFvezdVfWvVW1LRR916AQdjLY6s9y",
+              "9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr",
+              "Bscwj4TByVdkZKMwFp63rcA6fRwGz9gHSQ2b9vVkUGdi",
+              "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+              "8AofYA4NehNa9dLxQh2Gspo8Vi5a4H1m4qzGQHeQj5cZ",
+              "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+              "CAQQ1icLLyeaMJtPyi8vE8RY3MBLnYLpNtUr6miouvFN",
+              "CbwTpmDgb6KKfBpv156754dXBpCoKPyjGt1kmJAb8mtR",
+              "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k"
+            ],
+            "recentBlockhash": "7C9AtMWaAhcmsavvs873Y5aLgmMnAa38hykSNHg2Yn41",
+            "instructions": [
+              {
+                "programIdIndex": 6,
+                "accounts": [
+                  2,
+                  0,
+                  3,
+                  8,
+                  1,
+                  4,
+                  5,
+                  7,
+                  9
+                ],
+                "data": "BdmFQMxvQ1D7WjABNZF4TvpGP3TxSgSWWAZKNLC8eM8Gad8nkM7WkffNfkvvVsUy4XvLu4Xv3hZ",
+                "stackHeight": 1
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "preBalances": [
+            8669445732,
+            141427200,
+            15118080,
+            1544320,
+            833120,
+            2438400,
+            833120,
+            1300480,
+            1127760,
+            5631056640
+          ],
+          "postBalances": [
+            8669440732,
+            141427200,
+            15118080,
+            1544320,
+            833120,
+            2438400,
+            833120,
+            1300480,
+            1127760,
+            5631056640
+          ],
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 4,
+                  "accounts": [
+                    8,
+                    0,
+                    1
+                  ],
+                  "data": "29ik1oPMFsaLBkXq2AQong7HZYRL4QvHCPfUBtdEnrZYH6yrYesT6WyXAd4VU92NnjQdEJf8TNs5JaQsBbdZGW9uLdeLLAFALT2HSCy8YZXXt2RcKftenqM",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+            "Program log: Instruction: PostOrder",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+            "Program log: Instruction: PlaceResting",
+            "Program log: PlaceResting: order placed",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 24448 of 58820 compute units",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+            "Program log: PostOrder: placed",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 165777 of 200000 compute units",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+          ],
+          "preTokenBalances": [],
+          "postTokenBalances": [],
+          "rewards": [],
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "computeUnitsConsumed": 165777,
+          "costUnits": 167806
+        },
+        "version": "legacy",
+        "slot": 518396316,
+        "transactionIndex": 5,
+        "blockTime": 1793752176
+      }
+    },
+    {
+      "action": "close",
+      "signature": "5Vu7JQKpHH8tXn65aEBAiZbQGNQGpNrV69YtuJjhi4v2W7qxjatw76ECKtx8GTCzsmvybniNAWJroeptcxRBj2VT",
+      "slot": 518396411,
+      "fee": 5000,
+      "err": null,
+      "detail": "REDUCE ONLY SELL 1 lot (0.001 SOL base), limit USD 91.87803, batch 590; portfolio 9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr; book 7bbMK7jCC1V69hDbFvezdVfWvVW1LRR916AQdjLY6s9y; submitted batch 591; unchanged approved limit and quantity",
+      "amount": "0 SOL transfer",
+      "transaction": {
+        "transaction": {
+          "signatures": [
+            "5Vu7JQKpHH8tXn65aEBAiZbQGNQGpNrV69YtuJjhi4v2W7qxjatw76ECKtx8GTCzsmvybniNAWJroeptcxRBj2VT"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 6
+            },
+            "accountKeys": [
+              "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+              "7bbMK7jCC1V69hDbFvezdVfWvVW1LRR916AQdjLY6s9y",
+              "9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr",
+              "Bj5UrCwPEWofW5hMEVntnhBY3Q6Rhx8Vn5AuTB1QjPH1",
+              "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+              "8AofYA4NehNa9dLxQh2Gspo8Vi5a4H1m4qzGQHeQj5cZ",
+              "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+              "CAQQ1icLLyeaMJtPyi8vE8RY3MBLnYLpNtUr6miouvFN",
+              "CbwTpmDgb6KKfBpv156754dXBpCoKPyjGt1kmJAb8mtR",
+              "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k"
+            ],
+            "recentBlockhash": "7DvjDc59iEvneqwkH8f6vhjYTtEkHxVXTmNSUjUR2che",
+            "instructions": [
+              {
+                "programIdIndex": 6,
+                "accounts": [
+                  2,
+                  0,
+                  3,
+                  8,
+                  1,
+                  4,
+                  5,
+                  7,
+                  9
+                ],
+                "data": "BdmFQMxvQ1D7WjABNZF4TvpGP3TxSgSWWAZKNLC8eM8Gad8rKQ8GZjZeFCUgcEkEpWsWgucUpnC",
+                "stackHeight": 1
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "preBalances": [
+            8669440732,
+            141427200,
+            15118080,
+            1544320,
+            833120,
+            2438400,
+            833120,
+            1300480,
+            1127760,
+            5631056640
+          ],
+          "postBalances": [
+            8669435732,
+            141427200,
+            15118080,
+            1544320,
+            833120,
+            2438400,
+            833120,
+            1300480,
+            1127760,
+            5631056640
+          ],
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 4,
+                  "accounts": [
+                    8,
+                    0,
+                    1
+                  ],
+                  "data": "29ik1oPMFsaLBkXq2AQong7HZYRL4QvHCPfUBtdEnrZYH6yrYesT6WyXAd4VU92NnjQdEJf8TNs5JaQsBbdZGW9uLdePuDFv9WvZ1eWtevnoe1Nn7WyDZuz",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+            "Program log: Instruction: PostOrder",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+            "Program log: Instruction: PlaceResting",
+            "Program log: PlaceResting: order placed",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 24454 of 67079 compute units",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+            "Program log: PostOrder: placed",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 157524 of 200000 compute units",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+          ],
+          "preTokenBalances": [],
+          "postTokenBalances": [],
+          "rewards": [],
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "computeUnitsConsumed": 157524,
+          "costUnits": 159553
+        },
+        "version": "legacy",
+        "slot": 518396411,
+        "transactionIndex": 2,
+        "blockTime": 1793752198
+      }
+    }
+  ],
+  "settlement": {
+    "signature": "2fwzhB6povLpAi4ozXfpg8Vz6xNtVhdr4woKEdernATgLxGEzWbyQuSq2WAiYZL7h4nNLWr8Cg2LzdVBdC68WM7B",
+    "slot": 518396452,
+    "fee": 5000,
+    "err": null
+  },
+  "scope": "Independent confirmed RPC transaction lookup, stored settlement transaction match, owner-checked raw pre/post portfolio decoding: +1 to 0 lots."
+}

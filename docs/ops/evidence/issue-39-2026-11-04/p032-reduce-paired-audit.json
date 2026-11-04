@@ -1,0 +1,23 @@
+{
+  "observedAt": "2026-11-04T00:30:11.014Z",
+  "status": "pass",
+  "invariant": "a valid reduce never increases exposure",
+  "evaluated": 1,
+  "violations": [],
+  "signature": "2fwzhB6povLpAi4ozXfpg8Vz6xNtVhdr4woKEdernATgLxGEzWbyQuSq2WAiYZL7h4nNLWr8Cg2LzdVBdC68WM7B",
+  "settlementSlot": 518396452,
+  "beforeSlot": 518396445,
+  "afterSlot": 518396456,
+  "eligible": [
+    {
+      "batchId": "591",
+      "user": "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+      "portfolio": "9FRHcQpGJ1mTTZX73LJ6hizmX3CL25tTjy4Yx4QU1orr",
+      "instrumentId": 0,
+      "orderId": "5384",
+      "filledQty": "1",
+      "beforeQty": "1"
+    }
+  ],
+  "scope": "atomic snapshots of one batch and all discovered canonical market portfolios; checker.after ran all snapshot and transition checks"
+}
