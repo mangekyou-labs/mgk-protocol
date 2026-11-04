@@ -458,3 +458,25 @@ test('createSoakDrive skips a poll when the hosted ladder has no level', async (
   assert.equal(fake.posts.length, 0);
   assert.equal((await drive.stats()).skipped, 1);
 });
+
+test('checkFees credits the fund with fees minus realized PnL rounding dust', () => {
+  const pf = (feesPaid, realizedLamports) => ({ portfolio: { feesPaid, realizedLamports } });
+  const result = {
+    verdict: { pass: true, conversion: 93255000n, fills: [
+      { user: 'M', qty: 2n, price: 93255000n, isMaker: true },
+      { user: 'T', qty: 1n, price: 93255000n, isMaker: false },
+      { user: 'Q', qty: 1n, price: 93255000n, isMaker: false },
+    ] },
+    settled: {
+      pre: { vault: { insuranceFund: 0n }, users: { M: pf(0n, 0n), T: pf(0n, 0n), Q: pf(0n, 0n) } },
+      post: { vault: { insuranceFund: 1001n }, users: { M: pf(0n, -401n), T: pf(500n, 200n), Q: pf(500n, 200n) } },
+    },
+  };
+  const c = drows.checker();
+  drows.checkFees(c, 'close', result);
+  assert.equal(c.pass, true, JSON.stringify(c.steps));
+  result.settled.post.vault.insuranceFund = 1000n;
+  const strict = drows.checker();
+  drows.checkFees(strict, 'close', result);
+  assert.equal(strict.pass, false);
+});

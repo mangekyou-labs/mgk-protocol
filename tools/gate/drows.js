@@ -1017,7 +1017,11 @@ function checkFees(c, label, result) {
   const users = [...new Set(takerFills.map(f => f.user))];
   const charged = sum(users.map(u => settled.post.users[u].portfolio.feesPaid - settled.pre.users[u].portfolio.feesPaid));
   c.eq(`${label}: taker fees = sum ceil(qty*price*5bps/conversion)`, charged, expected);
-  c.eq(`${label}: insurance fund delta = taker fees`, settled.post.vault.insuranceFund - settled.pre.vault.insuranceFund, expected);
+  // The fund is the realized-PnL counterparty and debits floor away from zero,
+  // so it also absorbs the negated realized PnL (rounding dust included).
+  const fillUsers = [...new Set(verdict.fills.filter(f => f.qty > 0n).map(f => f.user))];
+  const realized = sum(fillUsers.map(u => settled.post.users[u].portfolio.realizedLamports - settled.pre.users[u].portfolio.realizedLamports));
+  c.eq(`${label}: insurance fund delta = taker fees - realized PnL`, settled.post.vault.insuranceFund - settled.pre.vault.insuranceFund, expected - realized);
   for (const f of verdict.fills.filter(item => item.qty > 0n && item.isMaker)) {
     c.eq(`${label}: maker ${f.user} pays no fee`, settled.post.users[f.user].portfolio.feesPaid - settled.pre.users[f.user].portfolio.feesPaid, 0);
   }
@@ -1140,7 +1144,8 @@ const ROWS = {
       ]);
       checkTrade(c, ctx, full);
       checkFees(c, 'full close', full);
-      for (const persona of [M, T, Q]) c.eq(`full close: ${persona.name} flat`, pfOf(full.settled.post, persona).qty, 0);
+      for (const persona of [M, T]) c.eq(`full close: ${persona.name} flat`, pfOf(full.settled.post, persona).qty, 0);
+      c.eq('partial close: qa flat', pfOf(partial.settled.post, Q).qty, 0);
     },
   },
   'P0-7': {
@@ -1699,6 +1704,8 @@ module.exports = {
   crossingPrice,
   nextTakerSide,
   ROWS,
+  checker,
+  checkFees,
   runRow,
   runRows,
   runLatency,
