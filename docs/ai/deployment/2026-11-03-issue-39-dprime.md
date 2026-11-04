@@ -69,3 +69,15 @@ November 3 observation is historical. No documentation-only redeploy is needed.
 P0-31 maker-depth/UI and delivered external alert evidence remain pending; keep
 PR #72 draft and #39 open. CI for documentation head `68062fd` was freshly
 checked: SBF runtime, Rust lint/tests, frontend/layout and browser checks passed.
+
+## Maker-depth gate follow-up — November 4, 00:58 UTC
+
+The operator settled empty batch 601 once and cancelled maker quotes after
+suspending maker. Live missing-depth critical status and the actual preview
+warning were captured; maker resumed, both depth sides recovered, and the warning
+cleared. [Readiness evidence](../../ops/issue-39-readiness.md#maker-depth-outage-and-recovery--november-4-0058-utc)
+retains independently confirmed transactions, status and screenshots. An invalid
+Playwright command was corrected without repeating either transaction. Program
+and service source pins are unchanged. P0-31 now lacks delivered external alert
+evidence; UptimeRobot requires operator authentication. Keep PR #72 draft and #39
+open. Keeper remains suspended and indexer replay continues.

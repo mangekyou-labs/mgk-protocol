@@ -4,8 +4,8 @@ Issue #39 remains **open** and PR #72 remains **draft**. P0-32's recovery
 procedures and post-recovery one-lot reduce-only close now pass for the recorded
 D′ deployment. The paired audit at settlement slot 518396452 evaluated one
 reduce-only fill, +1 → 0 lots, with zero violations. P1-4 passes for the recorded
-preview. P0-31 still lacks missing-maker-depth/UI and delivered external alert
-evidence. Backfill caught up on November 3, but a later free-instance restart
+preview. P0-31 now has missing-maker-depth/UI and recovery evidence; delivered external
+alert evidence remains pending. Backfill caught up on November 3, but a later free-instance restart
 reset ephemeral replay; the November 4 status is behind again. This is not a
 production sign-off.
 
@@ -29,7 +29,7 @@ records executable hashes, service pins and the preview.
 
 | Required row | Assessment | Evidence and remaining limits |
 | --- | --- | --- |
-| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker left resting GTC depth `ok`; missing executable maker depth and actual external alert delivery remain unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
+| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker alone left resting GTC depth `ok`; the [November 4 cancellation drill](#maker-depth-outage-and-recovery--november-4-0058-utc) proves missing-depth critical status, browser warning and restored quotes. Actual external alert delivery remains unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
 | P0-32 | **pass for recorded deployment** | Post-upgrade batch 201 stalled Cleared >120 s and recovered. Genuine exhaustion produced debt and auto-pause, followed by repayment, withdrawals-before-trading unpause and successful flat withdrawal. The [November 4 follow-up](#post-recovery-reduce-only-close--november-4-0030-utc) adds a confirmed one-lot reduce-only close and paired state/settlement audit, +1 → 0, zero violations. |
 | P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
 
@@ -95,8 +95,8 @@ not passes. No open positions remain for the net-position consistency check.
 ### Remaining work
 
 Keep #39 open and PR #72 draft until P0-31 has its full required evidence.
-Confirm actual external alert delivery and complete the missing maker fault/UX
-evidence. P0-32 now has its successful small close and paired invariant evidence.
+Confirm actual external alert delivery. Missing maker fault/UX and recovery
+evidence is now recorded below. P0-32 now has its successful small close and paired invariant evidence.
 The genuine liquidation already proves exhaustion; do not repeat the destructive
 drill solely because liquidation beat the originally planned taker close.
 Backfill caught up and batch-414 fills reconciled on November 3; a later
@@ -215,6 +215,33 @@ the 10M floor. This does not invalidate the recorded close; the market must be
 unlocked before maker quote cancellation. No further trading or repeat
 insurance-exhaustion drill is needed. UptimeRobot opens at its login page;
 external alert configuration and actual delivery remain unverified.
+
+### Maker-depth outage and recovery — November 4, 00:58 UTC
+
+The operator's one-shot empty SettleBatch confirmed at slot **518403506**,
+releasing the settlement lock and creating batch 602 Collecting. After maker
+suspension, CancelAllRestingOrders confirmed at **518403603**. Both successful
+transactions, each with a 5,000-lamport fee, were independently fetched from RPC
+in [confirmed evidence](evidence/issue-39-2026-11-04/p031-maker-drill-confirmed.json).
+No keeper top-up, new trade or repeat insurance exhaustion occurred.
+
+At 00:58:44 UTC the [live depth check](evidence/issue-39-2026-11-04/p031-maker-depth-critical.json)
+reported critical, bid false, ask false. The first browser command failed because
+Playwright CLI requires a function argument. The wizard's exit handler resumed
+maker; while live depth was still critical, the agent corrected the command and
+captured the actual [missing-depth warning](evidence/issue-39-2026-11-04/p031-maker-depth-banner.png).
+No status interception or mocked responses were used. Historical book rows
+remain visible because indexer replay is behind; they are not live depth evidence.
+
+Maker [resumption](evidence/issue-39-2026-11-04/p031-maker-resume.json) restored
+quotes. At 00:59:42 UTC the [live check](evidence/issue-39-2026-11-04/p031-maker-depth-ok.json)
+reported ok with both sides present. The [recovery screenshot](evidence/issue-39-2026-11-04/p031-maker-depth-recovered.png)
+shows the depth warning removed and maker quotes displayed. No signed transaction
+was repeated. Keeper remains suspended; low-fee and delayed-batch warnings remain
+expected, and replay is still catching up. P0-31's missing-depth/UI evidence is
+complete for this recorded preview; external alert delivery remains unverified.
+The monitoring browser still opens at UptimeRobot login, requiring operator
+account authentication before monitor configuration or delivery can be checked.
 
 ## Historical investigation — retained as observed
 

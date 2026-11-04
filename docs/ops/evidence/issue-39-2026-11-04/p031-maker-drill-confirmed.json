@@ -1,0 +1,269 @@
+{
+  "observedAt": "2026-11-04T01:00:07.705Z",
+  "status": "pass",
+  "scope": "Independent confirmed RPC lookups; no signing or sending",
+  "transactions": [
+    {
+      "action": "settle-empty",
+      "signature": "3NmermMvKbUdU3KTkLEbtdCLHt9juLpzY1rU2wif3rLiVGtQAwepnoLJXvyreMaDeH3V5DfiTvBqsBr67cGS53eM",
+      "slot": 518403506,
+      "fee": 5000,
+      "err": null,
+      "transaction": {
+        "transaction": {
+          "signatures": [
+            "3NmermMvKbUdU3KTkLEbtdCLHt9juLpzY1rU2wif3rLiVGtQAwepnoLJXvyreMaDeH3V5DfiTvBqsBr67cGS53eM"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 5
+            },
+            "accountKeys": [
+              "GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4",
+              "5QkUBvw2DkSnd7zUWYm2Zq14hFjp7f35XdLUeGDmSsjL",
+              "7bbMK7jCC1V69hDbFvezdVfWvVW1LRR916AQdjLY6s9y",
+              "8AofYA4NehNa9dLxQh2Gspo8Vi5a4H1m4qzGQHeQj5cZ",
+              "CbwTpmDgb6KKfBpv156754dXBpCoKPyjGt1kmJAb8mtR",
+              "D1qhB6uNqWJWWfwv8SWWTFytdcAjbSH4w1YYoME1ub1k",
+              "FD59yQDVkmDT4kAfSaBM2faLSCPDXvpZ3PnpqQMhTfGW",
+              "HAN22oVsG9FSZxw8TEd1t155QoFwsCi7s6c5x8QxnCZf",
+              "11111111111111111111111111111111",
+              "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+              "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+              "CAQQ1icLLyeaMJtPyi8vE8RY3MBLnYLpNtUr6miouvFN",
+              "ComputeBudget111111111111111111111111111111"
+            ],
+            "recentBlockhash": "H3FjCWE3RVL1rECbMDe8VBwNZimbug24mTW1ub4ZDbNH",
+            "instructions": [
+              {
+                "programIdIndex": 12,
+                "accounts": [],
+                "data": "Kq1GWK",
+                "stackHeight": 1
+              },
+              {
+                "programIdIndex": 10,
+                "accounts": [
+                  7,
+                  4,
+                  5,
+                  6,
+                  3,
+                  2,
+                  11,
+                  9,
+                  1,
+                  0,
+                  8
+                ],
+                "data": "LWc4TZxmo8Krov29x7essierykw7XFNjzbk3rwfmovM5gYRbKuRf4",
+                "stackHeight": 1
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "preBalances": [
+            8669435732,
+            0,
+            141427200,
+            2438400,
+            1127760,
+            5631056640,
+            4445000,
+            1544320,
+            1,
+            833120,
+            833120,
+            1300480,
+            1
+          ],
+          "postBalances": [
+            8667886412,
+            1544320,
+            141427200,
+            2438400,
+            1127760,
+            5631056640,
+            4445000,
+            1544320,
+            1,
+            833120,
+            833120,
+            1300480,
+            1
+          ],
+          "innerInstructions": [
+            {
+              "index": 1,
+              "instructions": [
+                {
+                  "programIdIndex": 8,
+                  "accounts": [
+                    0,
+                    1
+                  ],
+                  "data": "11115iXeDtPuYSFbm2VjExRL69xWD56DNioK7F5sepGERzRfMMCpzip6HvFe4AquEerkK7",
+                  "stackHeight": 2
+                },
+                {
+                  "programIdIndex": 9,
+                  "accounts": [
+                    4,
+                    6
+                  ],
+                  "data": "BXvv2aGKk1e9tzwVAz3iCgRj3crFNfUueLTygSz2uWHwmt79tpnCCsu7u",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [
+            "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+            "Program ComputeBudget111111111111111111111111111111 success",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+            "Program log: Instruction: SettleBatch",
+            "Program 11111111111111111111111111111111 invoke [2]",
+            "Program 11111111111111111111111111111111 success",
+            "Program log: SettleBatch: next batch PDA created",
+            "Program data: bWdrLXNldHRsZW1lbnQtdjE= WQIAAAAAAAAAAA==",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 18521 of 88087 compute units",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 230330 of 299850 compute units",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+          ],
+          "preTokenBalances": [],
+          "postTokenBalances": [],
+          "rewards": [],
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "computeUnitsConsumed": 230480,
+          "costUnits": 233707
+        },
+        "version": "legacy",
+        "slot": 518403506,
+        "transactionIndex": 4,
+        "blockTime": 1793753898
+      }
+    },
+    {
+      "action": "cancel-maker",
+      "signature": "SBxCY88ye32sSmAJMnweBzsq9pnhTUGyutpJorbjvuN3R8YwuV4mWu1Rs6jdapC3BkLWTkREdvknebgtRWo2LSE",
+      "slot": 518403603,
+      "fee": 5000,
+      "err": null,
+      "transaction": {
+        "transaction": {
+          "signatures": [
+            "SBxCY88ye32sSmAJMnweBzsq9pnhTUGyutpJorbjvuN3R8YwuV4mWu1Rs6jdapC3BkLWTkREdvknebgtRWo2LSE"
+          ],
+          "message": {
+            "header": {
+              "numRequiredSignatures": 1,
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 3
+            },
+            "accountKeys": [
+              "DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o",
+              "6e1YB5TKEGnBTj2ke8UPfTRE5jQtGBDJNrKHTk1QyGV1",
+              "7bbMK7jCC1V69hDbFvezdVfWvVW1LRR916AQdjLY6s9y",
+              "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+              "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+              "CbwTpmDgb6KKfBpv156754dXBpCoKPyjGt1kmJAb8mtR"
+            ],
+            "recentBlockhash": "GWhaWYryg14ucjdQjUQmy8dTK15PtU7c3Nnk1YcWzyCQ",
+            "instructions": [
+              {
+                "programIdIndex": 4,
+                "accounts": [
+                  1,
+                  0,
+                  3,
+                  2,
+                  5
+                ],
+                "data": "EAHXnQygTEiz892miZf9DsDNWwo7fGiFHDij8wVKZoYzP3zXZ",
+                "stackHeight": 1
+              }
+            ]
+          }
+        },
+        "meta": {
+          "err": null,
+          "status": {
+            "Ok": null
+          },
+          "fee": 5000,
+          "preBalances": [
+            1095275000,
+            15118080,
+            141427200,
+            833120,
+            833120,
+            1127760
+          ],
+          "postBalances": [
+            1095270000,
+            15118080,
+            141427200,
+            833120,
+            833120,
+            1127760
+          ],
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "programIdIndex": 3,
+                  "accounts": [
+                    5,
+                    0,
+                    2
+                  ],
+                  "data": "5EpsC97goDFDen4FkLEZ6avPAXt6vaM2eL8NWFUmKtAGpD4jJyk33FeasqysR4F7KLbdMXf4bRzjHTPBX6crzz9LM5",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+            "Program log: Instruction: CancelAllRestingOrders",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+            "Program log: Instruction: CancelAll",
+            "Program log: CancelAll: removed orders",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 22633 of 121600 compute units",
+            "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+            "Program log: CancelAllRestingOrders: CPI to matcher complete",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 106349 of 200000 compute units",
+            "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+          ],
+          "preTokenBalances": [],
+          "postTokenBalances": [],
+          "rewards": [],
+          "loadedAddresses": {
+            "writable": [],
+            "readonly": []
+          },
+          "computeUnitsConsumed": 106349,
+          "costUnits": 108074
+        },
+        "version": "legacy",
+        "slot": 518403603,
+        "transactionIndex": 4,
+        "blockTime": 1793753921
+      }
+    }
+  ]
+}
