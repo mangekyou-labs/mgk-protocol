@@ -1642,7 +1642,7 @@ async function main(argv = process.argv.slice(2), { log = console.log, error = c
   let driver;
   try {
     options = parseArgs(argv);
-    const manifest = loadManifest(options.deployment);
+    const manifest = loadManifest(JSON.parse(readFileSync(options.deployment, 'utf8')));
     options.manifest = manifest;
     const personas = loadPersonas({ dir: options.keys, names: personaNames(options), forbiddenPubkeys: [manifest.accounts.maker] });
     const connection = new Connection(options.rpc, 'confirmed');
