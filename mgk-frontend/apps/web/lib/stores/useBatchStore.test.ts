@@ -91,24 +91,17 @@ class MockConnection {
       if (resp instanceof Error) throw resp;
       return [resp];
     }
-    if (first && this.expectedBatchPda && first.equals(this.expectedBatchPda)) {
-      this.batchCalls.push(keys);
+    // resolveOpenBatch reads its whole candidate window in one call.
+    const at = this.expectedBatchPda
+      ? keys.findIndex((k) => k.equals(this.expectedBatchPda!))
+      : -1;
+    if (at >= 0) {
+      this.batchCalls.push([keys[at]!]);
       const resp = this.batchResponses[this.batchIdx++] ?? null;
       if (resp instanceof Error) throw resp;
-      return [resp];
+      return keys.map((_, i) => (i === at ? resp : null));
     }
     return keys.map(() => null);
-  }
-
-  // resolveOpenBatch uses getAccountInfo per candidate batch PDA.
-  async getAccountInfo(key: PublicKey): Promise<AccountInfo<Buffer> | null> {
-    if (this.expectedBatchPda && key.equals(this.expectedBatchPda)) {
-      this.batchCalls.push([key]);
-      const resp = this.batchResponses[this.batchIdx++] ?? null;
-      if (resp instanceof Error) throw resp;
-      return resp;
-    }
-    return null;
   }
 
   // Set by the test before each startPolling call: the Batch PDA the
@@ -241,13 +234,17 @@ describe('useBatchStore', () => {
     expect(state.error).toBeNull();
   });
 
-  it('captures errors from getMultipleAccountsInfo on the registry call', async () => {
+  it('reports a registry read error only after repeated failures', async () => {
     const conn = new MockConnection();
-    conn.registryResponses = [new Error('RPC timeout')];
+    conn.registryResponses = [new Error('RPC timeout'), new Error('RPC timeout'), new Error('RPC timeout')];
 
     await useBatchStore.getState().startPolling(
-      buildParams(conn as unknown as Connection, { intervalMs: 50 }),
+      buildParams(conn as unknown as Connection, { intervalMs: 60_000 }),
     );
+    expect(useBatchStore.getState().error).toBeNull();
+    expect(useBatchStore.getState().loading).toBe(true);
+    await useBatchStore.getState().refresh();
+    await useBatchStore.getState().refresh();
 
     const state = useBatchStore.getState();
     expect(state.data).toBeNull();
@@ -255,28 +252,35 @@ describe('useBatchStore', () => {
     expect(state.loading).toBe(false);
   });
 
-  it('preserves the last batch during a transient batch RPC failure', async () => {
+  it('preserves the last batch quietly during a transient batch RPC failure', async () => {
     const conn = new MockConnection();
     conn.expectedBatchPda = sdk.deriveBatchPda(10n, CORE_PK)[0];
-    conn.registryResponses = [
-      makeAccountInfo(makeRegistryBuffer(11n)),
-      makeAccountInfo(makeRegistryBuffer(11n)),
-    ];
+    conn.registryResponses = Array.from({ length: 4 }, () => makeAccountInfo(makeRegistryBuffer(11n)));
     conn.batchResponses = [
       makeAccountInfo(makeBatchBuffer(10n)),
+      new Error('429 Too Many Requests'),
+      new Error('429 Too Many Requests'),
       new Error('429 Too Many Requests'),
     ];
 
     await useBatchStore.getState().startPolling(
-      buildParams(conn as unknown as Connection, { intervalMs: 50 }),
+      buildParams(conn as unknown as Connection, { intervalMs: 60_000 }),
     );
-    await useBatchStore.getState().refresh();
+    const pending = useBatchStore.getState().refresh();
+    expect(useBatchStore.getState().loading).toBe(false);
+    await pending;
 
-    const state = useBatchStore.getState();
+    let state = useBatchStore.getState();
     expect(state.data?.batchId).toBe(10n);
     expect(state.currentBatchId).toBe(10n);
-    expect(state.error).toMatch(/429/);
+    expect(state.error).toBeNull();
     expect(state.loading).toBe(false);
+
+    await useBatchStore.getState().refresh();
+    await useBatchStore.getState().refresh();
+    state = useBatchStore.getState();
+    expect(state.data?.batchId).toBe(10n);
+    expect(state.error).toMatch(/429/);
   });
 
   it('skips truncated batch accounts and surfaces no open batch (no error)', async () => {

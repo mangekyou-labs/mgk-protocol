@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
+import { NETWORK_BUSY } from '@/lib/polling';
 import { OpenOrders } from './OpenOrders';
 
 const USER = new PublicKey('2ecHahNv1LcVsmp614f8XTdpcTksNMwx7FkCJBtsMiQX');
@@ -54,6 +55,10 @@ function bookWithUserOrder(user: PublicKey): Buffer {
 }
 
 describe('OpenOrders', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('reads the configured live book account and renders matching user orders', async () => {
     const onCountChange = vi.fn();
     getMultipleAccountsInfo.mockResolvedValue([
@@ -92,5 +97,26 @@ describe('OpenOrders', () => {
     render(<OpenOrders instrumentId={0} />);
     // 100 lots = 0.1 SOL.
     expect(await screen.findByTestId('open-order-qty')).toHaveTextContent('0.100');
+  });
+
+  it('keeps orders through a failed poll and reports a busy network once failures persist', async () => {
+    vi.useFakeTimers();
+    getMultipleAccountsInfo
+      .mockReset()
+      .mockResolvedValueOnce([
+        { data: bookWithUserOrder(USER), executable: false, lamports: 1, owner: config.matcherProgramId },
+      ])
+      .mockRejectedValue(new Error('429 Too Many Requests'));
+    render(<OpenOrders instrumentId={0} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByTestId('open-order-row')).toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(screen.getByTestId('open-order-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('open-orders-error')).toBeNull();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByTestId('open-orders-error')).toHaveTextContent(NETWORK_BUSY);
+    expect(screen.getByTestId('open-order-row')).toBeInTheDocument();
   });
 });

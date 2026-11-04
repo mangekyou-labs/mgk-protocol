@@ -10,6 +10,7 @@ import { PageFrame } from '@/components/layout/PageFrame';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { useProtocolStatus } from '@/lib/hooks/useProtocolStatus';
 import { SystemStatus } from '@/components/trade/SystemStatus';
+import { DemoNotice } from '@/components/layout/DemoNotice';
 import { StatusBar } from '@/components/trade/StatusBar';
 import { BottomTabs } from '@/components/trade/BottomTabs';
 import { MarketHeader } from '@/components/trade/MarketHeader';
@@ -165,6 +166,7 @@ export default function TradePage() {
 
   return (
     <PageFrame>
+      <DemoNotice />
       <SystemStatus status={systemStatus} />
       <MarketHeader
         oracle={market.oracle}

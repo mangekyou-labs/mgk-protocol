@@ -15,14 +15,13 @@ vi.mock('@solana/wallet-adapter-react-ui', () => ({
 
 afterEach(() => vi.unstubAllEnvs());
 
-it('uses devnet when CI supplies an empty RPC variable', () => {
-  vi.stubEnv('NEXT_PUBLIC_RPC_URL', '');
+it('reads chain state through the same-origin RPC proxy', () => {
   render(<SolanaProvider>app</SolanaProvider>);
-  expect(screen.getByTestId('connection')).toHaveAttribute('data-endpoint', 'https://api.devnet.solana.com');
+  expect(screen.getByTestId('connection')).toHaveAttribute('data-endpoint', `${window.location.origin}/api/rpc`);
 });
 
-it('preserves an explicitly configured RPC endpoint', () => {
+it('ignores a public RPC variable so upstream keys stay server-side', () => {
   vi.stubEnv('NEXT_PUBLIC_RPC_URL', 'https://rpc.example.test');
   render(<SolanaProvider>app</SolanaProvider>);
-  expect(screen.getByTestId('connection')).toHaveAttribute('data-endpoint', 'https://rpc.example.test');
+  expect(screen.getByTestId('connection')).toHaveAttribute('data-endpoint', `${window.location.origin}/api/rpc`);
 });

@@ -16,7 +16,7 @@ test.describe('Browser origin hydration', () => {
       await page.goto(`${origin}/trade`);
 
       await expect(page.getByTestId('price-chart-label')).toContainText(
-        'external reference · not executable',
+        'Reference price · Binance',
         { timeout: 3_000 },
       );
     });
@@ -40,7 +40,7 @@ test.describe('Trade page — layout smoke', () => {
     ).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Get devnet SOL' }),
-    ).toBeVisible();
+    ).toHaveCount(0);
   });
 
   test('renders the market header with SOL-USD Perp', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { StatusBar } from './StatusBar';
 import type { ProtocolStatusReading } from '@/lib/hooks/useProtocolStatus';
@@ -42,5 +42,31 @@ describe('Status bar', () => {
     render(<StatusBar status={status} />);
     expect(screen.getByTestId('status-rpc')).toHaveTextContent('unreachable');
     expect(screen.getByTestId('status-indexer-label')).toHaveTextContent(label);
+  });
+});
+describe('Status dot', () => {
+  const reading = (rpcReachable: boolean, indexer: object) => ({
+    data: { severity: 'ok', checks: { rpc: { severity: 'ok', reachable: rpcReachable }, indexer } },
+    loading: false,
+    error: null,
+  }) as ProtocolStatusReading;
+  it.each([
+    [true, { severity: 'ok', syncing: false, lagSlots: 0 }, 'All systems normal'],
+    [true, { severity: 'warn', syncing: true, lagSlots: 151 }, 'Degraded'],
+    [false, { severity: 'ok', syncing: false, lagSlots: 0 }, 'RPC unreachable'],
+  ])('summarises RPC %s and indexer %j as one dot', (rpc, indexer, summary) => {
+    render(<StatusBar status={reading(rpc, indexer)} />);
+    expect(screen.getByRole('button', { name: new RegExp(`Status: ${summary}`) })).toBeInTheDocument();
+  });
+  it('keeps details out of view until hover or focus', () => {
+    render(<StatusBar status={reading(true, { severity: 'ok', syncing: false, lagSlots: 0 })} />);
+    const details = screen.getByTestId('status-details');
+    expect(details).not.toBeVisible();
+    fireEvent.mouseEnter(screen.getByTestId('status-bar'));
+    expect(details).toBeVisible();
+    fireEvent.mouseLeave(screen.getByTestId('status-bar'));
+    expect(details).not.toBeVisible();
+    fireEvent.focus(screen.getByRole('button', { name: /Status:/ }));
+    expect(details).toBeVisible();
   });
 });

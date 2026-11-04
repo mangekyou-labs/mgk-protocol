@@ -6,14 +6,16 @@ import { useSafeTransaction } from './useSafeTransaction';
 
 const mocks = vi.hoisted(() => ({ send: vi.fn(), genesis: vi.fn(), ready: true, connected: true, accounts: vi.fn(), simulate: vi.fn(), latest: vi.fn() }));
 const user = new PublicKey('11111111111111111111111111111111');
-const connection = { getGenesisHash: mocks.genesis, getMultipleAccountsInfo: mocks.accounts, getLatestBlockhash: mocks.latest, simulateTransaction: mocks.simulate };
+const makeConnection = () => ({ getGenesisHash: mocks.genesis, getMultipleAccountsInfo: mocks.accounts, getLatestBlockhash: mocks.latest, simulateTransaction: mocks.simulate });
+// A fresh connection per test: the genesis hash is cached per connection.
+let connection = makeConnection();
 vi.mock('@mgk/sdk', async importOriginal => ({ ...await importOriginal<typeof sdk>(), state: { decodeRegistry: vi.fn(), decodeInstrument: () => ({ instrumentId: 0, oracleAddr: user }), decodeAccount: vi.fn() } }));
 vi.mock('@solana/wallet-adapter-react', () => ({
   useWallet: () => ({ publicKey: user, connected: mocks.connected, sendTransaction: mocks.send }),
   useConnection: () => ({ connection }),
 }));
 vi.mock('@/lib/config', () => ({ config: { get deploymentReady() { return mocks.ready; }, get coreProgramId() { return user; }, get matcherProgramId() { return user; }, get oracleProgramId() { return user; }, get registryAddress() { return user; }, get instrumentAddress() { return user; }, get oracleAddress() { return user; }, get vaultAddress() { return user; } }, deployment: { cluster: 'devnet' } }));
-beforeEach(() => { vi.stubGlobal('Uint8Array', Object.getPrototypeOf(Buffer)); vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:true,json:async()=>({cluster:'devnet'})})); mocks.ready = true; mocks.connected = true; mocks.send.mockReset(); mocks.genesis.mockReset(); mocks.accounts.mockReset().mockResolvedValue(Array.from({length:7},(_,i)=>({owner:user,executable:i<3,data:Buffer.alloc(8)}))); mocks.latest.mockReset().mockResolvedValue({blockhash:user.toBase58(),lastValidBlockHeight:12}); mocks.simulate.mockReset().mockResolvedValue({value:{err:null}}); });
+beforeEach(() => { connection = makeConnection(); vi.stubGlobal('Uint8Array', Object.getPrototypeOf(Buffer)); vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:true,json:async()=>({cluster:'devnet'})})); mocks.ready = true; mocks.connected = true; mocks.send.mockReset(); mocks.genesis.mockReset(); mocks.accounts.mockReset().mockResolvedValue(Array.from({length:7},(_,i)=>({owner:user,executable:i<3,data:Buffer.alloc(8)}))); mocks.latest.mockReset().mockResolvedValue({blockhash:user.toBase58(),lastValidBlockHeight:12}); mocks.simulate.mockReset().mockResolvedValue({value:{err:null}}); });
 afterEach(() => vi.unstubAllGlobals());
 it('blocks signing against a non-devnet RPC with an actionable message', async () => {
   mocks.genesis.mockResolvedValue('mainnet');

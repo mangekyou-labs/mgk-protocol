@@ -171,13 +171,17 @@ describe('useBookStore', () => {
     expect(state.error).toBeNull();
   });
 
-  it('captures errors from getMultipleAccountsInfo', async () => {
+  it('reports RPC errors only after repeated failures', async () => {
     const conn = new MockConnection();
-    conn.responses = [new Error('RPC timeout')];
+    conn.responses = [new Error('RPC timeout'), new Error('RPC timeout'), new Error('RPC timeout')];
 
     await useBookStore.getState().startPolling(
-      buildParams(conn as unknown as Connection, { intervalMs: 50 }),
+      buildParams(conn as unknown as Connection, { intervalMs: 60_000 }),
     );
+    expect(useBookStore.getState().error).toBeNull();
+    expect(useBookStore.getState().loading).toBe(true);
+    await useBookStore.getState().refresh();
+    await useBookStore.getState().refresh();
 
     const state = useBookStore.getState();
     expect(state.data).toBeNull();

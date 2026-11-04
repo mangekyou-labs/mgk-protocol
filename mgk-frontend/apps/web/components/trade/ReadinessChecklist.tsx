@@ -1,12 +1,15 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import type * as sdk from '@mgk/sdk';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { WalletButton } from '@/components/wallet/WalletButton';
 import { AccountActions } from '@/components/orderform/AccountActions';
+import { LowFeeBalance } from '@/components/common/LowFeeBalance';
 import { useReadiness } from '@/lib/hooks/useReadiness';
+import { friendlyRpcError } from '@/lib/polling';
 
+/** Gates the order form: Connect → Deposit → Trade. Every blocked state shows one reason. */
 export function ReadinessChecklist({ portfolio, loading, error, children, onTxSuccess, onTxError }: {
   portfolio: sdk.state.PortfolioState | null;
   loading: boolean;
@@ -17,24 +20,25 @@ export function ReadinessChecklist({ portfolio, loading, error, children, onTxSu
 }) {
   const { connected } = useAutoConnect();
   const funding = useReadiness();
-  const hasSol = funding.walletLamports !== null && funding.walletLamports > 0n;
+  const headingId = useId();
   const hasCollateral = portfolio !== null && portfolio.equity > 0n;
-  const ready = connected && hasSol && hasCollateral && !error && !funding.signingBlockedReason;
-  if (ready) return <><p className="mb-2 text-xs text-text-muted">Wallet connected, ready</p>{children}</>;
+  const ready = connected && funding.walletLamports !== null && !funding.lowFeeBalance && hasCollateral && !error && !funding.signingBlockedReason;
+  if (ready) return <>{children}</>;
+  if (!connected) return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-3 p-3 text-sm text-text-muted">
+      <h2 id={headingId} className="text-text">Connect a wallet</h2>
+      <WalletButton />
+    </section>
+  );
+  const reason: ReactNode =
+    friendlyRpcError(error) ?? friendlyRpcError(funding.error) ?? funding.signingBlockedReason
+    ?? (funding.lowFeeBalance ? <LowFeeBalance /> : null)
+    ?? (loading || funding.walletLamports === null ? 'Reading collateral from RPC…' : 'Deposit SOL collateral to start trading.');
   return (
-    <section aria-label="Trading readiness" className="flex flex-col gap-3 p-3 text-sm text-text-muted">
-      <h2 className="text-text">{connected ? 'Wallet connected, not ready' : 'Get ready to trade'}</h2>
-      <ol className="space-y-2">
-        <li>{connected ? '✓' : '1.'} Connect a wallet</li>
-        <li>{hasSol ? '✓' : '2.'} Get devnet SOL for transaction fees</li>
-        <li>{hasCollateral ? '✓' : '3.'} Create a portfolio and deposit SOL collateral</li>
-      </ol>
-      {!connected && <WalletButton />}
-      {connected && <>
-        <p role="status">{error ?? funding.error ?? funding.signingBlockedReason ?? (loading ? 'Reading collateral from RPC…' : !hasSol ? 'Devnet SOL is needed before trading.' : 'Deposit SOL collateral to become ready.')}</p>
-        <AccountActions portfolio={error ? null : portfolio} portfolioLoading={loading || !!error} onTxSuccess={onTxSuccess} onTxError={onTxError} />
-      </>}
-      <p className="text-xs">Earlier devnet balances were not carried over. This demo market starts fresh.</p>
+    <section aria-labelledby={headingId} className="flex flex-col gap-3 p-3 text-sm text-text-muted">
+      <h2 id={headingId} className="text-text">Deposit collateral</h2>
+      <p role="status" data-testid="readiness-reason">{reason}</p>
+      <AccountActions portfolio={error ? null : portfolio} portfolioLoading={loading || !!error} onTxSuccess={onTxSuccess} onTxError={onTxError} />
     </section>
   );
 }

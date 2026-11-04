@@ -4,6 +4,10 @@ import {
   type ProtocolStatusReading,
 } from '@/lib/hooks/useProtocolStatus';
 import { NEW_EXPOSURE_PAUSE_MASK } from '@/lib/protocol';
+import { useSustained } from '@/lib/hooks/useSustained';
+
+/** Short indexer syncs are routine; only a sync that lasts this long is worth a banner. */
+const SYNCING_BANNER_DELAY_MS = 30_000;
 
 const CHECK_MESSAGES: Record<string, string> = {
   batch:
@@ -14,6 +18,7 @@ const CHECK_MESSAGES: Record<string, string> = {
 };
 export function SystemStatus({ status }: { status: ProtocolStatusReading }) {
   const checks = status.data?.checks;
+  const longSync = useSustained(indexerState(status) === 'syncing', SYNCING_BANNER_DELAY_MS);
   const messages: string[] = [];
   if (!checks)
     messages.push(
@@ -47,7 +52,7 @@ export function SystemStatus({ status }: { status: ProtocolStatusReading }) {
       indexerState(status) === 'unavailable'
     )
       messages.push('Indexer down / unavailable. History is unavailable.');
-    else if (indexerState(status) === 'syncing')
+    else if (longSync)
       messages.push('Indexer syncing. History may be incomplete.');
     const oracle = checks.oracle;
     if (!oracle || oracle.available === false)
@@ -78,21 +83,6 @@ export function SystemStatus({ status }: { status: ProtocolStatusReading }) {
           ))}
         </div>
       )}
-      <details className="mt-1 text-text-muted">
-        <summary className="cursor-pointer">
-          Restricted demo · protections and limits
-        </summary>
-        <p className="mt-2">
-          Devnet SOL-PERP only. Limit GTC and reduce-only orders. Funding: off.
-          No mainnet, other markets, market/IOC/post-only/stop/TP/SL orders or
-          maker rebates.
-        </p>
-        <p>
-          No ADL or socialized loss. Insurance exhaustion pauses the market;
-          recovery requires an operator. Liquidation uses position takeover at
-          the oracle, without an external backstop auction.
-        </p>
-      </details>
     </div>
   );
 }

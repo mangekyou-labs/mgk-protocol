@@ -6,6 +6,7 @@ import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
 import { decodeOrNull } from '@/lib/decode';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 import {
   batchGate,
   lastClearOf,
@@ -76,6 +77,7 @@ export function useMarketBar(
   useEffect(() => {
     let cancelled = false;
     let active = false;
+    let failures = 0;
     const oracleAddress = config.oracleAddress;
     const tick = async () => {
       if (active) return;
@@ -100,6 +102,7 @@ export function useMarketBar(
           'confirmed',
         );
         if (cancelled) return;
+        failures = 0;
         let i = 0;
         const vault = decodeOrNull(accounts[i++], (data) =>
           sdk.state.decodeAccount('Vault', data),
@@ -137,7 +140,8 @@ export function useMarketBar(
           setPrevious(null);
         }
       } catch {
-        if (!cancelled) {
+        // Keep the last reading through transient misses; clear once they persist.
+        if (!cancelled && ++failures >= FAILURE_THRESHOLD) {
           setRawOracle(null);
           setPrevious(null);
           setMarket(null);

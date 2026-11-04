@@ -45,9 +45,14 @@ export async function resolveOpenBatch(params: {
 
   let best: { batchPda: PublicKey; batchId: bigint; batch: sdk.state.BatchState } | null =
     null;
-  for (const id of candidates) {
-    const [pda] = sdk.deriveBatchPda(id, params.programId, config.marketContext);
-    const acc = await params.connection.getAccountInfo(pda);
+  const pdas = candidates.map(
+    (id) => sdk.deriveBatchPda(id, params.programId, config.marketContext)[0],
+  );
+  // One round trip for the whole window rather than one read per candidate.
+  const accounts = await params.connection.getMultipleAccountsInfo(pdas);
+  for (let i = 0; i < pdas.length; i++) {
+    const pda = pdas[i]!;
+    const acc = accounts[i];
     if (!acc || acc.data.length < sdk.state.BATCH_SIZE) continue;
     const batch = sdk.state.decodeBatch(new Uint8Array(acc.data));
     if (!isUsable(batch)) continue;

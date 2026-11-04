@@ -9,6 +9,7 @@ type PortfolioState = sdk.state.PortfolioState;
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 
 export interface PortfolioPollParams {
   user: PublicKey;
@@ -36,6 +37,7 @@ interface PortfolioStore {
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: PortfolioPollParams | null = null;
 let requestId = 0;
+let consecutiveFailures = 0;
 const consumers = new Set<symbol>();
 
 export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
@@ -48,7 +50,8 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   startPolling: async (params) => {
     if (pollHandle) clearInterval(pollHandle);
     currentParams = params;
-    set({ isPolling: true, data: null, error: null, lastFetchedAt: null });
+    consecutiveFailures = 0;
+    set({ isPolling: true, data: null, error: null, loading: true, lastFetchedAt: null });
     // Run an initial fetch synchronously with `await` so callers (including
     // tests) can wait for the first result before continuing. The handle is
     // installed *after* the initial fetch so the interval doesn't tick
@@ -67,6 +70,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     }
     currentParams = null;
     requestId++;
+    consecutiveFailures = 0;
     set({ isPolling: false, data: null, error: null, loading: false, lastFetchedAt: null });
   },
 
@@ -74,13 +78,28 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     if (!currentParams) return;
     const params = currentParams;
     const id = ++requestId;
-    set({ loading: true, error: null });
+    const { user, connection, programId } = params;
+    const [pda] = sdk.derivePortfolioPda(user, programId, config.marketContext);
+    let acc: Awaited<ReturnType<Connection['getMultipleAccountsInfo']>>[number];
     try {
-      const { user, connection, programId } = params;
-      const [pda] = sdk.derivePortfolioPda(user, programId, config.marketContext);
       const accounts = await connection.getMultipleAccountsInfo([pda], 'confirmed');
+      acc = accounts[0] ?? null;
+    } catch (e) {
+      // Transport failure: keep the last portfolio (and keep "loading" on a
+      // first read) until failures persist, so the panel doesn't flash.
       if (currentParams !== params || id !== requestId) return;
-      const acc = accounts[0] ?? null;
+      consecutiveFailures++;
+      if (consecutiveFailures < FAILURE_THRESHOLD) return;
+      set({
+        data: null,
+        loading: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
+    if (currentParams !== params || id !== requestId) return;
+    consecutiveFailures = 0;
+    try {
       if (!acc) {
         set({
           data: null,
@@ -103,7 +122,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
         lastFetchedAt: Date.now(),
       });
     } catch (e) {
-      if (currentParams !== params || id !== requestId) return;
+      // The read succeeded but the account is wrong: report it immediately.
       set({
         data: null,
         loading: false,

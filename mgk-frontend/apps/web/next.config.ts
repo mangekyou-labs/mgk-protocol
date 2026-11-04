@@ -9,9 +9,10 @@ const repositoryRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "
  * mgk frontend — security headers.
  *
  * Design doc §Security (docs/ai/design/2026-06-16-feature-mgk-frontend.md):
- *   - CSP: `default-src 'self'`, `connect-src 'self' https://api.devnet.solana.com
- *     https://*.helius-rpc.com https://hermes.pyth.network ws: wss:`, no
- *     `unsafe-eval`, no `unsafe-inline` for scripts.
+ *   - CSP: `default-src 'self'`, `connect-src 'self' https://hermes.pyth.network
+ *     ws: wss:`, no `unsafe-eval`, no `unsafe-inline` for scripts. Solana RPC
+ *     is same-origin: the browser talks to `/api/rpc`, which holds the
+ *     upstream keys (RPC_UPSTREAMS) server-side.
  *   - Strict-Transport-Security, X-Frame-Options DENY, X-Content-Type-Options nosniff
  *
  * Two policies: `strict` (production) and `dev` (Next.js HMR + React
@@ -24,9 +25,6 @@ const repositoryRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "
  *   - TradingView iframe for the chart     (s3.tradingview.com, www.tradingview.com)
  *   - Local Fastify indexer                (http://localhost:4000 + ws://localhost:4000)
  */
-const SOLANA_RPC = "https://api.devnet.solana.com";
-const HELIUS_RPC = "https://*.helius-rpc.com";
-const QUICKNODE_RPC = "https://*.quiknode.pro";
 const PYTH_HERMES = "https://hermes.pyth.network";
 // TradingView uses two origins: `s3.tradingview.com` hosts the loader
 // script (tv.js), `s.tradingview.com` hosts the chart iframe itself.
@@ -41,10 +39,8 @@ const INDEXER_LOCAL = ["http://localhost:4000", "ws://localhost:4000"];
 
 function buildCsp(isProd: boolean): string {
   const connectSrc = [
+    // 'self' covers /api/rpc; no direct RPC origins are needed.
     "'self'",
-    SOLANA_RPC,
-    HELIUS_RPC,
-    QUICKNODE_RPC,
     PYTH_HERMES,
     ...TRADINGVIEW_ORIGINS,
     ...INDEXER_LOCAL,

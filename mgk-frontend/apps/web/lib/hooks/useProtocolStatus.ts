@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 export interface StatusCheck {
   severity: 'ok' | 'warn' | 'critical';
@@ -23,7 +24,10 @@ export interface ProtocolStatusReading {
   error: string | null;
 }
 
-/** One page-level request supplies both banners and status bar. Failed/stale reads clear health. */
+/**
+ * One page-level request supplies both banners and status bar. A single failed
+ * or slow read keeps the last status; persistent failures clear health.
+ */
 export function useProtocolStatus(): ProtocolStatusReading {
   const [reading, setReading] = useState<ProtocolStatusReading>({
     data: null,
@@ -34,25 +38,34 @@ export function useProtocolStatus(): ProtocolStatusReading {
     let cancelled = false;
     let controller: AbortController | null = null;
     let active = false;
+    let failures = 0;
     const tick = async () => {
       if (active) return;
       active = true;
-      controller = new AbortController();
-      let expired = false;
+      const mine = new AbortController();
+      controller = mine;
+      let settled = false;
+      const fail = () => {
+        if (settled || cancelled) return;
+        settled = true;
+        failures++;
+        if (failures < FAILURE_THRESHOLD) return;
+        setReading({
+          data: null,
+          loading: false,
+          error: 'System status unavailable',
+        });
+      };
       const timer = setTimeout(() => {
-        expired = true;
-        controller?.abort();
-        if (!cancelled)
-          setReading({
-            data: null,
-            loading: false,
-            error: 'System status unavailable',
-          });
+        // A hung request counts as a failure and frees the next tick.
+        mine.abort();
+        fail();
+        active = false;
       }, 4000);
       try {
         const response = await fetch(`${config.indexerUrl}/api/status`, {
           cache: 'no-store',
-          signal: controller.signal,
+          signal: mine.signal,
         });
         if (!response.ok) throw new Error('Status endpoint unavailable');
         const data: ProtocolStatus = await response.json();
@@ -68,18 +81,17 @@ export function useProtocolStatus(): ProtocolStatusReading {
           )
         )
           throw new Error('Status response unavailable');
-        if (!cancelled && !expired)
+        if (!cancelled && !settled) {
+          settled = true;
+          failures = 0;
           setReading({ data, loading: false, error: null });
+        }
       } catch {
-        if (!cancelled)
-          setReading({
-            data: null,
-            loading: false,
-            error: 'System status unavailable',
-          });
+        fail();
       } finally {
         clearTimeout(timer);
-        active = false;
+        // A late-settling request must not free a newer one's slot.
+        if (controller === mine) active = false;
       }
     };
     void tick();

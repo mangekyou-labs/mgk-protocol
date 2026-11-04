@@ -5,6 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 
 export interface UserFill {
   /** Solana slot this fill was included in. */
@@ -67,6 +68,8 @@ interface Poller {
   handle: ReturnType<typeof setInterval> | null;
   /** Mounted useMyFills consumers sharing this poller. */
   subscribers: number;
+  /** Consecutive failed fetches since the last success. */
+  failures: number;
 }
 
 const pollers = new Map<string, Poller>();
@@ -92,7 +95,8 @@ async function fetchFills(
 }
 
 async function tick(key: string, poller: Poller): Promise<void> {
-  if (!myFillsFor(key).isPolling) patch(key, { loading: true });
+  const current = myFillsFor(key);
+  if (current.lastFetchedAt === null && !current.error) patch(key, { loading: true });
   try {
     const fills = await fetchFills(
       poller.pubkey,
@@ -100,9 +104,13 @@ async function tick(key: string, poller: Poller): Promise<void> {
       new AbortController().signal,
     );
     if (pollers.get(key) !== poller) return;
+    poller.failures = 0;
     patch(key, { fills, loading: false, error: null, lastFetchedAt: Date.now(), isPolling: true });
   } catch (err) {
     if (pollers.get(key) !== poller) return;
+    // Keep the last fills through transient misses; report once they persist.
+    poller.failures++;
+    if (poller.failures < FAILURE_THRESHOLD) return;
     patch(key, {
       loading: false,
       error: err instanceof Error ? err.message : 'unknown',
@@ -141,6 +149,7 @@ export function startMyFillsPolling(
     timeoutMs,
     handle: null,
     subscribers: previous?.subscribers ?? 0,
+    failures: 0,
   };
   pollers.set(key, poller);
   return tick(key, poller).then(() => {

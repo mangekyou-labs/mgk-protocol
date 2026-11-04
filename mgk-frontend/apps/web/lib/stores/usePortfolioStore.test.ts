@@ -141,19 +141,6 @@ describe('usePortfolioStore', () => {
     expect(usePortfolioStore.getState().error).toBeNull();
   });
 
-  it('captures errors from getMultipleAccountsInfo', async () => {
-    const conn = new MockConnection();
-    conn.responses = [new Error('RPC timeout')];
-
-    await usePortfolioStore.getState().startPolling(
-      buildParams(conn as unknown as Connection, { intervalMs: 50 }),
-    );
-
-    expect(usePortfolioStore.getState().data).toBeNull();
-    expect(usePortfolioStore.getState().error).toMatch(/RPC timeout/);
-    expect(usePortfolioStore.getState().loading).toBe(false);
-  });
-
   it('captures errors from decodePortfolio (e.g. truncated buffer)', async () => {
     const conn = new MockConnection();
     const short = new Uint8Array(64); // < PORTFOLIO_SIZE
@@ -215,4 +202,72 @@ it('discards a wallet response completed after polling stops and rereads RPC on 
   await usePortfolioStore.getState().startPolling(buildParams(fresh as unknown as Connection));
   expect(usePortfolioStore.getState().data?.freeCollateral).toBe(1234567891n);
   usePortfolioStore.getState().stopPolling();
+});
+
+describe('usePortfolioStore refetch stability', () => {
+  afterEach(() => usePortfolioStore.getState().stopPolling());
+
+  it('keeps the last portfolio and does not flip to loading while a refetch is in flight', async () => {
+    let resolve!: (accounts: (AccountInfo<Buffer> | null)[]) => void;
+    let first = true;
+    const connection = {
+      getMultipleAccountsInfo: () => {
+        if (first) {
+          first = false;
+          return Promise.resolve([makeAccountInfo(makePortfolioBuffer(USER_PK, 7n))]);
+        }
+        return new Promise<(AccountInfo<Buffer> | null)[]>((r) => { resolve = r; });
+      },
+    } as unknown as Connection;
+    await usePortfolioStore.getState().startPolling(buildParams(connection, { intervalMs: 60_000 }));
+
+    const pending = usePortfolioStore.getState().refresh();
+    expect(usePortfolioStore.getState().loading).toBe(false);
+    expect(usePortfolioStore.getState().data?.freeCollateral).toBe(7n);
+    resolve([makeAccountInfo(makePortfolioBuffer(USER_PK, 8n))]);
+    await pending;
+    expect(usePortfolioStore.getState().data?.freeCollateral).toBe(8n);
+  });
+
+  it('rides out two RPC failures with the last portfolio, then reports unavailable on the third', async () => {
+    const conn = new MockConnection();
+    conn.responses = [
+      makeAccountInfo(makePortfolioBuffer(USER_PK, 7n)),
+      new Error('429 Too Many Requests'),
+      new Error('429 Too Many Requests'),
+      new Error('429 Too Many Requests'),
+    ];
+    await usePortfolioStore.getState().startPolling(buildParams(conn as unknown as Connection, { intervalMs: 60_000 }));
+
+    await usePortfolioStore.getState().refresh();
+    await usePortfolioStore.getState().refresh();
+    expect(usePortfolioStore.getState().error).toBeNull();
+    expect(usePortfolioStore.getState().data?.freeCollateral).toBe(7n);
+
+    await usePortfolioStore.getState().refresh();
+    expect(usePortfolioStore.getState().error).toMatch(/429/);
+    expect(usePortfolioStore.getState().data).toBeNull();
+  });
+
+  it('a successful read resets the failure count', async () => {
+    const conn = new MockConnection();
+    const ok = () => makeAccountInfo(makePortfolioBuffer(USER_PK, 7n));
+    conn.responses = [ok(), new Error('busy'), new Error('busy'), ok(), new Error('busy'), new Error('busy')];
+    await usePortfolioStore.getState().startPolling(buildParams(conn as unknown as Connection, { intervalMs: 60_000 }));
+    for (let i = 0; i < 5; i++) await usePortfolioStore.getState().refresh();
+    expect(usePortfolioStore.getState().error).toBeNull();
+    expect(usePortfolioStore.getState().data?.freeCollateral).toBe(7n);
+  });
+
+  it('stays loading through early failures on the first read, then reports the error', async () => {
+    const conn = new MockConnection();
+    conn.responses = [new Error('busy'), new Error('busy'), new Error('busy')];
+    await usePortfolioStore.getState().startPolling(buildParams(conn as unknown as Connection, { intervalMs: 60_000 }));
+    expect(usePortfolioStore.getState().loading).toBe(true);
+    expect(usePortfolioStore.getState().error).toBeNull();
+    await usePortfolioStore.getState().refresh();
+    await usePortfolioStore.getState().refresh();
+    expect(usePortfolioStore.getState().loading).toBe(false);
+    expect(usePortfolioStore.getState().error).toMatch(/busy/);
+  });
 });

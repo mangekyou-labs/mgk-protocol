@@ -25,7 +25,7 @@ export function PriceChart({ instrumentId = 0, className }: PriceChartProps) {
         data-testid="price-chart-label"
         className="border-b border-surface-3 px-3 py-1.5 font-mono text-[11px] text-text-muted"
       >
-        Binance SOLUSDT · 15m · external reference · not executable
+        Reference price · Binance
       </div>
       <div className="relative" style={{ height: CHART_HEIGHT }}>
         <TradingViewWidget symbol={TV_SYMBOL} interval="15" />

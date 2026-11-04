@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 
 export interface MarketState {
   instrument_id: number;
@@ -45,6 +46,7 @@ interface PollParams {
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: PollParams | null = null;
+let consecutiveFailures = 0;
 
 async function fetchMarketState(
   instrumentId: number,
@@ -63,7 +65,7 @@ async function tick(): Promise<void> {
   const params = currentParams;
   if (!params) return;
   const store = useMarketStateStore.getState();
-  if (!store.data) {
+  if (store.lastFetchedAt === null && !store.error) {
     store.setState({ ...store, loading: true });
   }
   try {
@@ -72,6 +74,8 @@ async function tick(): Promise<void> {
       params.timeoutMs,
       new AbortController().signal,
     );
+    if (currentParams !== params) return;
+    consecutiveFailures = 0;
     useMarketStateStore.setState({
       data,
       loading: false,
@@ -81,7 +85,11 @@ async function tick(): Promise<void> {
     });
   } catch (err) {
     // 404 = market not registered yet (indexer running but no fills).
-    // Network errors = indexer offline. Both are non-fatal.
+    // Network errors = indexer offline. Both are non-fatal, and a single
+    // miss keeps the last state rather than flashing an error.
+    if (currentParams !== params) return;
+    consecutiveFailures++;
+    if (consecutiveFailures < FAILURE_THRESHOLD) return;
     useMarketStateStore.setState({
       loading: false,
       error: err instanceof Error ? err.message : 'unknown',
@@ -97,6 +105,7 @@ export function startMarketStatePolling(
 ): Promise<void> {
   const params: PollParams = { instrumentId, intervalMs, timeoutMs };
   currentParams = params;
+  consecutiveFailures = 0;
   if (pollHandle != null) {
     clearInterval(pollHandle);
     pollHandle = null;
