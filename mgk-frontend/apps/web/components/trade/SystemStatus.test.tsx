@@ -121,9 +121,9 @@ describe('chain derived system status', () => {
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',
     );
-    expect(
-      screen.getByText(/Indexer down \/ system status unavailable/),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { hidden: true })).toHaveTextContent(
+      /Indexer down \/ system status unavailable/,
+    );
   });
   it('expires healthy status while a subsequent request hangs', async () => {
     vi.useFakeTimers();

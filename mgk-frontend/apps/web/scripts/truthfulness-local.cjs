@@ -43,8 +43,9 @@ async function main() {
 import { SolanaProvider } from '@/components/providers/SolanaProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { Header } from '@/components/layout/Header';
+import { TxToaster } from '@/components/common/TxToast';
 export default function Layout({children}: {children: React.ReactNode}) {
-return <html lang="en"><body><ThemeProvider><SolanaProvider><Header /><aside role="note">Browser test preview · synthetic data · not a devnet trading deployment</aside>{children}</SolanaProvider></ThemeProvider></body></html>;
+return <html lang="en"><body><ThemeProvider><SolanaProvider><Header /><aside role="note">Browser test preview · synthetic data · not a devnet trading deployment</aside>{children}<TxToaster /></SolanaProvider></ThemeProvider></body></html>;
 }`);
   if (prepareOnly) { console.log(`CONTROLLED_STAGING_ROOT=${temp}`); return; }
   const listener = net.createServer();

@@ -4,7 +4,7 @@ const A = 'https://a.example/?api-key=secret-a';
 const B = 'https://b.example/?api-key=secret-b';
 
 function rpcRequest(body: unknown, init: RequestInit = {}): Request {
-  return new Request('http://localhost/api/rpc', {
+  return new Request('http://localhost/api/rpc/devnet', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -40,7 +40,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('POST /api/rpc', () => {
+describe('POST /api/rpc/devnet', () => {
   it('forwards an allowlisted call to an upstream and returns its body', async () => {
     const fetcher = upstreamReturning(ok(123));
     const { POST } = await loadRoute();

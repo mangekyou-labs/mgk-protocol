@@ -8,19 +8,18 @@ import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { useBatchStore } from '@/lib/stores/useBatchStore';
 import { withdrawalEligibility } from '@/lib/withdrawalEligibility';
 import { formatSol, parseSol } from '@/lib/solAmount';
-import { friendlyRpcError } from '@/lib/polling';
 import { LOW_FEE_BALANCE } from '@/components/common/LowFeeBalance';
+import { notifyTxConfirmed, notifyTxFailed } from '@/components/common/TxToast';
+import { describeTxError } from '@/lib/txErrors';
 
 type PortfolioState = sdk.state.PortfolioState;
 export interface AccountActionsProps {
   portfolio: PortfolioState | null;
   portfolioLoading: boolean;
   className?: string;
-  onTxSuccess?: (sig: string) => void;
-  onTxError?: (error: string) => void;
 }
 
-export function AccountActions({ portfolio, portfolioLoading, className, onTxSuccess, onTxError }: AccountActionsProps) {
+export function AccountActions({ portfolio, portfolioLoading, className }: AccountActionsProps) {
   const { connected } = useAutoConnect();
   const { deposit, withdraw } = useAccountActions();
   const funding = useReadiness();
@@ -35,17 +34,16 @@ export function AccountActions({ portfolio, portfolioLoading, className, onTxSuc
   const invalidAmount = amountInput !== '' && amount === null ? 'Enter a positive SOL amount with at most 9 decimals, within the u64 lamport limit.' : null;
   const eligibility = withdrawalEligibility({ portfolio, registry, batch, amount, batchError });
   const withdrawalReason = funding.signingBlockedReason ?? (funding.lowFeeBalance ? LOW_FEE_BALANCE : null) ?? (portfolioLoading ? 'Refreshing collateral…' : null) ?? eligibility.reason;
-  async function run(action: () => Promise<{ sig: string }>) {
+  async function run(label: { done: string; failed: string }, action: () => Promise<{ sig: string }>) {
     if (pending.current) return;
     pending.current = true; setBusy(true); setMessage(null);
     try {
       const { sig } = await action();
-      setMessage('Confirmed on devnet. Balances refreshed from RPC.');
       await funding.refresh();
-      onTxSuccess?.(sig);
+      notifyTxConfirmed(label.done, sig);
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
-      setMessage(friendlyRpcError(text)); onTxError?.(text);
+      setMessage(describeTxError(text)); notifyTxFailed(label.failed, text);
     } finally { pending.current = false; setBusy(false); }
   }
   if (!connected) return null;
@@ -60,8 +58,8 @@ export function AccountActions({ portfolio, portfolioLoading, className, onTxSuc
       <label htmlFor="collateral-amount">Collateral amount in SOL</label>
       <input id="collateral-amount" type="text" inputMode="decimal" value={amountInput} onChange={e => setAmountInput(e.target.value)} placeholder="0.1" disabled={busy} className="rounded border border-border bg-surface-2 px-2 py-2 font-mono tabular-nums text-text" data-testid="account-actions-amount" aria-describedby="collateral-reason" />
       <div className="flex gap-2">
-        <button type="button" data-testid="account-actions-deposit" className={buttonClass} disabled={busy || portfolioLoading || amount === null || !!funding.signingBlockedReason || funding.lowFeeBalance} onClick={() => amount !== null && void run(() => deposit(amount))}>{portfolio ? 'Deposit' : 'Create portfolio and deposit'}</button>
-        {portfolio && <button type="button" data-testid="account-actions-withdraw" className={buttonClass} disabled={busy || amount === null || !!withdrawalReason} onClick={() => amount !== null && void run(() => withdraw(amount))}>Withdraw</button>}
+        <button type="button" data-testid="account-actions-deposit" className={buttonClass} disabled={busy || portfolioLoading || amount === null || !!funding.signingBlockedReason || funding.lowFeeBalance} onClick={() => amount !== null && void run(portfolio ? { done: 'Deposit confirmed', failed: 'Deposit failed' } : { done: 'Portfolio created and funded', failed: 'Could not create portfolio' }, () => deposit(amount))}>{portfolio ? 'Deposit' : 'Create portfolio and deposit'}</button>
+        {portfolio && <button type="button" data-testid="account-actions-withdraw" className={buttonClass} disabled={busy || amount === null || !!withdrawalReason} onClick={() => amount !== null && void run({ done: 'Withdrawal confirmed', failed: 'Withdrawal failed' }, () => withdraw(amount))}>Withdraw</button>}
       </div>
       <p id="collateral-reason" role="status">{message ?? invalidAmount ?? (portfolio && !funding.signingBlockedReason && !funding.lowFeeBalance ? withdrawalReason : null)}</p>
     </section>

@@ -51,7 +51,7 @@ describe('Status dot', () => {
     error: null,
   }) as ProtocolStatusReading;
   it.each([
-    [true, { severity: 'ok', syncing: false, lagSlots: 0 }, 'All systems normal'],
+    [true, { severity: 'ok', syncing: false, lagSlots: 0 }, 'Connected'],
     [true, { severity: 'warn', syncing: true, lagSlots: 151 }, 'Degraded'],
     [false, { severity: 'ok', syncing: false, lagSlots: 0 }, 'RPC unreachable'],
   ])('summarises RPC %s and indexer %j as one dot', (rpc, indexer, summary) => {
@@ -62,9 +62,9 @@ describe('Status dot', () => {
     render(<StatusBar status={reading(true, { severity: 'ok', syncing: false, lagSlots: 0 })} />);
     const details = screen.getByTestId('status-details');
     expect(details).not.toBeVisible();
-    fireEvent.mouseEnter(screen.getByTestId('status-bar'));
+    fireEvent.mouseEnter(screen.getByTestId('status-hover'));
     expect(details).toBeVisible();
-    fireEvent.mouseLeave(screen.getByTestId('status-bar'));
+    fireEvent.mouseLeave(screen.getByTestId('status-hover'));
     expect(details).not.toBeVisible();
     fireEvent.focus(screen.getByRole('button', { name: /Status:/ }));
     expect(details).toBeVisible();

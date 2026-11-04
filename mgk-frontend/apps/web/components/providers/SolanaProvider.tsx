@@ -11,9 +11,13 @@ import '@solana/wallet-adapter-react-ui/styles.css';
 /** Server-side placeholder; Connection needs an absolute URL but never fetches during SSR. */
 const SSR_RPC = 'https://api.devnet.solana.com';
 
-/** Every browser read and send goes through the same-origin proxy, which holds the upstream keys. */
+/**
+ * Every browser read and send goes through the same-origin proxy, which holds the upstream keys.
+ * The path must name the cluster: wallets infer the signing chain from the endpoint URL and
+ * default to mainnet, where they reject devnet transactions with "Unexpected error".
+ */
 export function browserRpcEndpoint(): string {
-  return typeof window === 'undefined' ? SSR_RPC : `${window.location.origin}/api/rpc`;
+  return typeof window === 'undefined' ? SSR_RPC : `${window.location.origin}/api/rpc/devnet`;
 }
 
 export function SolanaProvider({ children }: { children: ReactNode }) {

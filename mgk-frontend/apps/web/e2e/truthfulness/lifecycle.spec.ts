@@ -53,14 +53,16 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await evidence('04e-confirming');
   market.holdConfirmation = false;
   await expect(page.getByTestId('order-lifecycle')).toHaveText('Accepted · on the book in batch 0');
+  const placed = page.getByTestId('tx-toast').filter({ hasText: 'Order placed' });
+  await expect(placed).toBeVisible();
+  await expect(placed.getByTestId('tx-toast-explorer')).toHaveAttribute('href', /explorer\.solana\.com\/tx\/.+\?cluster=devnet/);
+  // The confirmation toast can cover Cancel with CI's font metrics.
+  await placed.getByRole('button', { name: 'Close toast' }).click();
+  await expect(placed).toHaveCount(0, { timeout: 2_000 });
   await page.getByRole('tab', { name: 'Open orders', exact: true }).click();
   await expect(page.getByTestId('open-order-row')).toHaveCount(1);
   await expect(page.getByTestId('order-lifecycle')).not.toContainText('Filled');
   await evidence('05-posted-resting');
-  await expect(page.getByTestId('tx-toast-status')).toHaveText('Transaction Confirmed');
-  // The fixed confirmation toast can cover Cancel with CI's font metrics.
-  await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
-  await expect(page.getByTestId('tx-toast')).toHaveCount(0, { timeout: 2_000 });
   await page.getByTestId('open-order-cancel').click();
   await expect(page.getByTestId('open-orders-empty')).toBeVisible();
   await evidence('06-cancelled');

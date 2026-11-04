@@ -5,7 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import * as sdk from '@mgk/sdk';
 
 import { PriceChart } from '@/components/chart/PriceChart';
-import { TxToast } from '@/components/common/TxToast';
+import { notifyTxConfirmed, notifyTxFailed } from '@/components/common/TxToast';
 import { PageFrame } from '@/components/layout/PageFrame';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { useProtocolStatus } from '@/lib/hooks/useProtocolStatus';
@@ -80,7 +80,6 @@ export default function TradePage() {
     }
   }, []);
 
-  const [toast, setToast] = useState<{ sig: string; error: string | null } | null>(null);
   const [accepted, setAccepted] = useState<AcceptedOrderRef | null>(null);
   const [priceOverride, setPriceOverride] = useState<{ price: bigint; nonce: number } | null>(null);
 
@@ -126,9 +125,9 @@ export default function TradePage() {
             qty: params.qty,
           });
         }
-        setToast({ sig: result.sig, error: null });
+        notifyTxConfirmed('Order placed', result.sig);
       } catch (err) {
-        setToast({ sig: '', error: `Order not placed: ${decodeProgramError(err).message}` });
+        notifyTxFailed('Order not placed', decodeProgramError(err).message);
         throw err;
       }
     },
@@ -156,18 +155,8 @@ export default function TradePage() {
           ),
         });
 
-  const handleAccountSuccess = useCallback((sig: string) => {
-    setToast({ sig, error: null });
-  }, []);
-
-  const handleAccountError = useCallback((error: string) => {
-    setToast({ sig: '', error });
-  }, []);
-
   return (
     <PageFrame>
-      <DemoNotice />
-      <SystemStatus status={systemStatus} />
       <MarketHeader
         oracle={market.oracle}
         mark={market.lastClear}
@@ -202,8 +191,6 @@ export default function TradePage() {
             portfolio={portfolio}
             loading={portfolioLoading}
             error={portfolioError}
-            onTxSuccess={handleAccountSuccess}
-            onTxError={handleAccountError}
           >
             <OrderForm
               oracle={market.oracle}
@@ -217,22 +204,16 @@ export default function TradePage() {
               priceOverride={priceOverride}
               portfolio={portfolio}
               portfolioLoading={portfolioLoading}
-              onTxSuccess={handleAccountSuccess}
-              onTxError={handleAccountError}
               className="flex-1"
             />
           </ReadinessChecklist>
         </div>
       </div>
       <BottomTabs status={systemStatus} mark={market.lastClear} oracle={market.oracle} />
-      <StatusBar status={systemStatus} />
-      {toast && (
-        <TxToast
-          signature={toast.sig}
-          error={toast.error}
-          onDismiss={() => setToast(null)}
-        />
-      )}
+      <StatusBar status={systemStatus}>
+        <SystemStatus status={systemStatus} />
+        <DemoNotice />
+      </StatusBar>
     </PageFrame>
   );
 }

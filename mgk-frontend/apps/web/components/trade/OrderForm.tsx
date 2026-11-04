@@ -52,8 +52,6 @@ export interface OrderFormProps {
   priceOverride?: { price: bigint; nonce: number } | null;
   portfolio: PortfolioState | null;
   portfolioLoading: boolean;
-  onTxSuccess?: (sig: string) => void;
-  onTxError?: (error: string) => void;
   className?: string;
 }
 
@@ -93,8 +91,6 @@ export function OrderForm({
   priceOverride = null,
   portfolio,
   portfolioLoading,
-  onTxSuccess,
-  onTxError,
   className,
 }: OrderFormProps) {
   const [side, setSide] = useState<OrderSide>('buy');
@@ -266,8 +262,6 @@ export function OrderForm({
       <AccountActions
         portfolio={portfolio}
         portfolioLoading={portfolioLoading}
-        onTxSuccess={onTxSuccess}
-        onTxError={onTxError}
       />
     </section>
   );

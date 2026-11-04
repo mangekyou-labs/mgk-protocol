@@ -11,7 +11,7 @@ const repositoryRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "
  * Design doc §Security (docs/ai/design/2026-06-16-feature-mgk-frontend.md):
  *   - CSP: `default-src 'self'`, `connect-src 'self' https://hermes.pyth.network
  *     ws: wss:`, no `unsafe-eval`, no `unsafe-inline` for scripts. Solana RPC
- *     is same-origin: the browser talks to `/api/rpc`, which holds the
+ *     is same-origin: the browser talks to `/api/rpc/devnet`, which holds the
  *     upstream keys (RPC_UPSTREAMS) server-side.
  *   - Strict-Transport-Security, X-Frame-Options DENY, X-Content-Type-Options nosniff
  *
@@ -39,7 +39,7 @@ const INDEXER_LOCAL = ["http://localhost:4000", "ws://localhost:4000"];
 
 function buildCsp(isProd: boolean): string {
   const connectSrc = [
-    // 'self' covers /api/rpc; no direct RPC origins are needed.
+    // 'self' covers /api/rpc/devnet; no direct RPC origins are needed.
     "'self'",
     PYTH_HERMES,
     ...TRADINGVIEW_ORIGINS,

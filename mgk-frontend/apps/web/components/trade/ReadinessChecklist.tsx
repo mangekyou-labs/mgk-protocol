@@ -10,13 +10,11 @@ import { useReadiness } from '@/lib/hooks/useReadiness';
 import { friendlyRpcError } from '@/lib/polling';
 
 /** Gates the order form: Connect → Deposit → Trade. Every blocked state shows one reason. */
-export function ReadinessChecklist({ portfolio, loading, error, children, onTxSuccess, onTxError }: {
+export function ReadinessChecklist({ portfolio, loading, error, children }: {
   portfolio: sdk.state.PortfolioState | null;
   loading: boolean;
   error?: string | null;
   children: ReactNode;
-  onTxSuccess?: (sig: string) => void;
-  onTxError?: (error: string) => void;
 }) {
   const { connected } = useAutoConnect();
   const funding = useReadiness();
@@ -38,7 +36,7 @@ export function ReadinessChecklist({ portfolio, loading, error, children, onTxSu
     <section aria-labelledby={headingId} className="flex flex-col gap-3 p-3 text-sm text-text-muted">
       <h2 id={headingId} className="text-text">Deposit collateral</h2>
       <p role="status" data-testid="readiness-reason">{reason}</p>
-      <AccountActions portfolio={error ? null : portfolio} portfolioLoading={loading || !!error} onTxSuccess={onTxSuccess} onTxError={onTxError} />
+      <AccountActions portfolio={error ? null : portfolio} portfolioLoading={loading || !!error} />
     </section>
   );
 }
