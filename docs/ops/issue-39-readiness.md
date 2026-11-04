@@ -1,13 +1,13 @@
 # Issue #39 rollout readiness — 2026-11-03
 
-Issue #39 remains **open** and PR #72 remains **draft**. P0-32's recovery
-procedures and post-recovery one-lot reduce-only close now pass for the recorded
-D′ deployment. The paired audit at settlement slot 518396452 evaluated one
-reduce-only fill, +1 → 0 lots, with zero violations. P1-4 passes for the recorded
-preview. P0-31 now has missing-maker-depth/UI and recovery evidence; delivered external
-alert evidence remains pending. Backfill caught up on November 3, but a later free-instance restart
-reset ephemeral replay; the November 4 status is behind again. This is not a
-production sign-off.
+All required D′ drill rows now pass for the recorded deployment and preview:
+P0-31 outage status/UI, recovery and delivered external alert; P0-32 recovery
+and the paired one-lot reduce-only close; P1-4 pause UI. The operator confirmed
+receipt of the real outage email after UptimeRobot sent it at 01:09:19 UTC on
+November 4. PR #72 can leave draft after the final evidence commit passes CI;
+#39 stays open until merge. This is not a production sign-off. Keeper remains
+suspended below its fee floor, and a free-instance restart reset indexer replay
+following the November 3 catch-up; these current operating limits remain visible.
 
 ## Dated correction — public rollout and rehearsal evidence
 
@@ -29,7 +29,7 @@ records executable hashes, service pins and the preview.
 
 | Required row | Assessment | Evidence and remaining limits |
 | --- | --- | --- |
-| P0-31 | **partial; not passed** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker alone left resting GTC depth `ok`; the [November 4 cancellation drill](#maker-depth-outage-and-recovery--november-4-0058-utc) proves missing-depth critical status, browser warning and restored quotes. Actual external alert delivery remains unproved. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
+| P0-31 | **pass for recorded deployment** | [Fault snapshot](evidence/issue-39-2026-11-03/p031-failclosed.json): oracle age 245 s, batch 201 Cleared for 178 s, keeper 8,671,680 lamports below the 10M floor; oracle/batch/fee checks critical. [Recovery](evidence/issue-39-2026-11-03/p031-recovered.json): batch 211 and fresh price. [Follow-up outage banners](#deployed-follow-up--1232-utc) now cover fee/batch and stale oracle. Stopping maker alone left resting GTC depth `ok`; the [November 4 cancellation drill](#maker-depth-outage-and-recovery--november-4-0058-utc) proves missing-depth critical status, browser warning and restored quotes. [Real incident and email delivery](#external-monitor-and-delivered-alert--november-4-0109-utc) are now verified, including operator-confirmed receipt. The required check measures depth, not worker-process liveness. Pause UI evidence exists below, but is not proof of each outage banner. |
 | P0-32 | **pass for recorded deployment** | Post-upgrade batch 201 stalled Cleared >120 s and recovered. Genuine exhaustion produced debt and auto-pause, followed by repayment, withdrawals-before-trading unpause and successful flat withdrawal. The [November 4 follow-up](#post-recovery-reduce-only-close--november-4-0030-utc) adds a confirmed one-lot reduce-only close and paired state/settlement audit, +1 → 0, zero violations. |
 | P1-4 | **pass for recorded preview** | Reviewed [paused](evidence/issue-39-2026-11-03/p1-4-pause-banner.png) and [unpaused](evidence/issue-39-2026-11-03/p1-4-unpaused.png) screenshots, with [flags 3](evidence/issue-39-2026-11-03/p1-paused-status.json) and [flags 0](evidence/issue-39-2026-11-03/p1-unpaused-status.json). The resumed screenshot shows two-sided quotes and a fresh oracle. Any frontend change requires rerunning this browser row. |
 
@@ -94,19 +94,17 @@ not passes. No open positions remain for the net-position consistency check.
 
 ### Remaining work
 
-Keep #39 open and PR #72 draft until P0-31 has its full required evidence.
-Confirm actual external alert delivery. Missing maker fault/UX and recovery
-evidence is now recorded below. P0-32 now has its successful small close and paired invariant evidence.
-The genuine liquidation already proves exhaustion; do not repeat the destructive
-drill solely because liquidation beat the originally planned taker close.
-Backfill caught up and batch-414 fills reconciled on November 3; a later
-free-instance restart reset replay, so observe catch-up again and recheck health.
-Free Render instances have ephemeral storage and can sleep after idle
-periods: keep `/healthz` warm during drills and do not redeploy/reset the indexer
-just to update documentation. Record each actual service/source pin and rerun
-affected evidence after behavior changes; identical SHAs across services are not
-a requirement. The worker changes from their recorded pin to `41df659` only
-affect HTTP health-server startup/lifetime, not trading or settlement logic.
+All three required D′ rows have recorded evidence. Finish the evidence commit
+and hosted checks, then mark PR #72 ready for review; keep #39 open until merge.
+No repeat exhaustion, keeper funding or trade is needed to complete these drills.
+The genuine liquidation proves exhaustion, and the small close supplies the
+paired reduce invariant. Current keeper suspension and below-floor fee balance
+are disclosed operating limits. Backfill caught up and batch-414 fills reconciled
+on November 3; a later free-instance restart reset replay, which continues under
+a read-only watcher. Free Render instances have ephemeral storage and can sleep:
+keep `/healthz` warm during drills and do not reset replay for documentation updates.
+Record actual service/source pins and rerun affected evidence after behavior
+changes; identical SHAs across services are not a requirement.
 
 ### CI verification — 12:22 UTC
 
@@ -396,3 +394,26 @@ Fresh integrated verification passed:
 
 The web production build could not fetch Google Fonts in this environment.
 These local checks do not qualify any public rollout or D′ gate row.
+
+### External monitor and delivered alert — November 4, 01:09 UTC
+
+The operator created UptimeRobot keyword monitor `804540855` for the public
+`/api/status` endpoint. It alerts when `"severity":"critical"` exists, using the
+free plan's five-minute polling interval and the operator's account email contact.
+Slack is not configured. Warning severity remains visible in status; this monitor
+does not implement warning escalation. The monitoring manifest now describes the
+actual configuration. The parent spec requires external polling and an alert
+channel chosen during implementation; the 60-second oracle fail-closed criterion
+is separate from the external monitor interval.
+
+[Incident/delivery evidence](evidence/issue-39-2026-11-04/p031-external-alert-delivery.json)
+records real incident `376176044692358857`: critical keyword first detected at
+01:08:31 UTC, incident opened 01:09:18 UTC, and provider activity log reported
+email SUCCESS at **01:09:19 UTC / 08:09:19 GMT+7**. The operator explicitly
+confirmed receipt of the outage email. Exact inbox arrival time was not supplied
+and is not inferred from send time. No test notification was used. The provider's
+response preview showed keeper 6,943,680 lamports below the 10M floor, with fresh
+oracle and both maker depth sides present. Allowlisted preview fields are retained;
+the full-response download returned HTTP 403 and is not claimed as an artifact.
+This completes the missing P0-31 delivery evidence; earlier dated pending
+assessments above are superseded. No program or service was redeployed to collect it.

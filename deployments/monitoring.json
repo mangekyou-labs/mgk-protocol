@@ -10,10 +10,13 @@
     "provider": "UptimeRobot",
     "type": "keyword",
     "path": "/api/status",
-    "intervalSeconds": 60,
+    "intervalSeconds": 300,
     "keyword": "\"severity\":\"critical\"",
-    "alertChannel": "email + Slack #mgk-ops (webhook provisioned outside the repo)",
-    "alertOn": ["endpoint unreachable", "response contains the keyword"],
-    "warnHandling": "severity warn is logged and paged only after 5 consecutive polls"
+    "alertChannel": "email (operator account contact on UptimeRobot monitor 804540855; Slack not configured)",
+    "alertOn": [
+      "endpoint unreachable",
+      "response contains the keyword"
+    ],
+    "warnHandling": "severity warn is reported by /api/status; this keyword monitor alerts only on critical or endpoint failure"
   }
 }

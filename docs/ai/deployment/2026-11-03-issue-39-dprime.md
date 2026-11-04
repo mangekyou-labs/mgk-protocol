@@ -81,3 +81,16 @@ Playwright command was corrected without repeating either transaction. Program
 and service source pins are unchanged. P0-31 now lacks delivered external alert
 evidence; UptimeRobot requires operator authentication. Keep PR #72 draft and #39
 open. Keeper remains suspended and indexer replay continues.
+
+## Delivered external alert — November 4, 01:09 UTC
+
+The operator created UptimeRobot monitor `804540855`: critical-keyword matching
+on `/api/status`, five-minute free-plan interval, account email contact, no Slack.
+Real incident `376176044692358857` opened at 01:09:18 UTC; provider email activity
+reported SUCCESS at 01:09:19 UTC (08:09:19 GMT+7). The operator confirmed receipt;
+exact inbox arrival time was not supplied. [Sanitized evidence](../../ops/issue-39-readiness.md#external-monitor-and-delivered-alert--november-4-0109-utc)
+completes P0-31. All required D′ rows now pass for the recorded deployment/preview;
+PR #72 can leave draft after the final evidence commit passes CI. Keep #39 open
+until merge. Keeper suspension/fee floor and restarted ephemeral indexer replay
+remain disclosed operating limits. No program, worker or indexer redeployment,
+new funding, trade or test notification was performed for this evidence.

@@ -1,0 +1,38 @@
+{
+  "provider": "UptimeRobot",
+  "monitorId": "804540855",
+  "incidentId": "376176044692358857",
+  "incidentUrl": "https://dashboard.uptimerobot.com/incidents/376176044692358857",
+  "provenance": "Read-only observation of authenticated incident page and operator receipt confirmation in chat. Real incident, not a test notification.",
+  "monitor": {
+    "url": "https://mgk-indexer.onrender.com/api/status",
+    "keyword": "\"severity\":\"critical\"",
+    "alertWhen": "keyword exists",
+    "intervalSeconds": 300,
+    "channel": "operator account email (recipient redacted)",
+    "slackConfigured": false
+  },
+  "firstDetectedAt": "2026-11-04T01:08:31Z",
+  "incidentStartedAt": "2026-11-04T01:09:18Z",
+  "emailSentAt": "2026-11-04T01:09:19Z",
+  "providerActivityStatus": "SUCCESS",
+  "operatorReceiptConfirmed": true,
+  "operatorConfirmation": "Received the outage email (add time)",
+  "exactInboxReceivedAt": null,
+  "timestampLimit": "Provider send time is verified; exact inbox arrival time was not supplied.",
+  "responsePreview": {
+    "severity": "critical",
+    "chainTip": 518406255,
+    "lastIndexedSlot": 518230072,
+    "oracleAgeSeconds": 4,
+    "batchId": "602",
+    "batchAgeSeconds": 652,
+    "makerDepth": {
+      "bid": true,
+      "ask": true
+    },
+    "keeperLamports": "6943680",
+    "feeFloorLamports": "10000000"
+  },
+  "responseLimit": "Allowlisted fields transcribed from provider response preview. Full-response download returned HTTP 403; no full response artifact is claimed."
+}
