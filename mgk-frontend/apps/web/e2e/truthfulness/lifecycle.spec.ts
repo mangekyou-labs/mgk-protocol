@@ -73,7 +73,7 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await expect(submit).toHaveText('Batch 0 cleared, awaiting settlement.');
   await page.getByTestId('account-actions-amount').fill('0.5');
   await expect(page.getByTestId('account-actions-withdraw')).toBeDisabled();
-  await expect(page.getByTestId('readiness-reason')).toContainText(/settlement/i);
+  await expect(page.locator('#collateral-reason')).toContainText(/settlement/i);
   await page.getByRole('tab', { name: 'Positions', exact: true }).click();
   await expect(page.getByTestId('position-row')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Fills', exact: true }).click();

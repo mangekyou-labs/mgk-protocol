@@ -16,6 +16,7 @@ describe('friendlyRpcError', () => {
 
   it.each([
     'Wrong cluster: connect to devnet. Check your RPC.',
+    'Wrong cluster. Select a devnet RPC and reconnect your wallet.',
     'Registry does not match the deployment manifest.',
     'No open collecting batch found. Wait for the keeper to open the next window.',
   ])('passes the actionable error %j through unchanged', (raw) => {

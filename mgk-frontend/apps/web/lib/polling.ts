@@ -12,7 +12,7 @@ export const FAILURE_THRESHOLD = 3;
 export const NETWORK_BUSY = 'Network busy, retrying…';
 
 const TRANSPORT_ERROR =
-  /\b(429|5\d\d)\b|jsonrpc|too many requests|failed to fetch|fetch failed|network ?error|timed? ?out|timeout|ECONN|ETIMEDOUT|service unavailable|bad gateway/i;
+  /\b(429|5\d\d)\b|jsonrpc|too many requests|failed to fetch|fetch failed|network ?error|timed? ?out|timeout|\bE(?:CONN\w+|TIMEDOUT)\b|service unavailable|bad gateway/i;
 
 /**
  * Maps raw RPC/transport failures to a short user-facing line. Domain errors
