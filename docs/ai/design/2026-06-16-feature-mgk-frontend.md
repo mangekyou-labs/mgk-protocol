@@ -613,7 +613,7 @@ The reference's chart has two features that Lightweight Charts does not ship: (1
 
 - Wallet adapter is the only signer. The web never holds private keys.
 - localStorage is for in-flight commit metadata only; cleared after Reveal confirms (success or slash).
-- CSP: `default-src 'self'`, `connect-src 'self' https://api.devnet.solana.com https://*.helius-rpc.com https://hermes.pyth.network ws: wss:`, no `unsafe-eval`, no `unsafe-inline` for scripts
+- CSP: `default-src 'self'`; `connect-src` is `'self'` (which covers the same-origin RPC proxy `/api/rpc/devnet`) plus Pyth Hermes (`https://hermes.pyth.network`), with no direct Solana RPC origins: the provider URL and key live server-side in `RPC_UPSTREAMS`. (The chart, local-indexer and wallet-adapter origins the TradingView widget and adapters need are listed in `apps/web/next.config.ts`.) No `unsafe-eval` in production
 - Strict-Transport-Security, X-Frame-Options DENY, X-Content-Type-Options nosniff
 - All txs serialized through a single `sendAndConfirm` helper that:
   - sets `preflightCommitment: 'confirmed'`
@@ -623,7 +623,7 @@ The reference's chart has two features that Lightweight Charts does not ship: (1
 
 ### Reliability
 
-- Indexer is restartable; on boot it back-fills the last 1000 slots from `getBlocks` so the chart and book are accurate after a restart
+- Indexer is restartable; it back-fills by program signatures, not `getBlocks`: `getSignaturesForAddress` pages from its stored cursor, then `getTransaction` per signature, oldest first. If the RPC's retention floor (`getFirstAvailableBlock`) has passed the cursor, it reports a sync gap instead of treating the missing range as replayed history
 - Frontend tolerates indexer downtime: chart still shows Pyth candles; order book shows "indexer reconnecting" banner
 - All Solana RPC calls have a 10s timeout; on timeout the user sees a friendly retry button
 

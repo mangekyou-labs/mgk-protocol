@@ -16,6 +16,9 @@ export interface MarketHeaderProps {
   collectingBatchId: bigint | null;
 }
 
+/** Fixed width, tabular digits, no animation: the header must not shift as batch ids roll over. */
+const BATCH_ID_CLASS = 'inline-block min-w-[7ch] tabular-nums';
+
 export function MarketHeader({ oracle, mark, collectingBatchId }: MarketHeaderProps) {
   return (
     <div
@@ -50,7 +53,7 @@ export function MarketHeader({ oracle, mark, collectingBatchId }: MarketHeaderPr
         {mark ? (
           <>
             ${formatUsd(mark.price)}{' '}
-            <span className="text-text-faint">batch {mark.batchId.toString()}</span>
+            <span className="text-text-faint">batch <span className={BATCH_ID_CLASS}>{mark.batchId.toString()}</span></span>
           </>
         ) : (
           <span className="text-text-faint">--</span>
@@ -59,9 +62,10 @@ export function MarketHeader({ oracle, mark, collectingBatchId }: MarketHeaderPr
 
       <Stat testId="stat-collecting" label="Collecting">
         {collectingBatchId != null ? (
-          <>batch {collectingBatchId.toString()}</>
+          <>batch <span data-testid="collecting-batch-id" className={BATCH_ID_CLASS}>{collectingBatchId.toString()}</span></>
         ) : (
-          <span className="text-text-faint">--</span>
+          // Same width as "batch NNNNNNN" so the stats to the right hold still between batches.
+          <span className="inline-block min-w-[13ch] text-text-faint">--</span>
         )}
       </Stat>
 

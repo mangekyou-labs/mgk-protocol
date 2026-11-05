@@ -2,23 +2,23 @@ import { test, expect } from './fixture';
 
 test('onboard, deposit, post, cancel, await settlement, settle, close and withdraw', async ({ page, market, evidence }) => {
   await page.goto('/trade');
-  await expect(page.getByRole('heading', { name: 'Wallet connected, not ready' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Deposit collateral' })).toBeVisible();
   await expect(page.getByTestId('order-form')).toHaveCount(0);
-  await expect(page.getByText('Earlier devnet balances were not carried over.', { exact: false }).first()).toBeVisible();
-  await expect(page.getByTestId('price-chart-label')).toContainText('external reference · not executable');
-  await page.getByText('Restricted demo · protections and limits').click();
+  await expect(page.getByTestId('demo-notice')).toContainText('Earlier devnet balances were not carried over.');
+  await expect(page.getByTestId('price-chart-label')).toContainText('Reference price · Binance');
+  await page.getByTestId('demo-notice').locator('summary').click();
   await expect(page.getByText('No mainnet, other markets,', { exact: false })).toBeVisible();
   await evidence('01-connected-not-ready');
 
   await page.getByTestId('account-actions-amount').fill('1');
   await expect(page.getByTestId('account-actions-deposit')).toBeEnabled();
   await page.getByTestId('account-actions-deposit').click();
-  await expect(page.getByText('Wallet connected, ready', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('order-form')).toBeVisible();
   await page.getByRole('tab', { name: 'Collateral', exact: true }).click();
   await expect(page.getByTestId('balances-equity')).toHaveText('1.000000000 SOL');
   await evidence('02-deposited');
   await page.reload();
-  await expect(page.getByText('Wallet connected, ready', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('order-form')).toBeVisible();
   await page.getByRole('tab', { name: 'Collateral', exact: true }).click();
   await expect(page.getByTestId('balances-equity')).toHaveText('1.000000000 SOL');
   await evidence('03-reloaded-chain-observation');
@@ -53,14 +53,16 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await evidence('04e-confirming');
   market.holdConfirmation = false;
   await expect(page.getByTestId('order-lifecycle')).toHaveText('Accepted · on the book in batch 0');
+  const placed = page.getByTestId('tx-toast').filter({ hasText: 'Order placed' });
+  await expect(placed).toBeVisible();
+  await expect(placed.getByTestId('tx-toast-explorer')).toHaveAttribute('href', /explorer\.solana\.com\/tx\/.+\?cluster=devnet/);
+  // The confirmation toast can cover Cancel with CI's font metrics.
+  await placed.getByRole('button', { name: 'Close toast' }).click();
+  await expect(placed).toHaveCount(0, { timeout: 2_000 });
   await page.getByRole('tab', { name: 'Open orders', exact: true }).click();
   await expect(page.getByTestId('open-order-row')).toHaveCount(1);
   await expect(page.getByTestId('order-lifecycle')).not.toContainText('Filled');
   await evidence('05-posted-resting');
-  await expect(page.getByTestId('tx-toast-status')).toHaveText('Transaction Confirmed');
-  // The fixed confirmation toast can cover Cancel with CI's font metrics.
-  await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
-  await expect(page.getByTestId('tx-toast')).toHaveCount(0, { timeout: 2_000 });
   await page.getByTestId('open-order-cancel').click();
   await expect(page.getByTestId('open-orders-empty')).toBeVisible();
   await evidence('06-cancelled');
@@ -69,11 +71,11 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await expect(page.getByTestId('open-order-row')).toHaveCount(1);
   market.clear();
   await expect(page.getByTestId('order-lifecycle')).toHaveText('Batch 0 cleared · awaiting settlement');
-  await expect(submit).toBeDisabled();
-  await expect(submit).toHaveText('Batch 0 cleared, awaiting settlement.');
+  // Orders and withdrawals stay available; the actions wait for the next batch window.
+  await expect(submit).toBeEnabled();
   await page.getByTestId('account-actions-amount').fill('0.5');
-  await expect(page.getByTestId('account-actions-withdraw')).toBeDisabled();
-  await expect(page.locator('#collateral-reason')).toContainText(/settlement/i);
+  await expect(page.getByTestId('account-actions-withdraw')).toBeEnabled();
+  await expect(page.locator('#collateral-reason')).toBeEmpty();
   await page.getByRole('tab', { name: 'Positions', exact: true }).click();
   await expect(page.getByTestId('position-row')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Fills', exact: true }).click();
@@ -154,10 +156,10 @@ for (const reason of ['wrong cluster', 'manifest mismatch'] as const) {
     market.wrongCluster = reason === 'wrong cluster';
     market.manifestMismatch = reason === 'manifest mismatch';
     await page.goto('/trade');
-    await expect(page.getByRole('heading', { name: 'Wallet connected, not ready' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Deposit collateral' })).toBeVisible();
     await page.getByTestId('account-actions-amount').fill('0.1');
     await expect(page.getByTestId('account-actions-deposit')).toBeDisabled();
-    await expect(page.locator('#collateral-reason')).toContainText(reason === 'wrong cluster' ? /Check your RPC|devnet/i : /manifest mismatch.*Reload/i);
+    await expect(page.getByTestId('readiness-reason')).toContainText(reason === 'wrong cluster' ? /Check your RPC|devnet/i : /manifest mismatch.*Reload/i);
     await expect(page.getByTestId('order-form')).toHaveCount(0);
     expect(market.walletRequests).toEqual([]);
     await evidence(reason.replaceAll(' ', '-'));

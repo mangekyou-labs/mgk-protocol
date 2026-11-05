@@ -5,17 +5,18 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import * as sdk from '@mgk/sdk';
 
 import { PriceChart } from '@/components/chart/PriceChart';
-import { TxToast } from '@/components/common/TxToast';
+import { notifyTxConfirmed, notifyTxFailed } from '@/components/common/TxToast';
 import { PageFrame } from '@/components/layout/PageFrame';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
 import { useProtocolStatus } from '@/lib/hooks/useProtocolStatus';
 import { SystemStatus } from '@/components/trade/SystemStatus';
+import { DemoNotice } from '@/components/layout/DemoNotice';
 import { StatusBar } from '@/components/trade/StatusBar';
 import { BottomTabs } from '@/components/trade/BottomTabs';
 import { MarketHeader } from '@/components/trade/MarketHeader';
 import { BOOK_LEVELS_PER_SIDE, OrderBook } from '@/components/trade/OrderBook';
 import { ReadinessChecklist } from '@/components/trade/ReadinessChecklist';
-import { OrderForm, type OrderFormParams } from '@/components/trade/OrderForm';
+import { OrderForm, type OrderFormParams, type SubmitStage } from '@/components/trade/OrderForm';
 import { useBatchStatus } from '@/lib/hooks/useBatchStatus';
 import { useMarketBar } from '@/lib/hooks/useMarketBar';
 import { decodeProgramError, usePostOrder } from '@/lib/hooks/useOrderSubmission';
@@ -79,7 +80,6 @@ export default function TradePage() {
     }
   }, []);
 
-  const [toast, setToast] = useState<{ sig: string; error: string | null } | null>(null);
   const [accepted, setAccepted] = useState<AcceptedOrderRef | null>(null);
   const [priceOverride, setPriceOverride] = useState<{ price: bigint; nonce: number } | null>(null);
 
@@ -113,9 +113,12 @@ export default function TradePage() {
   const position = portfolio?.positions.find((p) => p.instrumentId === INSTRUMENT_ID);
 
   const handleSubmit = useCallback(
-    async (params: OrderFormParams, onSigned: () => void) => {
+    async (params: OrderFormParams, onSigned: () => void, onStage?: (stage: SubmitStage) => void) => {
       try {
-        const result = await post({ instrumentId: INSTRUMENT_ID, ...params }, { onSigned });
+        const result = await post(
+          { instrumentId: INSTRUMENT_ID, ...params },
+          { onSigned, onWaiting: () => onStage?.('waiting'), onReady: () => onStage?.('approve') },
+        );
         if (publicKey) {
           setAccepted({
             user: publicKey,
@@ -125,9 +128,9 @@ export default function TradePage() {
             qty: params.qty,
           });
         }
-        setToast({ sig: result.sig, error: null });
+        notifyTxConfirmed('Order placed', result.sig);
       } catch (err) {
-        setToast({ sig: '', error: `Order not placed: ${decodeProgramError(err).message}` });
+        notifyTxFailed('Order not placed', decodeProgramError(err).message);
         throw err;
       }
     },
@@ -155,17 +158,8 @@ export default function TradePage() {
           ),
         });
 
-  const handleAccountSuccess = useCallback((sig: string) => {
-    setToast({ sig, error: null });
-  }, []);
-
-  const handleAccountError = useCallback((error: string) => {
-    setToast({ sig: '', error });
-  }, []);
-
   return (
     <PageFrame>
-      <SystemStatus status={systemStatus} />
       <MarketHeader
         oracle={market.oracle}
         mark={market.lastClear}
@@ -200,13 +194,10 @@ export default function TradePage() {
             portfolio={portfolio}
             loading={portfolioLoading}
             error={portfolioError}
-            onTxSuccess={handleAccountSuccess}
-            onTxError={handleAccountError}
           >
             <OrderForm
               oracle={market.oracle}
               newExposurePaused={market.newExposurePaused}
-              batchGate={market.batchGate}
               withdrawableCollateral={portfolio?.freeCollateral ?? null}
               market={market.market}
               positionLots={portfolio ? (position?.qty ?? 0n) : null}
@@ -215,22 +206,16 @@ export default function TradePage() {
               priceOverride={priceOverride}
               portfolio={portfolio}
               portfolioLoading={portfolioLoading}
-              onTxSuccess={handleAccountSuccess}
-              onTxError={handleAccountError}
               className="flex-1"
             />
           </ReadinessChecklist>
         </div>
       </div>
       <BottomTabs status={systemStatus} mark={market.lastClear} oracle={market.oracle} />
-      <StatusBar status={systemStatus} />
-      {toast && (
-        <TxToast
-          signature={toast.sig}
-          error={toast.error}
-          onDismiss={() => setToast(null)}
-        />
-      )}
+      <StatusBar status={systemStatus}>
+        <SystemStatus status={systemStatus} />
+        <DemoNotice />
+      </StatusBar>
     </PageFrame>
   );
 }

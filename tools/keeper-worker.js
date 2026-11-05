@@ -37,6 +37,7 @@ async function createKeeperWorker({
   now = Date.now,
   alert = (value) => console.error(JSON.stringify(value)),
   feeFloorLamports = 10000000n,
+  resendIntervalMs = 2000,
 }) {
   if (typeof feeFloorLamports !== "bigint" || feeFloorLamports < 0n)
     throw Error("Invalid fee floor");
@@ -108,6 +109,9 @@ async function createKeeperWorker({
     });
     await confirmSignature(connection, signature, {
       lastValidBlockHeight: latest.lastValidBlockHeight,
+      resend: () =>
+        connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }),
+      resendIntervalMs,
     });
     return signature;
   }

@@ -29,7 +29,8 @@ mgk-frontend/
 
 | Variable | Default | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_RPC_URL` | `https://api.devnet.solana.com` | Solana RPC endpoint |
+| `NEXT_PUBLIC_RPC_URL` | (unused) | Ignored by the browser: every read and send goes to the same-origin proxy `/api/rpc/devnet`, so no RPC URL or key is inlined into the bundle |
+| `RPC_UPSTREAMS` | (none, required) | Server-only, never `NEXT_PUBLIC_`. The proxy uses only the first comma-separated entry (the dedicated devnet provider, key included); no rotation, failover or public fallback. Unset or empty: the proxy answers a 503 JSON-RPC error and the UI shows RPC unavailable |
 | `NEXT_PUBLIC_CORE_PROGRAM_ID` | `9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT` | mgk-perps-core on devnet |
 | `NEXT_PUBLIC_MATCHER_PROGRAM_ID` | `68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK` | mgk-perps-matcher on devnet |
 | `NEXT_PUBLIC_ORACLE_PROGRAM_ID` | `GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm` | mgk-oracle on devnet |
@@ -69,18 +70,20 @@ Browser (Next.js 16 SPA)
   │
   ├── @mgk/sdk ──── Pinocchio instruction encoders (raw byte), PDA derivation, BPF state decoders
   │
-  ├── Direct RPC ── getMultipleAccountsInfo (portfolio, batch, book) every 2-5s
+  ├── Chain RPC ─── /api/rpc/devnet (same-origin proxy → first RPC_UPSTREAMS entry):
+  │                 getMultipleAccountsInfo (portfolio, batch, book) every 2-5s, sends
   │
   ├── Wallet ────── @solana/wallet-adapter (Phantom, Solflare)
   │
   └── Indexer ───── REST (/api/*) + WebSocket (/ws) for candles, fills, batch state
          │
-         └── Solana logs subscriber → SQLite → candle aggregation → fan-out WS
+         └── Solana logs subscriber + signature replay (getSignaturesForAddress →
+             getTransaction from the stored cursor) → SQLite → candles → fan-out WS
 ```
 
 **Design decisions:**
 - **No Anchor / IDL** — Pinocchio programs use single-byte discriminators. SDK hand-rolls byte layouts.
-- **Direct RPC** for freshness-critical reads. Indexer for history and WS fan-out.
+- **Chain reads over RPC** (through the same-origin proxy, which holds the provider key) for freshness-critical state. Indexer for history and WS fan-out; it replays missed history by program signatures from its cursor and reports a gap instead of skipping it when the RPC no longer retains that range.
 - **TradingView widget** for chart (`BINANCE:SOLUSDT` for devnet; Pyth data feed deferred to post-v1).
 - **Zustand** stores for shared chain polling and ephemeral UI state. Indexer REST uses fetch-based hooks; one page-level status hook supplies the trade screen banners and status bar.
 - **Client-side commit-reveal**: salt + hash computed in browser, persisted to localStorage across refresh.

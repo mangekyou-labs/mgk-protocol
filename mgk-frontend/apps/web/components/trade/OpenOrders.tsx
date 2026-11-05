@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { Transaction, TransactionInstruction, ComputeBudgetProgram, PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
 
 import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD, friendlyRpcError } from '@/lib/polling';
 import { NumberDisplay } from '@/components/common/NumberDisplay';
 import { Pill } from '@/components/common/Pill';
 
@@ -61,6 +62,8 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<bigint | null>(null);
+  const failures = useRef(0);
+  const fetched = useRef(false);
 
   const fetchOrders = useCallback(async () => {
     if (!publicKey) {
@@ -68,13 +71,16 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
       onCountChange?.(0);
       return;
     }
-    setLoading(true);
-    setError(null);
+    // Loading shows only until the first read; later polls refresh in place.
+    if (!fetched.current) setLoading(true);
     try {
       const bookPda =
         config.bookAddress ?? sdk.deriveBookPda(instrumentId, config.matcherProgramId, config.marketContext)[0];
       const accounts = await connection.getMultipleAccountsInfo([bookPda]);
       const acc = accounts[0];
+      failures.current = 0;
+      fetched.current = true;
+      setError(null);
       if (!acc) {
         setOrders([]);
         onCountChange?.(0);
@@ -88,7 +94,11 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
       setOrders(mine);
       onCountChange?.(mine.length);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // Keep the last orders through transient misses; report once they persist.
+      failures.current++;
+      if (failures.current >= FAILURE_THRESHOLD) {
+        setError(friendlyRpcError(e instanceof Error ? e.message : String(e)));
+      }
     } finally {
       setLoading(false);
     }
@@ -118,7 +128,7 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
         await sdk.confirmSignature(connection, sig);
         await fetchOrders();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(friendlyRpcError(e instanceof Error ? e.message : String(e)));
       } finally {
         setBusyOrderId(null);
       }

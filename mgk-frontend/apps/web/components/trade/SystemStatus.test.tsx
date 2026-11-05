@@ -30,7 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('chain derived system status', () => {
-  it('shows RPC independently of disconnected wallet and publicly lists restricted demo omissions', async () => {
+  it('shows RPC independently of disconnected wallet', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, json: async () => healthy }),
@@ -45,8 +45,7 @@ describe('chain derived system status', () => {
       'Wallet: disconnected',
     );
     expect(screen.getByTestId('status-cluster')).toHaveTextContent('devnet');
-    expect(screen.getByText(/no ADL or socialized loss/i)).toBeInTheDocument();
-    expect(screen.getByText(/Funding: off/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Restricted demo/)).toBeNull();
   });
   it('shows exact pause scope plus oracle/batch outage and syncing history from status checks', () => {
     const status = {
@@ -63,6 +62,7 @@ describe('chain derived system status', () => {
       loading: false,
       error: null,
     } as Parameters<typeof SystemStatus>[0]['status'];
+    vi.useFakeTimers();
     render(<SystemStatus status={status} />);
     expect(screen.getByText(/New exposure paused\./)).toBeInTheDocument();
     expect(screen.getByText('Withdrawals paused.')).toBeInTheDocument();
@@ -72,6 +72,9 @@ describe('chain derived system status', () => {
     expect(
       screen.getByText(/no settlement time is promised/),
     ).toBeInTheDocument();
+    // A brief sync is normal; the banner waits until it has lasted 30 s.
+    expect(screen.queryByText(/Indexer syncing/)).toBeNull();
+    act(() => { vi.advanceTimersByTime(30_000); });
     expect(screen.getByText(/Indexer syncing/)).toBeInTheDocument();
   });
   it.each([1, 16])('explains the protective actions permitted under exposure pause flag %s', (flags) => {
@@ -92,7 +95,7 @@ describe('chain derived system status', () => {
     expect(screen.queryByText(/Oracle stale or unavailable/)).not.toBeInTheDocument();
     expect(screen.queryByText(/estimates are unavailable/)).not.toBeInTheDocument();
   });
-  it('clears a previously healthy status after an endpoint failure', async () => {
+  it('keeps a healthy status through one endpoint failure and clears it once failures persist', async () => {
     vi.useFakeTimers();
     const fetcher = vi
       .fn()
@@ -110,11 +113,17 @@ describe('chain derived system status', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
+      'RPC: reachable',
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',
     );
-    expect(
-      screen.getByText(/Indexer down \/ system status unavailable/),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { hidden: true })).toHaveTextContent(
+      /Indexer down \/ system status unavailable/,
+    );
   });
   it('expires healthy status while a subsequent request hangs', async () => {
     vi.useFakeTimers();
@@ -134,6 +143,12 @@ describe('chain derived system status', () => {
     );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(7000);
+    });
+    expect(screen.getByTestId('status-rpc')).toHaveTextContent(
+      'RPC: reachable',
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',

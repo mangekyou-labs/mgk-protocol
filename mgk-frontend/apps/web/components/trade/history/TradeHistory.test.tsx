@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 import { __resetMyFillsStore } from '@/lib/stores/useMyFillsStore';
 import { TradeHistory } from './TradeHistory';
@@ -61,6 +61,7 @@ describe('TradeHistory', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     __resetMyFillsStore();
     vi.restoreAllMocks();
   });
@@ -110,11 +111,18 @@ describe('TradeHistory', () => {
   );
 
   it('renders the error state when the indexer returns non-OK', async () => {
+    vi.useFakeTimers();
     globalThis.fetch = mockFetchOnce({ error: 'no' }, 500);
     render(<TradeHistory />);
-    await waitFor(() => {
-      expect(screen.getByTestId('trade-history-error')).toBeInTheDocument();
+    // One miss is treated as transient; the error shows once failures persist.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
+    expect(screen.queryByTestId('trade-history-error')).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    vi.useRealTimers();
     expect(screen.getByTestId('trade-history-error')).toHaveTextContent('500');
   });
 

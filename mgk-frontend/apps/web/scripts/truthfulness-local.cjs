@@ -14,7 +14,7 @@ const dest = path.join(temp, 'mgk-frontend');
 const stagedWeb = path.join(dest, 'apps/web');
 const prepareOnly = process.argv.includes('--prepare-only');
 const output = path.join(web, 'test-results/truthfulness');
-const env = { ...process.env, NO_DNA: '1', NEXT_TELEMETRY_DISABLED: '1', NEXT_PUBLIC_RPC_URL: 'https://api.devnet.solana.com', NEXT_PUBLIC_INDEXER_URL: 'http://localhost:4000', NEXT_PUBLIC_HERMES_URL: 'https://hermes.pyth.network' };
+const env = { ...process.env, NO_DNA: '1', NEXT_TELEMETRY_DISABLED: '1', NEXT_PUBLIC_INDEXER_URL: 'http://localhost:4000', NEXT_PUBLIC_HERMES_URL: 'https://hermes.pyth.network' };
 let server;
 function run(cmd, args, cwd) {
   const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit' });
@@ -43,8 +43,9 @@ async function main() {
 import { SolanaProvider } from '@/components/providers/SolanaProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { Header } from '@/components/layout/Header';
+import { TxToaster } from '@/components/common/TxToast';
 export default function Layout({children}: {children: React.ReactNode}) {
-return <html lang="en"><body><ThemeProvider><SolanaProvider><Header /><aside role="note">Browser test preview · synthetic data · not a devnet trading deployment</aside>{children}</SolanaProvider></ThemeProvider></body></html>;
+return <html lang="en"><body><ThemeProvider><SolanaProvider><Header /><aside role="note">Browser test preview · synthetic data · not a devnet trading deployment</aside>{children}<TxToaster /></SolanaProvider></ThemeProvider></body></html>;
 }`);
   if (prepareOnly) { console.log(`CONTROLLED_STAGING_ROOT=${temp}`); return; }
   const listener = net.createServer();

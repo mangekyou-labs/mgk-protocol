@@ -34,8 +34,8 @@ for (const width of [375, 768, 1280]) {
     await page.goto('/trade');
     await expect(page.getByTestId('app-header')).toBeVisible();
     await expect(page.getByTestId('market-selector')).toHaveText('SOL-USD Perp');
-    await expect(page.getByRole('heading', { name: 'Get ready to trade' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Trading readiness' })).toContainText('Earlier devnet balances were not carried over.');
+    await expect(page.getByRole('heading', { name: 'Connect a wallet' })).toBeVisible();
+    await expect(page.getByTestId('demo-notice')).toContainText('Earlier devnet balances were not carried over.');
     await page.getByTestId('wallet-button').getByRole('button', { name: 'Select Wallet' }).click();
     await expect(page.getByRole('heading', { name: /connect a wallet on solana/i })).toBeVisible();
     expect(errors).toEqual([]);

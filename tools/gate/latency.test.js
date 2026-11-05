@@ -104,19 +104,18 @@ test('verdict fails without a cold start, with too few orders, and with a short 
   assert.ok(short.summary().verdict.failures.some(f => /span|30 min/.test(f)));
 });
 
-test('cold start counts only on the chronologically first included order', () => {
+test('a cold-start order mid-run counts: it follows a real restart, not the first order', () => {
   const r = new LatencyRecorder();
   r.setRunContext({ againstMakerLadder: true, monitoringGreen: true });
   for (let i = 0; i < 30; i++) {
     const signAt = i * 70000;
-    r.sign(`o${i}`, signAt, { coldStart: i === 1, role: 'taker' });
+    r.sign(`o${i}`, signAt, { coldStart: i === 15, role: 'taker' });
     r.accept(`o${i}`, signAt + 100);
     r.settle(`o${i}`, signAt + 1000);
   }
   const summary = r.summary();
-  assert.equal(summary.coldStart, false);
-  assert.equal(summary.verdict.pass, false);
-  assert.ok(summary.verdict.failures.some(f => /cold/.test(f)));
+  assert.equal(summary.coldStart, true);
+  assert.equal(summary.verdict.pass, true, JSON.stringify(summary.verdict.failures));
 });
 
 test('only taker orders count: a non-taker or unroled sign throws', () => {

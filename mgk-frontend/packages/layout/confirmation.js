@@ -5,8 +5,11 @@ async function confirmSignature(connection, signature, options = {}) {
     timeoutMs = 30000,
     pollIntervalMs = 500,
     lastValidBlockHeight,
+    resend,
+    resendIntervalMs = 2000,
   } = options;
   const deadline = Date.now() + timeoutMs;
+  let lastSentAt = Date.now();
   for (;;) {
     const result = await connection.getSignatureStatuses([signature], {
       searchTransactionHistory: true,
@@ -30,6 +33,13 @@ async function confirmSignature(connection, signature, options = {}) {
       throw new Error(
         `Transaction ${signature} confirmation timed out; outcome unknown`,
       );
+    // Rebroadcast while unconfirmed: RPCs drop transactions sent with maxRetries 0.
+    if (resend && Date.now() - lastSentAt >= resendIntervalMs) {
+      lastSentAt = Date.now();
+      await Promise.resolve()
+        .then(resend)
+        .catch(() => {});
+    }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 }

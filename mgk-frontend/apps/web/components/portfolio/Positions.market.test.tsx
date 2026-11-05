@@ -97,4 +97,25 @@ describe('live oracle position estimates', () => {
     });
     expect(screen.getByTestId('position-pnl')).toHaveTextContent('Unavailable');
   });
+  it('keeps the oracle estimate through one failed chain read', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    mocks.oracle.instrument = { equals: (key: string): boolean => key === 'SOL' };
+    mocks.fetch
+      .mockResolvedValueOnce([
+        null,
+        { data: new Uint8Array(), owner: { equals: () => true } },
+      ])
+      .mockRejectedValue(new Error('429 Too Many Requests'));
+    render(<LivePositions />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('position-pnl')).toHaveTextContent('20.00 USD');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('position-pnl')).toHaveTextContent('20.00 USD');
+  });
 });

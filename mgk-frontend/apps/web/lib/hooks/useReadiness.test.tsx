@@ -5,10 +5,11 @@ import { useReadiness } from './useReadiness';
 const mocks = vi.hoisted(() => ({ wallet: '11111111111111111111111111111111', connected: true, balance: vi.fn(), genesis: vi.fn() }));
 const keys = new Map<string, PublicKey>();
 const walletKey = () => { if (!keys.has(mocks.wallet)) keys.set(mocks.wallet, new PublicKey(mocks.wallet)); return keys.get(mocks.wallet)!; };
-const connection = { getGenesisHash: mocks.genesis, getBalance: mocks.balance };
+// A fresh connection per test: the genesis hash is cached per connection.
+let connection = { getGenesisHash: mocks.genesis, getBalance: mocks.balance };
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => ({ publicKey: walletKey(), connected: mocks.connected }), useConnection: () => ({ connection }) }));
 vi.mock('./useSafeTransaction', () => ({ assertDeployment: vi.fn().mockResolvedValue(undefined) }));
-beforeEach(() => { mocks.wallet = '11111111111111111111111111111111'; mocks.connected = true; mocks.genesis.mockReset().mockResolvedValue('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'); mocks.balance.mockReset().mockResolvedValue(1234567891); });
+beforeEach(() => { connection = { getGenesisHash: mocks.genesis, getBalance: mocks.balance }; mocks.wallet = '11111111111111111111111111111111'; mocks.connected = true; mocks.genesis.mockReset().mockResolvedValue('EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'); mocks.balance.mockReset().mockResolvedValue(1234567891); });
 it('reads exact wallet funding anew after remount and clears it immediately for another wallet', async () => {
   const first = renderHook(() => useReadiness());
   await waitFor(() => expect(first.result.current.walletLamports).toBe(1234567891n));
@@ -31,4 +32,33 @@ it('discards late RPC funding when disconnected', async () => {
   await act(async () => resolve(9000000000));
   expect(result.current.walletLamports).toBeNull();
   expect(result.current.signingBlockedReason).toMatch(/Connect/);
+});
+it('checks the cluster genesis once per connection, not on every refresh', async () => {
+  const { result } = renderHook(() => useReadiness());
+  await waitFor(() => expect(result.current.walletLamports).toBe(1234567891n));
+  await act(async () => { await result.current.refresh(); await result.current.refresh(); });
+  expect(mocks.balance).toHaveBeenCalledTimes(3);
+  expect(mocks.genesis).toHaveBeenCalledTimes(1);
+});
+it('keeps the last balance through transient RPC failures and blocks only once they persist', async () => {
+  const { result } = renderHook(() => useReadiness());
+  await waitFor(() => expect(result.current.walletLamports).toBe(1234567891n));
+  mocks.balance.mockRejectedValue(new Error('429 Too Many Requests'));
+  await act(async () => { await result.current.refresh(); await result.current.refresh(); });
+  expect(result.current.walletLamports).toBe(1234567891n);
+  expect(result.current.error).toBeNull();
+  expect(result.current.signingBlockedReason).toBeNull();
+  await act(async () => { await result.current.refresh(); });
+  expect(result.current.walletLamports).toBeNull();
+  expect(result.current.error).toBe('Network busy, retrying…');
+  expect(result.current.signingBlockedReason).toMatch(/Network busy/);
+});
+it('flags a wallet that cannot cover network fees', async () => {
+  mocks.balance.mockResolvedValue(4000);
+  const { result } = renderHook(() => useReadiness());
+  await waitFor(() => expect(result.current.walletLamports).toBe(4000n));
+  expect(result.current.lowFeeBalance).toBe(true);
+  mocks.balance.mockResolvedValue(50_000_000);
+  await act(async () => { await result.current.refresh(); });
+  expect(result.current.lowFeeBalance).toBe(false);
 });

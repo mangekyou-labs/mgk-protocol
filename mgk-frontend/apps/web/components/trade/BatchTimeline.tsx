@@ -16,6 +16,7 @@ import { useDevtools } from '@/lib/hooks/useDevtools';
 import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
 import { resolveRegistryAddress } from '@/lib/onchainAccounts';
+import { friendlyRpcError } from '@/lib/polling';
 import {
   PHASE_LABEL,
   PHASE_TONE,
@@ -71,7 +72,7 @@ export function BatchTimeline() {
       await sdk.confirmSignature(connection, sig);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setCrankError(msg);
+      setCrankError(friendlyRpcError(msg));
       console.error('[BatchTimeline] crank failed:', e);
     } finally {
       setCranking(false);

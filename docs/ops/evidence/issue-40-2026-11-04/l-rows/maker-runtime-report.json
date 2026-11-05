@@ -1,0 +1,204 @@
+{
+  "cluster": "localnet",
+  "rpcUrl": "http://127.0.0.1:20419",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "dump/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "programDataAddress": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "dump/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "programDataAddress": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "dump/mgk_perps_matcher.so",
+      "sha256": "f3e1829749fbb467504dce8a59b53e5a266f15c5d66e3050097b43d1a485553b",
+      "programDataAddress": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH"
+    }
+  ],
+  "transactions": [
+    {
+      "label": "initialize maker market",
+      "signature": "YUExELDWqq2cFFHAN22HZhWDmJYKTekjV41au2Wu6UrLoAgg17ty3X2HJExZnPjLehd6GpXNEDeNX4ZXJXdpHrQ",
+      "slot": 31,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "initialize maker book",
+      "signature": "4iFT3yCeCU6ynE8RGSsaNo5KzeqjBL64w5Qm72TS2PyA4AqUSHvouj3pcpT7Zx5aRwz528DXbhqB4RYiAdznGk4E",
+      "slot": 32,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "create initial batch",
+      "signature": "5sLHa2UdxokGYtHTMue3TfNahbwShFE72gn6ZFfntPXLUU8PdYLyU2o1wrAMXtvVeFAJctv6ukBEz824yU1n18E",
+      "slot": 33,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "fund insurance",
+      "signature": "TfYoctvDCV7S5hfXcimLfknoLtw4kjzcgqLoNW2jF3sy5QZ6ebg6mGn8AeYkZtqYkxXQFBMhPAJDfj6TyWdgwXr",
+      "slot": 34,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init trader 0",
+      "signature": "4Qnsgv27etqBhyVPWMZg5ovdt72eVYaPyQkQDnhZBC5EGegQSe51phLAih19y95r5Hjcu1TvRjLuP9fz9H1ii7my",
+      "slot": 35,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit trader 0",
+      "signature": "24N8HTa64Dwo9eBUJo7mKxaopZuAkerVwtmn78B5JnHC2GagQ6nz5gQNFYVZzfusarRGJLDd6nok2nQ1hJ7j6NRw",
+      "slot": 36,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init trader 1",
+      "signature": "5NmiZ3GrgXLq3q8UpGaFJHVU5wHtVgx6FUqFpJe58ZSmimDC5ve2iu7uRdAJJuxdh5gRgRezdXJ1Ye1g1jxoLF6r",
+      "slot": 37,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit trader 1",
+      "signature": "sFTsLxmJjDW3VhTAQ52HDmByWZqBCGCkgdhaqyefXyD52BJF2DngYfbnqmy4d3tfV9PJXxuY7EAbZUL7naTmKmm",
+      "slot": 38,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "taker sells into protocol maker",
+      "signature": "X1zMLXf2AhY1V3M96byEEsETPryJrxVxFq3Fmd31kM87YRPZGBhHU4jNLRQ1kaej4ShTtMDqmpS3CmBPTZsGb6n",
+      "slot": 42,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "withdraw taker collateral before adverse move",
+      "signature": "2GvDRqWTGqwq8RMkRBZDLWico5gpdCNnXFfncL3SistMx91GD81YrSNppmWwWTbJVUdt1tFUm83VrruHwocdPCLQ",
+      "slot": 83,
+      "err": null,
+      "invariants": "pass"
+    }
+  ],
+  "controls": [
+    {
+      "type": "oracle",
+      "address": "6Jcg9KVeaf98X1EwT2EDkiAqv6bfTzFUekfoPofjGwV7",
+      "price": "100000000",
+      "publishTime": "1793756740",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "6Jcg9KVeaf98X1EwT2EDkiAqv6bfTzFUekfoPofjGwV7",
+      "price": "100000000",
+      "publishTime": "1793756743",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 42,
+      "to": 72
+    },
+    {
+      "type": "oracle",
+      "address": "6Jcg9KVeaf98X1EwT2EDkiAqv6bfTzFUekfoPofjGwV7",
+      "price": "100000000",
+      "publishTime": "1793756745",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "6Jcg9KVeaf98X1EwT2EDkiAqv6bfTzFUekfoPofjGwV7",
+      "price": "100000000",
+      "publishTime": "0",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "6Jcg9KVeaf98X1EwT2EDkiAqv6bfTzFUekfoPofjGwV7",
+      "price": "100000000",
+      "publishTime": "1793756749",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "6Jcg9KVeaf98X1EwT2EDkiAqv6bfTzFUekfoPofjGwV7",
+      "price": "200000000",
+      "publishTime": "1793756750",
+      "confidence": "12",
+      "active": true
+    }
+  ],
+  "marketSeeds": [
+    "EJ2BwqNvjEqY5ypmzMoh7Mdi4m8u8teftLAUg34mP7UM"
+  ],
+  "candidateCommit": "fabcd5a9ab5f4c5ca84da2348c0730c1121d0284",
+  "makerTransitions": [
+    {
+      "status": "quoted",
+      "batchId": "0",
+      "signature": "63CttWwqznvvvuZKx9vKmcBLucEsrZ9bKLv3Y1kpuhsxge2YWuWQkx3WVbwqTg8JM9kiY58Q7RVnkBuDLiwbr4L4",
+      "service": "maker"
+    },
+    {
+      "status": "resting",
+      "batchId": "0",
+      "service": "maker"
+    },
+    {
+      "status": "invalid_price",
+      "batchId": "1",
+      "signature": "4n4c6ryugRzvmXEhf6phQMEe1zudkmLWY5aYJqPNBH9P1gSoWq4pt1JZQ8VpsLUBqwGD8qrAyEs7S5fzMTsvgrcC",
+      "service": "maker"
+    },
+    {
+      "status": "invalid_price",
+      "batchId": "1",
+      "service": "maker"
+    },
+    {
+      "status": "quoted",
+      "batchId": "1",
+      "signature": "3eXQE6Ev1vZYGxt7RyBt9Jm4ubaPBqNDdouyfvRRDSEyo5GJHKH8MPCMsd6hSjvZbV4YgXjuhBXiAy1MikmvUQxA",
+      "service": "maker"
+    },
+    {
+      "status": "liquidated",
+      "batchId": "1",
+      "signature": "55Exw8CXJZpHty46sHBPxz2tSFvjxDEwSrXK9GvrY48vCK6mYJ4bzgKoCAQXaWNY1AnwqmtXR9N8SRFt5Hj5AkEd",
+      "victim": "Gkpzuba2yK9qiHkzmjMpUh2ftzraj7HZezoB8EAqJH8G",
+      "service": "maker"
+    }
+  ],
+  "maker": {
+    "ladder": "pass",
+    "restart": "pass",
+    "takerSettlement": "pass",
+    "invalidPriceCancellation": "pass",
+    "recovery": "pass",
+    "takeover": "pass",
+    "invariants": "pass"
+  }
+}

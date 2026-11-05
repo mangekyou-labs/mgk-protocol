@@ -66,11 +66,11 @@ describe('app/trade page', () => {
     expect(screen.getByTestId('bottom-tabs')).toBeInTheDocument();
   });
 
-  it('labels the chart as an external, non-executable reference and drops the removed extras', async () => {
+  it('labels the chart as the Binance reference price and drops the removed extras', async () => {
     await mockUseWallet();
     render(<TradePage />);
     expect(screen.getByTestId('price-chart-label')).toHaveTextContent(
-      'external reference · not executable',
+      'Reference price · Binance',
     );
     expect(screen.queryByTestId('ticker-bar')).toBeNull();
     expect(screen.queryByTestId('chart-toolbar')).toBeNull();

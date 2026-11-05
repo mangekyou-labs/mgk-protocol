@@ -24,6 +24,8 @@ export interface OrderBookProps {
   className?: string;
 }
 
+const BOOK_NOTE = 'Batch clears at one price. Levels are not fills.';
+
 export function OrderBook({
   status,
   bids,
@@ -75,9 +77,19 @@ export function OrderBook({
       className={`flex flex-col font-mono text-xs ${className ?? ''}`}
     >
       <div className="flex flex-col gap-0.5 border-b border-border px-2 py-1.5">
-        <p data-testid="orderbook-note" className="text-[11px] text-text-muted">
-          Batch clears at one price. Levels are not fills.
-        </p>
+        <div className="flex items-center gap-1 text-[11px] text-text-muted">
+          <span>Order book</span>
+          <span
+            data-testid="orderbook-note"
+            role="note"
+            tabIndex={0}
+            title={BOOK_NOTE}
+            aria-label={BOOK_NOTE}
+            className="cursor-help text-text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          >
+            ⓘ
+          </span>
+        </div>
         {delayed ? (
           <p data-testid="orderbook-freshness" className="text-[11px] text-warn">
             {ageSeconds == null ? 'Delayed · age unknown' : `Delayed · last update ${ageSeconds}s ago`}

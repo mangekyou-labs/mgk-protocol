@@ -346,3 +346,16 @@ test('scoped keeper derives its lifecycle and wraps every instruction, namespace
  const bad={...f.options.manifest,market_seed:Keypair.generate().publicKey.toBase58()};
  await assert.rejects(createKeeperWorker({...f.options,manifest:bad}),/Noncanonical/);
 });
+test("an unconfirmed crank is rebroadcast with the same signed bytes until it lands", async () => {
+  const f = fixture();
+  let polls = 0;
+  f.options.connection.getSignatureStatuses = async () => ({
+    value: [++polls < 3 ? null : { err: null, confirmationStatus: "confirmed" }],
+  });
+  f.options.connection.getBlockHeight = async () => 1;
+  const w = await createKeeperWorker({ ...f.options, resendIntervalMs: 0 });
+  f.setSlot(26);
+  assert.equal((await w.tick()).status, "closed");
+  assert.equal(f.sent.length, 3);
+  assert.ok(f.sent.every((ix) => ix.data.equals(f.sent[0].data)));
+});

@@ -39,12 +39,9 @@ describe('Header', () => {
     expect(screen.queryByRole('link', { name: 'Portfolio' })).toBeNull();
   });
 
-  it('renders the "Get devnet SOL" CTA pointing to the public faucet', () => {
+  it('has no faucet step in the header', () => {
     render(<Header />);
-    const cta = screen.getByRole('link', { name: /get devnet sol/i });
-    expect(cta).toHaveAttribute('href', 'https://faucet.solana.com');
-    expect(cta).toHaveAttribute('target', '_blank');
-    expect(cta).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.queryByRole('link', { name: /devnet sol|faucet/i })).toBeNull();
   });
 
   it('renders the wallet button', () => {

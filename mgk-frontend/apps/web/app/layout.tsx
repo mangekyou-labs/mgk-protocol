@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import { TxToaster } from '@/components/common/TxToast';
 import { Header } from '@/components/layout/Header';
 import { SolanaProvider } from '@/components/providers/SolanaProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
@@ -40,6 +41,7 @@ export default function RootLayout({
             <div className="flex-1 flex flex-col min-h-0">
               {children}
             </div>
+            <TxToaster />
           </SolanaProvider>
         </ThemeProvider>
       </body>

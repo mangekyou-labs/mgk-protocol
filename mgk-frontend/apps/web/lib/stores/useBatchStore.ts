@@ -7,6 +7,7 @@ import * as sdk from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 import { resolveOpenBatch, resolveRegistryAddress } from '@/lib/onchainAccounts';
 
 type BatchState = sdk.state.BatchState;
@@ -44,6 +45,7 @@ let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: BatchPollParams | null = null;
 let hookConsumerCount = 0;
 let hookParamsKey: string | null = null;
+let consecutiveFailures = 0;
 
 export const useBatchStore = create<BatchStore>((set, get) => ({
   data: null,
@@ -57,7 +59,8 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   startPolling: async (params) => {
     if (pollHandle) clearInterval(pollHandle);
     currentParams = params;
-    set({ isPolling: true });
+    consecutiveFailures = 0;
+    set({ isPolling: true, loading: get().lastFetchedAt === null });
     await get().refresh();
     pollHandle = setInterval(() => {
       void get().refresh();
@@ -75,7 +78,6 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
 
   refresh: async () => {
     if (!currentParams) return;
-    set({ loading: true, error: null });
     try {
       const { connection, programId, registryAddress } = currentParams;
 
@@ -84,6 +86,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
         await connection.getMultipleAccountsInfo([registryPda]);
       const registryAcc = registryAccounts[0] ?? null;
       if (!registryAcc) {
+        consecutiveFailures = 0;
         set({
           data: null,
           registry: null,
@@ -99,6 +102,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
       );
 
       if (registry.batchIdCounter === 0n) {
+        consecutiveFailures = 0;
         set({
           data: null,
           registry,
@@ -132,6 +136,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
           registry.batchIdCounter > 0n ? registry.batchIdCounter - 1n : 0n;
       }
 
+      consecutiveFailures = 0;
       set({
         data,
         registry,
@@ -141,6 +146,9 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
         lastFetchedAt: Date.now(),
       });
     } catch (e) {
+      // Keep the last good batch; only report once failures persist.
+      consecutiveFailures++;
+      if (consecutiveFailures < FAILURE_THRESHOLD) return;
       set({
         loading: false,
         error: e instanceof Error ? e.message : String(e),

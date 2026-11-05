@@ -3,14 +3,16 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import * as sdk from '@mgk/sdk';
 import { AccountActions } from './AccountActions';
 
-const mocks = vi.hoisted(() => ({ deposit: vi.fn().mockResolvedValue({ sig: 'sig' }), withdraw: vi.fn(), block: null as string | null, registry: { pauseFlags: 0, batchIdCounter: 0n } as sdk.state.RegistryState | null, batch: null as sdk.state.BatchState | null }));
+const mocks = vi.hoisted(() => ({ deposit: vi.fn().mockResolvedValue({ sig: 'sig' }), withdraw: vi.fn(), block: null as string | null, lowFeeBalance: false, registry: { pauseFlags: 0, batchIdCounter: 0n } as sdk.state.RegistryState | null, batch: null as sdk.state.BatchState | null }));
 vi.mock('@/lib/hooks/useAccountActions', () => ({ useAccountActions: () => ({ deposit: mocks.deposit, withdraw: mocks.withdraw }) }));
-vi.mock('@/lib/hooks/useReadiness', () => ({ useReadiness: () => ({ walletLamports: 2000000000n, loading: false, error: null, signingBlockedReason: mocks.block, refresh: vi.fn(), getDevnetSol: vi.fn() }) }));
+vi.mock('@/lib/hooks/useReadiness', () => ({ useReadiness: () => ({ walletLamports: 2000000000n, loading: false, error: null, signingBlockedReason: mocks.block, lowFeeBalance: mocks.lowFeeBalance, refresh: vi.fn() }) }));
 vi.mock('@/components/wallet/useAutoConnect', () => ({ useAutoConnect: () => ({ connected: true }) }));
 vi.mock('@/lib/stores/useBatchStore', () => ({ useBatchStore: (selector: (s: unknown) => unknown) => selector({ data: mocks.batch, registry: mocks.registry, error: null }) }));
-it('offers devnet SOL and accepts an exact 9-decimal deposit before a portfolio exists', async () => {
+it('accepts an exact 9-decimal deposit before a portfolio exists, with no faucet step', async () => {
   render(<AccountActions portfolio={null} portfolioLoading={false} />);
-  expect(screen.getByRole('button', { name: 'Get devnet SOL' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /devnet SOL/i })).toBeNull();
+  expect(screen.queryByRole('link', { name: /faucet/i })).toBeNull();
+  expect(screen.queryByText(/not carried over/i)).toBeNull();
   fireEvent.change(screen.getByLabelText('Collateral amount in SOL'), { target: { value: '1.234567891' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create portfolio and deposit' }));
   await waitFor(() => expect(mocks.deposit).toHaveBeenCalledWith(1234567891n));
@@ -34,10 +36,9 @@ it('does not claim a stale withdrawable amount or reject recovered risk collater
   expect(screen.queryByText(/0.55 SOL/)).not.toBeInTheDocument();
 });
 
-beforeEach(() => { mocks.block = null; mocks.registry = { pauseFlags: 0, batchIdCounter: 0n } as sdk.state.RegistryState; mocks.batch = null; });
+beforeEach(() => { mocks.block = null; mocks.lowFeeBalance = false; mocks.registry = { pauseFlags: 0, batchIdCounter: 0n } as sdk.state.RegistryState; mocks.batch = null; });
 it.each([
   ['paused', { pauseFlags: 2, batchIdCounter: 0n }, null, 'Withdrawals are paused. Wait for the operator to restore withdrawals.'],
-  ['Cleared', { pauseFlags: 0, batchIdCounter: 1n }, { status: sdk.state.BatchStatus.Cleared }, 'Withdrawals blocked: batch Cleared, awaiting settlement.'],
   ['unavailable', { pauseFlags: 0, batchIdCounter: 1n }, null, 'Current batch status unavailable. Retry when RPC has recovered.'],
 ] as const)('explains the shared withdrawal policy when batch status is %s', (_, registry, batch, reason) => {
   mocks.registry = registry as sdk.state.RegistryState;
@@ -46,4 +47,21 @@ it.each([
   fireEvent.change(screen.getByLabelText('Collateral amount in SOL'), { target: { value: '0.1' } });
   expect(screen.getByRole('button', { name: 'Withdraw' })).toBeDisabled();
   expect(screen.getByText(reason)).toBeInTheDocument();
+});
+
+it('keeps withdraw enabled through the brief Cleared phase; the action waits for settlement', () => {
+  mocks.registry = { pauseFlags: 0, batchIdCounter: 1n } as sdk.state.RegistryState;
+  mocks.batch = { status: sdk.state.BatchStatus.Cleared } as sdk.state.BatchState;
+  render(<AccountActions portfolio={{ equity: 1000000000n, reservedCollateral: 0n, positions: [] } as unknown as sdk.state.PortfolioState} portfolioLoading={false} />);
+  fireEvent.change(screen.getByLabelText('Collateral amount in SOL'), { target: { value: '0.1' } });
+  expect(screen.getByRole('button', { name: 'Withdraw' })).toBeEnabled();
+  expect(screen.getByRole('status')).toBeEmptyDOMElement();
+});
+
+it('disables deposit and withdraw when the wallet cannot cover fees', () => {
+  mocks.lowFeeBalance = true;
+  render(<AccountActions portfolio={{ equity: 1000000000n, reservedCollateral: 0n, positions: [] } as unknown as sdk.state.PortfolioState} portfolioLoading={false} />);
+  fireEvent.change(screen.getByLabelText('Collateral amount in SOL'), { target: { value: '0.1' } });
+  expect(screen.getByRole('button', { name: 'Deposit' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Withdraw' })).toBeDisabled();
 });
