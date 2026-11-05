@@ -14,7 +14,7 @@ const dest = path.join(temp, 'mgk-frontend');
 const stagedWeb = path.join(dest, 'apps/web');
 const prepareOnly = process.argv.includes('--prepare-only');
 const output = path.join(web, 'test-results/truthfulness');
-const env = { ...process.env, NO_DNA: '1', NEXT_TELEMETRY_DISABLED: '1', NEXT_PUBLIC_RPC_URL: 'https://api.devnet.solana.com', NEXT_PUBLIC_INDEXER_URL: 'http://localhost:4000', NEXT_PUBLIC_HERMES_URL: 'https://hermes.pyth.network' };
+const env = { ...process.env, NO_DNA: '1', NEXT_TELEMETRY_DISABLED: '1', NEXT_PUBLIC_INDEXER_URL: 'http://localhost:4000', NEXT_PUBLIC_HERMES_URL: 'https://hermes.pyth.network' };
 let server;
 function run(cmd, args, cwd) {
   const result = spawnSync(cmd, args, { cwd, env, stdio: 'inherit' });
