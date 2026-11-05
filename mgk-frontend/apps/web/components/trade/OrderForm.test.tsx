@@ -17,7 +17,6 @@ function setup(over: Partial<OrderFormProps> = {}) {
     oracle: { state: 'valid', price: 150_000_000n, ageSeconds: 2 },
     newExposurePaused: false,
     withdrawableCollateral: 10n * SOL,
-    batchGate: null,
     market: { openInterestLong: 0n, openInterestShort: 0n, insuranceFund: 100n * SOL },
     positionLots: 0n,
     portfolio: null,
@@ -65,6 +64,7 @@ describe('<OrderForm />', () => {
     await act(async () => { fireEvent.click(submit()); });
     expect(onSubmit).toHaveBeenCalledWith(
       { side: 'sell', price: 150_250_000n, qty: 1_250n, reduceOnly: false },
+      expect.any(Function),
       expect.any(Function),
     );
   });
@@ -116,8 +116,6 @@ describe('<OrderForm />', () => {
         'Risk-off: insurance fund below reserve.',
       ],
       ['margin', { withdrawableCollateral: SOL / 10n }, ['150', '1'], 'Needs 0.2005 SOL margin, 0.1 SOL withdrawable.'],
-      ['clearing batch', { batchGate: { phase: 'clearing', batchId: 41n } }, ['150', '1'], 'Batch 41 clearing. Orders reopen after settlement.'],
-      ['cleared batch', { batchGate: { phase: 'cleared', batchId: 41n } }, ['150', '1'], 'Batch 41 cleared, awaiting settlement.'],
     ];
 
     it('names an unknown position for reduce-only', () => {
@@ -141,7 +139,6 @@ describe('<OrderForm />', () => {
         <OrderForm
           oracle={{ state: 'valid', price: 150_000_000n, ageSeconds: 1 }}
           newExposurePaused={false}
-          batchGate={null}
           withdrawableCollateral={SOL}
           market={{ openInterestLong: 0n, openInterestShort: 0n, insuranceFund: 100n * SOL }}
           positionLots={0n}
@@ -204,13 +201,33 @@ describe('<OrderForm />', () => {
       expect(submit()).toHaveTextContent('Buy 1.000 SOL');
     });
 
+    it('shows the batch wait before asking for approval', async () => {
+      let stage: (s: 'waiting' | 'approve') => void = () => {};
+      let finish: () => void = () => {};
+      const onSubmit = vi.fn((_params, _onSigned, onStage) => {
+        stage = onStage;
+        return new Promise<void>((resolve) => { finish = resolve; });
+      });
+      setup({ onSubmit });
+      fill('150', '1');
+      fireEvent.click(submit());
+
+      act(() => stage('waiting'));
+      expect(submit()).toHaveTextContent('Waiting for next batch…');
+      act(() => stage('approve'));
+      expect(submit()).toHaveTextContent('Approve in wallet…');
+
+      await act(async () => finish());
+      expect(submit()).toHaveTextContent('Buy 1.000 SOL');
+    });
+
     it('returns to a submittable state after a failure, without claiming success', async () => {
       const onSubmit = vi.fn(async () => { throw new Error('rejected'); });
       setup({ onSubmit, lifecycle: null });
       fill('150', '1');
       await act(async () => { fireEvent.click(submit()); });
       expect(submit()).toBeEnabled();
-      expect(screen.queryByTestId('order-lifecycle')).toBeNull();
+      expect(screen.getByTestId('order-lifecycle')).toBeEmptyDOMElement();
     });
 
     it('renders the lifecycle state it is given', () => {

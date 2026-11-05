@@ -88,7 +88,7 @@ export class ControlledMarket {
     } else if ([...this.phases.keys()].some(id => address === this.batchAddress(id))) {
       const id = [...this.phases.keys()].find(id => address === this.batchAddress(id))!;
       const phase = this.phases.get(id)!;
-      data = bytes('Batch', { batchId: BigInt(id), status: phase, closeSlot: 10000n, markValid: phase === BatchStatus.Settled || phase === BatchStatus.Cleared ? 1 : 0, clearingPrice: 100_000_000n });
+      data = bytes('Batch', { batchId: BigInt(id), status: phase, commitDeadlineSlot: 10000n, closeSlot: 10000n, markValid: phase === BatchStatus.Settled || phase === BatchStatus.Cleared ? 1 : 0, clearingPrice: 100_000_000n });
     }
     else if (address === this.book) {
       owner = m.programs.perps_matcher;
@@ -190,7 +190,7 @@ export const test = base.extend<{ market: ControlledMarket; evidence: (state: st
         if (market.indexer === 'down') { await route.fulfill({ status: 503, json: {} }); return; }
         if (url.pathname === '/api/status') {
           const ok = { severity: 'ok', available: true };
-          await route.fulfill({ json: { severity: 'ok', checks: { rpc: { ...ok, reachable: !market.rpcDown }, indexer: { ...ok, syncing: market.indexer === 'syncing' }, pause: { ...ok, flags: market.paused ? 1 : 0 }, oracle: ok, batch: ok, makerDepth: ok, fees: ok, insurance: ok } } }); return;
+          await route.fulfill({ json: { severity: 'ok', checks: { rpc: { ...ok, reachable: !market.rpcDown }, indexer: market.indexer === 'syncing' ? { severity: 'warn', available: true, syncing: true, lagSlots: 400 } : { ...ok, syncing: true, lagSlots: 1 }, pause: { ...ok, flags: market.paused ? 1 : 0 }, oracle: ok, batch: ok, makerDepth: ok, fees: ok, insurance: ok } } }); return;
         }
         if (url.pathname.includes('/fills')) {
           await route.fulfill({ json: { fills: market.settledBatches.map(batch_id => ({ slot: 42, batch_id, instrument_id: 0, taker_side: 0, price: 100_000_000, qty: 100, role: 'taker', tx_signature: signature, ts_estimate: 42 })) } }); return;

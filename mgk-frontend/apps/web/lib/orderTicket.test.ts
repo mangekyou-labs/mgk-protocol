@@ -72,7 +72,6 @@ const base: TicketInput = {
   reduceOnly: false,
   oracle: { state: 'valid', price: 150_000_000n, ageSeconds: 2 },
   newExposurePaused: false,
-  batchGate: null,
   withdrawableCollateral: 10_000_000_000n,
   positionLots: 0n,
   // 100 SOL fund covers 0.4 x (larger side + order) well past the 50 SOL side limit.
@@ -97,16 +96,6 @@ describe('orderBlockReason', () => {
   it('blocks when the oracle is unavailable', () => {
     expect(orderBlockReason({ ...base, oracle: { state: 'unavailable', price: null, ageSeconds: null } }))
       .toBe('Oracle unavailable. New exposure blocked.');
-  });
-
-  it('blocks while the batch has cleared but not settled', () => {
-    expect(orderBlockReason({ ...base, batchGate: { phase: 'cleared', batchId: 41n } }))
-      .toBe('Batch 41 cleared, awaiting settlement.');
-  });
-
-  it('blocks while the batch auction is still clearing, without calling it cleared', () => {
-    expect(orderBlockReason({ ...base, batchGate: { phase: 'clearing', batchId: 41n } }))
-      .toBe('Batch 41 clearing. Orders reopen after settlement.');
   });
 
   it('asks for a price', () => {

@@ -54,7 +54,11 @@ export function useSafeTransaction() {
   useEffect(() => { identity.current = { publicKey, connected, connection }; }, [publicKey, connected, connection]);
   useEffect(() => () => { identity.current = { publicKey: null, connected: false, connection }; }, [connection]);
 
-  return useCallback(async (tx: Transaction): Promise<string> => {
+  /**
+   * Pass a builder when the transaction depends on fast-moving state (the open
+   * batch): it runs after the deployment checks, right before simulation.
+   */
+  return useCallback(async (input: Transaction | (() => Promise<Transaction>)): Promise<string> => {
     if (!publicKey || connected === false) throw new Error('Connect your wallet before signing.');
     const walletKey = publicKey.toBase58();
     if (pendingWalletRequests.has(walletKey)) throw new Error('A wallet request is already in progress.');
@@ -67,6 +71,8 @@ export function useSafeTransaction() {
     };
     try {
       await assertDeployment(connection);
+      unchanged();
+      const tx = typeof input === 'function' ? await input() : input;
       unchanged();
       const latest = await connection.getLatestBlockhash('confirmed');
       tx.feePayer = publicKey;

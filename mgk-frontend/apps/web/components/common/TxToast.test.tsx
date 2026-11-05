@@ -20,6 +20,6 @@ it('explains a failure in plain words and offers no explorer link', async () => 
   render(<TxToaster />);
   act(() => notifyTxFailed('Deposit failed', 'WalletSendTransactionError: Unexpected error'));
   expect(await screen.findByText('Deposit failed')).toBeInTheDocument();
-  expect(screen.getByText(/Make sure it is set to Devnet/)).toBeInTheDocument();
+  expect(screen.getByText(/Nothing was sent; try again/)).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'View on Solana Explorer' })).toBeNull();
 });

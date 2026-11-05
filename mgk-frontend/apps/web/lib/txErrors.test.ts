@@ -4,8 +4,8 @@ import { describeTxError, explorerTxUrl } from './txErrors';
 
 describe('describeTxError', () => {
   it.each([
-    ['Unexpected error', 'Your wallet could not send this transaction. Make sure it is set to Devnet, then try again.'],
-    ['WalletSendTransactionError: Unexpected error', 'Your wallet could not send this transaction. Make sure it is set to Devnet, then try again.'],
+    ['Unexpected error', 'Your wallet could not send this transaction. Nothing was sent; try again.'],
+    ['WalletSendTransactionError: Unexpected error', 'Your wallet could not send this transaction. Nothing was sent; try again.'],
     ['User rejected the request.', 'You cancelled the request in your wallet.'],
     ['Transaction cancelled', 'You cancelled the request in your wallet.'],
     ['Blockhash not found', 'The transaction expired before it confirmed. Try again.'],

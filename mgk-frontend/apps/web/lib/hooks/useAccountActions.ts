@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { Transaction, TransactionInstruction, SystemProgram, ComputeBudgetProgram, type PublicKey } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
+import { awaitOpenWindow } from '@/lib/batchWindow';
 import { withdrawalEligibility } from '@/lib/withdrawalEligibility';
 import { config } from '@/lib/config';
 import { usePortfolioStore } from '@/lib/stores/usePortfolioStore';
@@ -13,6 +14,9 @@ import { useSafeTransaction } from './useSafeTransaction';
 const pendingAccountActions = new Set<string>();
 
 const SOL = 1_000_000_000n;
+// Withdraw fails only while a batch is Cleared; this runway keeps approval clear of the next one.
+const WITHDRAW_RUNWAY_SLOTS = 10n;
+const WITHDRAW_WAIT_MS = 30_000;
 export interface AccountActionResult { sig: string }
 
 export function useAccountActions() {
@@ -66,7 +70,19 @@ export function useAccountActions() {
         }
         tx.add(instruction(keys, sdk.programs.encodeWithdraw(amount)));
       }
-      const sig = await safeSend(tx);
+      const waitForSettlement = kind === 'withdraw' && portfolio !== null;
+      const sig = await safeSend(async () => {
+        // A keeper that stopped cranking never opens a window; send anyway and let simulation decide.
+        if (waitForSettlement) {
+          await awaitOpenWindow({
+            connection,
+            programId: config.coreProgramId,
+            minRunwaySlots: WITHDRAW_RUNWAY_SLOTS,
+            timeoutMs: WITHDRAW_WAIT_MS,
+          }).catch(() => undefined);
+        }
+        return tx;
+      });
       await sdk.confirmSignature(connection, sig);
       await usePortfolioStore.getState().refresh();
       return { sig };

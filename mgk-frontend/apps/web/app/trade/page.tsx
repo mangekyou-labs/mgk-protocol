@@ -16,7 +16,7 @@ import { BottomTabs } from '@/components/trade/BottomTabs';
 import { MarketHeader } from '@/components/trade/MarketHeader';
 import { BOOK_LEVELS_PER_SIDE, OrderBook } from '@/components/trade/OrderBook';
 import { ReadinessChecklist } from '@/components/trade/ReadinessChecklist';
-import { OrderForm, type OrderFormParams } from '@/components/trade/OrderForm';
+import { OrderForm, type OrderFormParams, type SubmitStage } from '@/components/trade/OrderForm';
 import { useBatchStatus } from '@/lib/hooks/useBatchStatus';
 import { useMarketBar } from '@/lib/hooks/useMarketBar';
 import { decodeProgramError, usePostOrder } from '@/lib/hooks/useOrderSubmission';
@@ -113,9 +113,12 @@ export default function TradePage() {
   const position = portfolio?.positions.find((p) => p.instrumentId === INSTRUMENT_ID);
 
   const handleSubmit = useCallback(
-    async (params: OrderFormParams, onSigned: () => void) => {
+    async (params: OrderFormParams, onSigned: () => void, onStage?: (stage: SubmitStage) => void) => {
       try {
-        const result = await post({ instrumentId: INSTRUMENT_ID, ...params }, { onSigned });
+        const result = await post(
+          { instrumentId: INSTRUMENT_ID, ...params },
+          { onSigned, onWaiting: () => onStage?.('waiting'), onReady: () => onStage?.('approve') },
+        );
         if (publicKey) {
           setAccepted({
             user: publicKey,
@@ -195,7 +198,6 @@ export default function TradePage() {
             <OrderForm
               oracle={market.oracle}
               newExposurePaused={market.newExposurePaused}
-              batchGate={market.batchGate}
               withdrawableCollateral={portfolio?.freeCollateral ?? null}
               market={market.market}
               positionLots={portfolio ? (position?.qty ?? 0n) : null}

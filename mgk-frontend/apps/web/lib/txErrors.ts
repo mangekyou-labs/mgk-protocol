@@ -15,7 +15,7 @@ export function describeTxError(raw: string): string {
   if (/user rejected|rejected the request|cancell?ed/i.test(raw)) return 'You cancelled the request in your wallet.';
   if (/blockhash not found|block height exceeded|expired/i.test(raw)) return 'The transaction expired before it confirmed. Try again.';
   if (/unexpected error/i.test(raw)) {
-    return 'Your wallet could not send this transaction. Make sure it is set to Devnet, then try again.';
+    return 'Your wallet could not send this transaction. Nothing was sent; try again.';
   }
   if (raw.startsWith(SIMULATION_PREFIX)) return `${raw.slice(SIMULATION_PREFIX.length).replace(/\.$/, '')}. Nothing was signed.`;
   if (friendlyRpcError(raw) !== raw) return 'Network busy. Try again in a moment.';

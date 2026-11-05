@@ -112,5 +112,7 @@ export function indexerState(
   const check = status.data?.checks.indexer;
   if (!status.data || check?.available === false) return 'down';
   if (!check || typeof check.syncing !== 'boolean') return 'unavailable';
-  return check.syncing || check.severity !== 'ok' ? 'syncing' : 'live';
+  // The indexer sets `syncing` whenever it trails the tip by a single slot, which
+  // is the normal steady state; only its severity marks a lag worth reporting.
+  return check.severity !== 'ok' ? 'syncing' : 'live';
 }

@@ -39,7 +39,6 @@ it('does not claim a stale withdrawable amount or reject recovered risk collater
 beforeEach(() => { mocks.block = null; mocks.lowFeeBalance = false; mocks.registry = { pauseFlags: 0, batchIdCounter: 0n } as sdk.state.RegistryState; mocks.batch = null; });
 it.each([
   ['paused', { pauseFlags: 2, batchIdCounter: 0n }, null, 'Withdrawals are paused. Wait for the operator to restore withdrawals.'],
-  ['Cleared', { pauseFlags: 0, batchIdCounter: 1n }, { status: sdk.state.BatchStatus.Cleared }, 'Withdrawals blocked: batch Cleared, awaiting settlement.'],
   ['unavailable', { pauseFlags: 0, batchIdCounter: 1n }, null, 'Current batch status unavailable. Retry when RPC has recovered.'],
 ] as const)('explains the shared withdrawal policy when batch status is %s', (_, registry, batch, reason) => {
   mocks.registry = registry as sdk.state.RegistryState;
@@ -48,6 +47,15 @@ it.each([
   fireEvent.change(screen.getByLabelText('Collateral amount in SOL'), { target: { value: '0.1' } });
   expect(screen.getByRole('button', { name: 'Withdraw' })).toBeDisabled();
   expect(screen.getByText(reason)).toBeInTheDocument();
+});
+
+it('keeps withdraw enabled through the brief Cleared phase; the action waits for settlement', () => {
+  mocks.registry = { pauseFlags: 0, batchIdCounter: 1n } as sdk.state.RegistryState;
+  mocks.batch = { status: sdk.state.BatchStatus.Cleared } as sdk.state.BatchState;
+  render(<AccountActions portfolio={{ equity: 1000000000n, reservedCollateral: 0n, positions: [] } as unknown as sdk.state.PortfolioState} portfolioLoading={false} />);
+  fireEvent.change(screen.getByLabelText('Collateral amount in SOL'), { target: { value: '0.1' } });
+  expect(screen.getByRole('button', { name: 'Withdraw' })).toBeEnabled();
+  expect(screen.getByRole('status')).toBeEmptyDOMElement();
 });
 
 it('disables deposit and withdraw when the wallet cannot cover fees', () => {

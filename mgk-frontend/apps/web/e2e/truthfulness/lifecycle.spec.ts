@@ -71,11 +71,11 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await expect(page.getByTestId('open-order-row')).toHaveCount(1);
   market.clear();
   await expect(page.getByTestId('order-lifecycle')).toHaveText('Batch 0 cleared · awaiting settlement');
-  await expect(submit).toBeDisabled();
-  await expect(submit).toHaveText('Batch 0 cleared, awaiting settlement.');
+  // Orders and withdrawals stay available; the actions wait for the next batch window.
+  await expect(submit).toBeEnabled();
   await page.getByTestId('account-actions-amount').fill('0.5');
-  await expect(page.getByTestId('account-actions-withdraw')).toBeDisabled();
-  await expect(page.locator('#collateral-reason')).toContainText(/settlement/i);
+  await expect(page.getByTestId('account-actions-withdraw')).toBeEnabled();
+  await expect(page.locator('#collateral-reason')).toBeEmpty();
   await page.getByRole('tab', { name: 'Positions', exact: true }).click();
   await expect(page.getByTestId('position-row')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Fills', exact: true }).click();

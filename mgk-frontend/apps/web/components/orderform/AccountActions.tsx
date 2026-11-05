@@ -61,7 +61,7 @@ export function AccountActions({ portfolio, portfolioLoading, className }: Accou
         <button type="button" data-testid="account-actions-deposit" className={buttonClass} disabled={busy || portfolioLoading || amount === null || !!funding.signingBlockedReason || funding.lowFeeBalance} onClick={() => amount !== null && void run(portfolio ? { done: 'Deposit confirmed', failed: 'Deposit failed' } : { done: 'Portfolio created and funded', failed: 'Could not create portfolio' }, () => deposit(amount))}>{portfolio ? 'Deposit' : 'Create portfolio and deposit'}</button>
         {portfolio && <button type="button" data-testid="account-actions-withdraw" className={buttonClass} disabled={busy || amount === null || !!withdrawalReason} onClick={() => amount !== null && void run({ done: 'Withdrawal confirmed', failed: 'Withdrawal failed' }, () => withdraw(amount))}>Withdraw</button>}
       </div>
-      <p id="collateral-reason" role="status">{message ?? invalidAmount ?? (portfolio && !funding.signingBlockedReason && !funding.lowFeeBalance ? withdrawalReason : null)}</p>
+      <p id="collateral-reason" role="status" className="min-h-8 leading-4">{message ?? invalidAmount ?? (portfolio && !funding.signingBlockedReason && !funding.lowFeeBalance ? withdrawalReason : null)}</p>
     </section>
   );
 }

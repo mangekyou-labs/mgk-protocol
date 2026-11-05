@@ -15,15 +15,6 @@ export interface ClearPrice {
   batchId: bigint;
 }
 
-/**
- * Why order entry is closed by the batch cycle. `clearing`: the auction is
- * still running. `cleared`: results are fixed and await settlement.
- */
-export interface BatchGate {
-  phase: 'clearing' | 'cleared';
-  batchId: bigint;
-}
-
 /** Vault figures that gate new exposure. Open interest in lots, fund in lamports. */
 export interface MarketExposure {
   openInterestLong: bigint;
@@ -80,13 +71,6 @@ export function bookStatus({
 export function lastClearOf(batch: state.BatchState | null, batchId: bigint): ClearPrice | null {
   if (!batch || !batch.markValid || batch.clearingPrice <= 0n) return null;
   return { price: batch.clearingPrice, batchId };
-}
-
-/** Posting is blocked from the moment a batch stops collecting until it settles. */
-export function batchGate(status: state.BatchStatus, batchId: bigint): BatchGate | null {
-  if (status === state.BatchStatus.Clearing) return { phase: 'clearing', batchId };
-  if (status === state.BatchStatus.Cleared) return { phase: 'cleared', batchId };
-  return null;
 }
 
 export function marketExposure(vault: MarketExposure | null): MarketExposure | null {

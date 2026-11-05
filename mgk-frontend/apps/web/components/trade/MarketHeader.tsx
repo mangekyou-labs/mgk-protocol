@@ -64,7 +64,8 @@ export function MarketHeader({ oracle, mark, collectingBatchId }: MarketHeaderPr
         {collectingBatchId != null ? (
           <>batch <span data-testid="collecting-batch-id" className={BATCH_ID_CLASS}>{collectingBatchId.toString()}</span></>
         ) : (
-          <span className="text-text-faint">--</span>
+          // Same width as "batch NNNNNNN" so the stats to the right hold still between batches.
+          <span className="inline-block min-w-[13ch] text-text-faint">--</span>
         )}
       </Stat>
 

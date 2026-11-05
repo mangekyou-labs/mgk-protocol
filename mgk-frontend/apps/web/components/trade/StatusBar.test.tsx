@@ -28,6 +28,7 @@ describe('Status bar', () => {
   });
   it.each([
     [{ severity: 'ok', syncing: false, lagSlots: 0 }, 'live'],
+    [{ severity: 'ok', syncing: true, lagSlots: 6 }, 'live'],
     [{ severity: 'warn', syncing: true, lagSlots: 151 }, 'syncing'],
     [{ severity: 'warn', available: false }, 'down / unavailable'],
   ])('reports indexer state from chain status %j', (indexer, label) => {

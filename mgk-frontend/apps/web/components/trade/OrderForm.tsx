@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 
 import type * as sdk from '@mgk/sdk';
 import { AccountActions } from '@/components/orderform/AccountActions';
-import type { BatchGate, MarketExposure, OracleReading } from '@/lib/marketBar';
+import type { MarketExposure, OracleReading } from '@/lib/marketBar';
 import { lifecycleLabel, type OrderLifecycle } from '@/lib/orderLifecycle';
 import { abs, LOTS_PER_SOL } from '@/lib/protocol';
 import { formatSol } from '@/lib/solAmount';
@@ -33,8 +33,6 @@ export interface OrderFormProps {
   oracle: OracleReading;
   /** null = pause flags unknown. */
   newExposurePaused: boolean | null;
-  /** Set while the current batch is clearing or cleared but not settled. */
-  batchGate: BatchGate | null;
   /** Withdrawable collateral in lamports; null = unknown. */
   withdrawableCollateral: bigint | null;
   /** Vault open interest and insurance fund; null = unknown. */
@@ -42,10 +40,15 @@ export interface OrderFormProps {
   /** Signed position in lots; null = unknown. */
   positionLots: bigint | null;
   /**
-   * Posts the order. Call `onSigned` once the wallet has signed; resolve only
-   * when the program accepted the order, reject otherwise.
+   * Posts the order. Call `onSigned` once the wallet has signed and `onStage`
+   * while waiting for a batch window or for wallet approval; resolve only when
+   * the program accepted the order, reject otherwise.
    */
-  onSubmit?: (params: OrderFormParams, onSigned: () => void) => Promise<void>;
+  onSubmit?: (
+    params: OrderFormParams,
+    onSigned: () => void,
+    onStage?: (stage: SubmitStage) => void,
+  ) => Promise<void>;
   /** Lifecycle of the last accepted order. */
   lifecycle?: OrderLifecycle | null;
   /** Price picked on the book; a new nonce re-applies the same price. */
@@ -55,7 +58,15 @@ export interface OrderFormProps {
   className?: string;
 }
 
-type Phase = 'idle' | 'approve' | 'confirming';
+export type SubmitStage = 'waiting' | 'approve';
+
+type Phase = 'idle' | SubmitStage | 'confirming';
+
+const PHASE_LABELS: Record<Exclude<Phase, 'idle'>, string> = {
+  waiting: 'Waiting for next batch…',
+  approve: 'Approve in wallet…',
+  confirming: 'Confirming…',
+};
 
 function formatLots(lots: bigint): string {
   const whole = lots / LOTS_PER_SOL;
@@ -82,7 +93,6 @@ const inputClass =
 export function OrderForm({
   oracle,
   newExposurePaused,
-  batchGate,
   withdrawableCollateral,
   market,
   positionLots,
@@ -116,7 +126,6 @@ export function OrderForm({
     reduceOnly,
     oracle,
     newExposurePaused,
-    batchGate,
     withdrawableCollateral,
     positionLots,
     market,
@@ -133,8 +142,7 @@ export function OrderForm({
     if (!onSubmit) return 'Connect a wallet to trade.';
     return `${side === 'buy' ? 'Buy' : 'Sell'} ${lots != null ? formatLots(lots) : ''} SOL`;
   }
-  const label =
-    phase === 'approve' ? 'Approve in wallet…' : phase === 'confirming' ? 'Confirming…' : idleLabel();
+  const label = phase === 'idle' ? idleLabel() : PHASE_LABELS[phase];
   const disabled = busy || reason != null || !onSubmit;
 
   async function submit() {
@@ -142,7 +150,7 @@ export function OrderForm({
     pending.current = true;
     setPhase('approve');
     try {
-      await onSubmit({ side, price: priceMicro, qty: lots, reduceOnly }, () => setPhase('confirming'));
+      await onSubmit({ side, price: priceMicro, qty: lots, reduceOnly }, () => setPhase('confirming'), setPhase);
     } catch {
       // The page reports the failure; the form only returns to idle.
     } finally {
@@ -253,11 +261,10 @@ export function OrderForm({
         {label}
       </button>
 
-      {lifecycle && (
-        <p data-testid="order-lifecycle" role="status" className="fade-in text-xs text-text">
-          {lifecycleLabel(lifecycle)}
-        </p>
-      )}
+      {/* Reserved height: the label changes every batch and must not shift the panel. */}
+      <p data-testid="order-lifecycle" role="status" className="min-h-8 text-xs leading-4 text-text">
+        {lifecycle ? lifecycleLabel(lifecycle) : null}
+      </p>
 
       <AccountActions
         portfolio={portfolio}
