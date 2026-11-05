@@ -87,6 +87,21 @@ test('parseArgs accepts the row, latency and soak modes and rejects unsafe input
   assert.throws(() => drows.parseArgs([...base, '--orders', '-1']), /positive/);
 });
 
+test('parseArgs takes a cold-start command, defaulting its order to midway', () => {
+  const base = ['--rpc', 'https://rpc.example', '--deployment', 'd.json', '--out', '/ev', '--latency', '--status-url', 'https://i/api/status'];
+  assert.equal(drows.parseArgs(base).coldStartCmd, null);
+  const midway = drows.parseArgs([...base, '--cold-start-cmd', 'restart keeper', '--orders', '30']);
+  assert.equal(midway.coldStartCmd, 'restart keeper');
+  assert.equal(midway.coldStartAt, 16);
+  assert.equal(drows.parseArgs([...base, '--orders', '31', '--cold-start-cmd', 'x']).coldStartAt, 16);
+  assert.equal(drows.parseArgs([...base, '--cold-start-cmd', 'x', '--cold-start-at', '1']).coldStartAt, 1);
+  assert.throws(() => drows.parseArgs([...base, '--cold-start-at', '3']), /--cold-start-at needs --cold-start-cmd/);
+  assert.throws(() => drows.parseArgs([...base, '--cold-start-cmd', 'x', '--cold-start-at', '31']), /between 1 and 30/);
+  assert.throws(() => drows.parseArgs([...base, '--cold-start-cmd', 'x', '--cold-start-at', '2.5']), /between 1 and 30/);
+  assert.throws(() => drows.parseArgs([...base, '--cold-start-cmd', '']), /--cold-start-cmd/);
+  assert.throws(() => drows.parseArgs(['--rpc', 'x', '--out', '/ev', '--cold-start-cmd', 'x']), /only with --latency/);
+});
+
 test('reservation and pro-rata release match the on-chain formulas', () => {
   // 3 lots at limit 101 with conversion 100: notional 303e6 at max(101, 100).
   assert.equal(drows.reservation(3n, 101n, 100n), 607515n);
@@ -401,12 +416,15 @@ function takerDriver({ ladder = true } = {}) {
   };
 }
 
+const greenStatus = async () => ({ checks: { rpc: { severity: 'ok' } } });
+
 test('runLatency feeds LatencyRecorder from chain timestamps and alternates flat', async () => {
   const fake = takerDriver();
   const result = await drows.runLatency({
     driver: fake.driver, persona: fake.taker, orders: 30, spanMs: 31 * 60 * 1000,
     fetchStatus: async () => ({ checks: { rpc: { severity: 'ok' }, indexer: { severity: 'critical' } } }),
     now: fake.clock, sleep: async ms => fake.advance(ms),
+    coldStartCmd: 'restart', coldStartAt: 16, runCommand: async () => 0,
   });
   assert.equal(result.summary.verdict.pass, true, JSON.stringify(result.summary.verdict.failures));
   assert.equal(result.row.status, 'pass');
@@ -416,6 +434,58 @@ test('runLatency feeds LatencyRecorder from chain timestamps and alternates flat
   assert.deepEqual(fake.posts.slice(0, 4).map(p => [p.side, p.reduceOnly, p.price]),
     [[0, false, 101_000n], [1, true, 99_000n], [0, false, 101_000n], [1, true, 99_000n]]);
   assert.ok(fake.posts.every(p => p.qty === 1n && p.isMaker === false));
+});
+
+test('runLatency runs the cold-start command before order N and reports that sample separately', async () => {
+  const fake = takerDriver();
+  const calls = [];
+  const lines = [];
+  const result = await drows.runLatency({
+    driver: fake.driver, persona: fake.taker, orders: 30, spanMs: 31 * 60 * 1000, fetchStatus: greenStatus,
+    now: fake.clock, sleep: async ms => fake.advance(ms), log: line => lines.push(line),
+    coldStartCmd: 'render restart keeper', coldStartAt: 16,
+    runCommand: async cmd => { calls.push({ cmd, ordersBefore: fake.posts.length }); fake.advance(45_000); return 0; },
+  });
+  assert.deepEqual(calls, [{ cmd: 'render restart keeper', ordersBefore: 15 }]);
+  assert.deepEqual(result.trades.filter(t => t.coldStart).map(t => t.id), ['taker-16']);
+  const cold = result.coldStart;
+  assert.equal(cold.id, 'taker-16');
+  assert.equal(cold.at, 16);
+  assert.equal(cold.cmd, 'render restart keeper');
+  assert.equal(cold.commandMs, 45_000);
+  assert.equal(cold.acceptedMs, 400);
+  assert.equal(cold.settledMs, 8400);
+  assert.equal(result.summary.coldStart, true);
+  assert.equal(result.row.status, 'pass', JSON.stringify(result.summary.verdict.failures));
+  assert.match(result.row.notes, /cold start: taker-16 after `render restart keeper` \(45000 ms\); accepted 400 ms, settled 8400 ms/);
+  assert.ok(lines.some(l => /cold start/.test(l)));
+});
+
+test('runLatency without a cold-start command labels no sample a cold start and says so', async () => {
+  const fake = takerDriver();
+  const result = await drows.runLatency({
+    driver: fake.driver, persona: fake.taker, orders: 30, spanMs: 31 * 60 * 1000, fetchStatus: greenStatus,
+    now: fake.clock, sleep: async ms => fake.advance(ms),
+  });
+  assert.equal(result.coldStart, null);
+  assert.ok(result.trades.every(t => !t.coldStart));
+  assert.equal(result.summary.coldStart, false);
+  assert.match(result.row.notes, /no cold start: run without --cold-start-cmd/);
+  assert.equal(result.row.status, 'fail');
+  assert.ok(result.summary.verdict.failures.some(f => /cold/.test(f)));
+});
+
+test('runLatency aborts when the cold-start command exits non-zero, flagging no sample', async () => {
+  const fake = takerDriver();
+  const result = await drows.runLatency({
+    driver: fake.driver, persona: fake.taker, orders: 4, spanMs: 1000, fetchStatus: greenStatus,
+    now: fake.clock, sleep: async ms => fake.advance(ms),
+    coldStartCmd: 'restart', coldStartAt: 3, runCommand: async () => 7,
+  });
+  assert.equal(fake.posts.length, 2);
+  assert.equal(result.coldStart, null);
+  assert.equal(result.row.status, 'fail');
+  assert.match(result.row.notes, /cold-start command `restart` exited 7/);
 });
 
 test('runLatency fails without the maker ladder or with red monitoring', async () => {

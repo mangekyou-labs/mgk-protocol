@@ -10,13 +10,14 @@
 //   node tools/gate/drows.js --rpc URL --deployment deployments/devnet.json \
 //     --rows P0-1,P0-4 --keys ~/.config/solana --out /tmp/mgk-d-rows
 //   node tools/gate/drows.js --latency --orders 30 --span-min 32 \
-//     --status-url https://.../api/status --rpc URL --out DIR
+//     --status-url https://.../api/status --rpc URL --out DIR \
+//     --cold-start-cmd "<restart the keeper, exit 0 when back>" [--cold-start-at N]
 //   node tools/gate/drows.js --soak --duration-min 120 --rpc URL --out DIR
 //
 // Signs only with the persona keys (maker, taker, qa) and refuses the admin,
 // governance, oracle-authority and hosted-maker keys. Exits 0 when every
 // row passes, 1 on a failed row and 2 on usage or startup refusal.
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 const { mkdirSync, readFileSync, realpathSync, writeFileSync } = require('node:fs');
 const { homedir } = require('node:os');
 const { basename, join, resolve } = require('node:path');
@@ -101,6 +102,8 @@ function parseArgs(argv) {
     soakMs: 2 * 60 * 60 * 1000,
     soakPollMs: 5000,
     driveEvery: 12,
+    coldStartCmd: null,
+    coldStartAt: null,
   };
   const modes = [];
   for (let i = 0; i < argv.length; i++) {
@@ -123,6 +126,8 @@ function parseArgs(argv) {
     else if (flag === '--duration-min') options.soakMs = Number(value) * 60 * 1000;
     else if (flag === '--soak-poll-ms') options.soakPollMs = Number(value);
     else if (flag === '--drive-every') options.driveEvery = Number(value);
+    else if (flag === '--cold-start-cmd') options.coldStartCmd = value;
+    else if (flag === '--cold-start-at') options.coldStartAt = Number(value);
     else if (flag === '--monitoring-ignore') {
       options.monitoringIgnore = (value ?? '').split(',').map(name => name.trim()).filter(Boolean);
     } else throw new Error(`unknown argument ${flag}`);
@@ -146,6 +151,16 @@ function parseArgs(argv) {
   if (options.mode === 'latency' && options.orders < 2) throw new Error('--orders must be at least 2');
   if (options.mode === 'latency' && !options.statusUrl) {
     throw new Error('--latency needs --status-url (monitoringGreen is read from /api/status)');
+  }
+  if (options.coldStartCmd !== null || options.coldStartAt !== null) {
+    if (options.mode !== 'latency') throw new Error('--cold-start-cmd/--cold-start-at apply only with --latency');
+    if (options.coldStartCmd === null) throw new Error('--cold-start-at needs --cold-start-cmd');
+    if (!options.coldStartCmd.trim()) throw new Error('--cold-start-cmd must be a non-empty shell command');
+    // Default: midway, so warm orders precede and follow the restart.
+    options.coldStartAt ??= Math.floor(options.orders / 2) + 1;
+    if (!Number.isInteger(options.coldStartAt) || options.coldStartAt < 1 || options.coldStartAt > options.orders) {
+      throw new Error(`--cold-start-at must be an order number between 1 and ${options.orders}`);
+    }
   }
   return options;
 }
@@ -1461,8 +1476,22 @@ async function sampleStatus(fetchStatus, now) {
   }
 }
 
+// Runs an operator-supplied shell command (e.g. a keeper restart) and
+// resolves with its exit code. Output goes to this process's stderr so the
+// command's own logging never lands in evidence files.
+function runShell(cmd) {
+  return new Promise((done, fail) => {
+    const child = spawn(cmd, { shell: true, stdio: ['ignore', 'inherit', 'inherit'] });
+    child.on('error', fail);
+    child.on('close', (code, signal) => done(code ?? `signal ${signal}`));
+  });
+}
+
 // P0-33: scripted taker orders spaced over spanMs, recorded by
 // LatencyRecorder from chain confirmation (accept) and observed settlement.
+// With coldStartCmd, the command runs right before order coldStartAt (1-based)
+// and must exit 0; only that order is flagged coldStart and it is reported
+// separately. Without it no order is called a cold start.
 async function runLatency({
   driver,
   persona,
@@ -1474,6 +1503,9 @@ async function runLatency({
   sleep = ms => new Promise(done => setTimeout(done, ms)),
   out,
   log = () => {},
+  coldStartCmd = null,
+  coldStartAt = coldStartCmd === null ? null : Math.floor(orders / 2) + 1,
+  runCommand = runShell,
 }) {
   await driver.init();
   if (out) mkdirSync(out, { recursive: true });
@@ -1485,6 +1517,8 @@ async function runLatency({
   const notes = [];
   let againstMakerLadder = true;
   let last = SELL;
+  let coldStart = null;
+  if (coldStartCmd === null) notes.push('no cold start: run without --cold-start-cmd, so no order is labelled a cold start');
   const gap = orders > 1 ? Math.floor(spanMs / (orders - 1)) : 0;
   const t0 = now();
   let error = null;
@@ -1497,6 +1531,14 @@ async function runLatency({
       if (wait > 0) await sleep(wait);
       samples.push(await sampleStatus(fetchStatus, now));
       const id = `taker-${i + 1}`;
+      const cold = i + 1 === coldStartAt;
+      if (cold) {
+        const ranAt = now();
+        const code = await runCommand(coldStartCmd);
+        if (code !== 0) throw new Error(`cold-start command \`${coldStartCmd}\` exited ${code}`);
+        coldStart = { id, at: coldStartAt, cmd: coldStartCmd, commandMs: now() - ranAt };
+        log(`cold start: \`${coldStartCmd}\` exited 0 after ${coldStart.commandMs} ms; placing ${id}`);
+      }
       let trade;
       try {
         trade = await takerOrder(driver, persona, `P0-33 ${id}`, last);
@@ -1504,20 +1546,27 @@ async function runLatency({
         // A sent order that never confirmed or settled stays in the gate as
         // unaccepted/unsettled; it is never silently dropped.
         if (failure.signedAt !== undefined) {
-          recorder.sign(id, failure.signedAt, { coldStart: i === 0, role: 'taker' });
+          recorder.sign(id, failure.signedAt, { coldStart: cold, role: 'taker' });
         }
         notes.push(`${id}: ${failure.message}`);
-        trades.push({ id, error: failure.message });
+        trades.push({ id, coldStart: cold, error: failure.message });
+        if (cold) coldStart.error = failure.message;
         continue;
       }
       const record = trade.posted.record;
-      recorder.sign(id, record.signedAt, { coldStart: i === 0, role: 'taker' });
+      recorder.sign(id, record.signedAt, { coldStart: cold, role: 'taker' });
       recorder.accept(id, record.acceptedAt);
       recorder.settle(id, trade.settled.settledAt);
       if (!trade.onLadder) againstMakerLadder = false;
       last = trade.side;
+      if (cold) {
+        Object.assign(coldStart, {
+          signature: record.signature, acceptedMs: record.acceptedAt - record.signedAt, settledMs: trade.settled.settledAt - record.signedAt,
+        });
+        notes.push(`cold start: ${id} after \`${coldStartCmd}\` (${coldStart.commandMs} ms); accepted ${coldStart.acceptedMs} ms, settled ${coldStart.settledMs} ms`);
+      }
       trades.push({
-        id, signature: record.signature, batchId: trade.posted.batchId, side: trade.side, price: trade.price,
+        id, coldStart: cold, signature: record.signature, batchId: trade.posted.batchId, side: trade.side, price: trade.price,
         onLadder: trade.onLadder, filled: trade.filled, signedAt: record.signedAt, acceptedAt: record.acceptedAt, settledAt: trade.settled.settledAt,
       });
       log(`${id}: accepted ${record.acceptedAt - record.signedAt} ms, settled ${trade.settled.settledAt - record.signedAt} ms, filled ${trade.filled}`);
@@ -1552,7 +1601,7 @@ async function runLatency({
     observed: JSON.stringify(plain({ accepted: summary.accepted, settled: summary.settled, failures: summary.verdict.failures })),
     notes: [rule, `againstMakerLadder ${againstMakerLadder}`, ...monitoring.reasons, ...notes, `SOL spent ${lamportsToSol(spent)}`].join('\n'),
   };
-  const result = { row, summary, samples, monitoring: { ...monitoring, rule }, trades, cleanup, records, spent };
+  const result = { row, summary, coldStart, samples, monitoring: { ...monitoring, rule }, trades, cleanup, records, spent };
   if (out) {
     writeJson(join(out, 'P0-33-latency.json'), result);
     mergeRows(out, [row]);
@@ -1671,6 +1720,7 @@ async function main(argv = process.argv.slice(2), { log = console.log, error = c
       const result = await runLatency({
         driver, persona, orders: options.orders, spanMs: options.spanMs, fetchStatus,
         monitoringIgnore: options.monitoringIgnore, out: options.out, log,
+        coldStartCmd: options.coldStartCmd, coldStartAt: options.coldStartAt,
       });
       return result.row.status === 'pass' ? 0 : 1;
     }

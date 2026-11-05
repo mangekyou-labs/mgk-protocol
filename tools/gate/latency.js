@@ -145,10 +145,11 @@ class LatencyRecorder {
     const settled = stats(settledSamples);
     const unsettled = included.filter(o => o.settleAt === null).map(o => o.id);
     const unaccepted = included.filter(o => o.acceptAt === null).map(o => o.id);
-    // The cold-start requirement is met only by the chronologically first
-    // included order (by signAt); a later flagged order does not count.
-    const bySignAt = [...included].sort((a, b) => a.signAt - b.signAt);
-    const coldStart = bySignAt.length ? bySignAt[0].coldStart : false;
+    // The cold-start requirement is met by any included order flagged
+    // coldStart. drows.js flags only the order placed right after its
+    // operator-supplied restart command exited 0, so the flag marks a real
+    // cold start wherever it falls in the run, never a label on order one.
+    const coldStart = included.some(o => o.coldStart);
     const firstSign = included.length ? Math.min(...included.map(o => o.signAt)) : null;
     const lastSettle = included.some(o => o.settleAt !== null)
       ? Math.max(...included.filter(o => o.settleAt !== null).map(o => o.settleAt))
