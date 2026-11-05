@@ -46,40 +46,51 @@ function settleTx(signature: string, slot: number, batchId: bigint, qty: bigint,
     transaction: {signatures: [signature], message: message([batch, corePk, matcherPk, results], instructions.core.SettleBatch.disc, [0, 1, 2, 3])}}};
 }
 
-/** Fake RPC over an ordered (oldest first) core-program ledger that counts every call. */
-function fakeRpc(ledger: LedgerTx[], options: {slot: number; firstAvailable?: number; accounts?: Map<string, unknown>}) {
+/**
+ * Fake RPC over an ordered (oldest first) core-program ledger that counts every call.
+ * Models provider retention: transactions below `state.firstAvailable` are pruned, and an
+ * unknown (or pruned) `until` is ignored, as agave does. `pageCap` models a provider that
+ * returns short pages before its history is exhausted.
+ */
+function fakeRpc(ledger: LedgerTx[], options: {slot: number; firstAvailable?: number; accounts?: Map<string, unknown>; pageCap?: number}) {
   const calls: Record<string, number> = {};
   const count = (method: string) => { calls[method] = (calls[method] ?? 0) + 1; };
   const state = {
     slot: options.slot,
     ledger,
+    firstAvailable: options.firstAvailable ?? 0,
+    /** Every getSignaturesForAddress options object, in call order. */
+    signatureQueries: [] as {before?: string; until?: string; limit?: number}[],
     /** Return a value (or throw) to override getTransaction for a signature; undefined falls through. */
     failTransaction: null as null | ((signature: string) => unknown),
     failSignatures: null as null | (() => void),
   };
+  const retained = () => state.ledger.filter(t => t.slot >= state.firstAvailable);
   const connection = {
     getSlot: async () => { count('getSlot'); return state.slot; },
-    getFirstAvailableBlock: async () => { count('getFirstAvailableBlock'); return options.firstAvailable ?? 0; },
+    getFirstAvailableBlock: async () => { count('getFirstAvailableBlock'); return state.firstAvailable; },
     getSignaturesForAddress: async (address: PublicKey, opts: {before?: string; until?: string; limit?: number} = {}) => {
       count('getSignaturesForAddress');
+      state.signatureQueries.push({...opts});
       state.failSignatures?.();
       if (!address.equals(corePk)) throw new Error('unexpected address');
-      let newestFirst = [...state.ledger].reverse();
+      let newestFirst = [...retained()].reverse();
       if (opts.before) newestFirst = newestFirst.slice(newestFirst.findIndex(t => t.signature === opts.before) + 1);
       if (opts.until) { const i = newestFirst.findIndex(t => t.signature === opts.until); if (i >= 0) newestFirst = newestFirst.slice(0, i); }
-      return newestFirst.slice(0, opts.limit ?? 1000).map(t => ({signature: t.signature, slot: t.slot, err: t.err, memo: null, blockTime: null}));
+      const limit = Math.min(opts.limit ?? 1000, options.pageCap ?? Infinity);
+      return newestFirst.slice(0, limit).map(t => ({signature: t.signature, slot: t.slot, err: t.err, memo: null, blockTime: null}));
     },
     getTransaction: async (signature: string) => {
       count('getTransaction');
       if (state.failTransaction) { const r = state.failTransaction(signature); if (r !== undefined) return r; }
-      return state.ledger.find(t => t.signature === signature)?.response ?? null;
+      return retained().find(t => t.signature === signature)?.response ?? null;
     },
     getAccountInfo: async (pk: PublicKey) => { count('getAccountInfo'); return options.accounts?.get(pk.toBase58()) ?? null; },
     onLogs: vi.fn().mockReturnValue(1),
     removeOnLogsListener: vi.fn().mockResolvedValue(undefined),
   };
   const total = () => Object.values(calls).reduce((a, b) => a + b, 0);
-  const reset = () => { for (const k of Object.keys(calls)) delete calls[k]; };
+  const reset = () => { for (const k of Object.keys(calls)) delete calls[k]; state.signatureQueries.length = 0; };
   return {connection: connection as never, calls, total, reset, state};
 }
 
@@ -221,23 +232,82 @@ describe('syncer - signature-driven history replay', () => {
   });
 });
 
-describe('syncer - RPC budget', () => {
-  it('catch-up costs ceil(M/1000) + M history calls and an idle tick costs at most 2 calls', async () => {
-    const M = 2500;
-    const rpc = fakeRpc(ledgerOf(M), {slot: 5000});
+describe('syncer - gaps never look like replayed history', () => {
+  it('keeps walking past short pages until it reaches the start slot', async () => {
+    // The provider returns 400-signature pages although 1000 were asked for.
+    const rpc = fakeRpc(ledgerOf(1000), {slot: 5000, pageCap: 400});
     const {syncer, store} = syncerFor(rpc);
     await syncer.triggerSync();
-    const history = (rpc.calls.getSignaturesForAddress ?? 0) + (rpc.calls.getTransaction ?? 0);
-    expect(history).toBe(Math.ceil(M / 1000) + M);
-    // Only getSlot (health) and one getFirstAvailableBlock per process on top.
-    expect(rpc.total()).toBe(history + 2);
-    console.log(`[rpc-budget] catch-up M=${M}: ${rpc.total()} calls`, rpc.calls);
+    expect(rpc.calls.getTransaction).toBe(1000);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+
+  it('flags a cursor the pruning floor has overtaken since it was cached', async () => {
+    vi.useFakeTimers({toFake: ['Date']});
+    try {
+      const rpc = fakeRpc(ledgerOf(4), {slot: 5000});
+      const store = createStore(':memory:');
+      const {syncer} = syncerFor(rpc, store);
+      await syncer.triggerSync();
+      expect(store.getSyncState().processedThroughSlot).toBe(5000);
+
+      // The process sleeps (no new slots) while the provider prunes past the cursor.
+      rpc.state.firstAvailable = 6000;
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      rpc.state.slot = 7000;
+      await syncer.triggerSync();
+      expect(store.getSyncState().processedThroughSlot).toBe(5000);
+      expect(store.getSyncState().lastSyncErrorAt).not.toBeNull();
+      expect(syncer.getHealthTracker().snapshot(7000).status).toBe('degraded');
+      store.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-reads the floor every tick while the cursor is near it', async () => {
+    const rpc = fakeRpc([], {slot: 5000, firstAvailable: 4800});
+    const store = createStore(':memory:');
+    store.updateSyncSuccess(4900, 1_700_000_000_000);
+    const {syncer} = syncerFor(rpc, store);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+
+    // No time passes, but the floor moves past the cursor; the next tick must notice.
+    rpc.state.firstAvailable = 5200;
+    rpc.state.slot = 5100;
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    expect(syncer.getHealthTracker().snapshot(5100).status).toBe('degraded');
+    store.close();
+  });
+});
+
+describe('syncer - RPC budget', () => {
+  it('catch-up costs ceil(N/1000) + 1 + N history calls + 2 per settlement; an idle tick costs 2', async () => {
+    const accounts = new Map<string, unknown>();
+    const M = 2497, S = 3;
+    const ledger = [...ledgerOf(M), ...Array.from({length: S}, (_, i) => settleTx(`settle-${i}`, 2000 + i, BigInt(i + 1), 1n, accounts))];
+    const N = M + S;
+    const rpc = fakeRpc(ledger, {slot: 5000, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    // ceil(N/1000) pages, the last one short; with no signature at or below the start slot
+    // seen, one more page (before = oldest) must come back empty to prove the end of history.
+    expect(rpc.calls.getSignaturesForAddress).toBe(Math.ceil(N / 1000) + 1);
+    expect(rpc.calls.getTransaction).toBe(N);
+    // Each SettleBatch reads its Batch and Results accounts.
+    expect(rpc.calls.getAccountInfo).toBe(2 * S);
+    // Plus getSlot (health) and one getFirstAvailableBlock (retention floor).
+    expect(rpc.total()).toBe(Math.ceil(N / 1000) + 1 + N + 2 * S + 2);
+    console.log(`[rpc-budget] catch-up N=${N} (S=${S} settlements): ${rpc.total()} calls`, rpc.calls);
 
     for (let tick = 0; tick < 3; tick++) {
       rpc.reset();
       rpc.state.slot += 5;
       await syncer.triggerSync();
-      expect(rpc.total()).toBeLessThanOrEqual(2);
+      expect(rpc.total()).toBe(2);
       expect(rpc.calls.getFirstAvailableBlock).toBeUndefined();
     }
     console.log('[rpc-budget] idle tick:', rpc.total(), 'calls', rpc.calls);
@@ -246,7 +316,7 @@ describe('syncer - RPC budget', () => {
   });
 
   it('a restarted process reaches the 2-call idle tick after one catch-up tick', async () => {
-    const rpc = fakeRpc(ledgerOf(10), {slot: 500});
+    const rpc = fakeRpc(ledgerOf(10), {slot: 5000});
     const store = createStore(':memory:');
     await syncerFor(rpc, store).syncer.triggerSync();
     const {syncer} = syncerFor(rpc, store);

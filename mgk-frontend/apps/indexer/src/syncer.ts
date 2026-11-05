@@ -13,6 +13,14 @@ import { createHealthTracker, type HealthTracker } from './healthTracker.js';
 const SIGNATURE_PAGE_LIMIT = 1000;
 /** Concurrent getTransaction requests during replay. */
 const TRANSACTION_FETCH_CONCURRENCY = 4;
+/** Longest a cached retention floor is trusted before it is re-read. */
+const FLOOR_TTL_MS = 5 * 60_000;
+/**
+ * A cached floor is trusted only while the cursor is at least this far above it.
+ * Devnet produces ~2.5 slots/s, so steady pruning cannot advance the floor this far
+ * within the TTL; closer than this, the floor is re-read every tick.
+ */
+const FLOOR_MARGIN_SLOTS = 1_000;
 
 export interface SyncHistoryParams {
   connection: Connection;
@@ -54,7 +62,25 @@ export interface DecodedFillItem {
   isMaker: boolean;
 }
 
-/** List core signatures not yet replayed, oldest first (slot order, then in-block order). */
+/**
+ * List core signatures not yet replayed, oldest first (slot order, then in-block order).
+ *
+ * Gap soundness: a short page is NOT treated as the end of history. Providers may
+ * return fewer than `limit` signatures before their history is exhausted, so the
+ * walk ends only on positive evidence:
+ * - slot mode (`until` null): a signature at or below `cursorSlot` was seen, or
+ * - any mode: a page came back empty (nothing older is retained).
+ * An empty page alone cannot distinguish "the program has no older signatures" from
+ * "the provider pruned them"; the caller closes that hole by proving, before the
+ * scan, that the provider's retention floor (`getFirstAvailableBlock`) is at or
+ * below `cursorSlot + 1`. Together: every retained signature newer than the cursor
+ * was listed, and retention reaches the cursor, so nothing between was lost. (A
+ * pruned `until` is harmless under that proof: the provider then ignores it and
+ * returns retained history, all of it newer than `until`.)
+ *
+ * Cost: one extra (empty) page per scan that lists new signatures. An idle tick
+ * with `until` set is already a single empty page, so it costs nothing extra.
+ */
 async function listNewSignatures(
   connection: Connection, corePk: PublicKey, cursorSlot: number, until: string | null,
 ): Promise<{pending: ConfirmedSignatureInfo[]; newestSeen: string | null}> {
@@ -64,14 +90,14 @@ async function listNewSignatures(
   for (;;) {
     const page = await connection.getSignaturesForAddress(
       corePk, {before, until: until ?? undefined, limit: SIGNATURE_PAGE_LIMIT}, 'confirmed');
-    newestSeen ??= page[0]?.signature ?? null;
+    if (page.length === 0) break;
+    newestSeen ??= page[0]!.signature;
     let reachedCursor = false;
     for (const entry of page) {
       if (until === null && entry.slot <= cursorSlot) { reachedCursor = true; break; }
       newestFirst.push(entry);
     }
-    // A short page is the end of the address history (archival coverage is checked by the caller).
-    if (reachedCursor || page.length < SIGNATURE_PAGE_LIMIT) break;
+    if (reachedCursor) break;
     const next = page.at(-1)!.signature;
     if (next === before) throw new Error('Signature history did not progress');
     before = next;
@@ -328,8 +354,17 @@ export function createSyncer(config: SyncerConfig): Syncer {
 
   // Newest replayed core signature; steady-state scans fetch only newer ones.
   let newestSignature: string | null = null;
-  // Archival floor, read once per process rather than every tick.
-  let firstAvailableBlock: number | null = null;
+  // Provider retention floor. It rises as the provider prunes, so the cached value
+  // is trusted only while fresh and well below the cursor (see retentionCovers).
+  let floor: {slot: number; readAt: number} | null = null;
+
+  /** Whether the provider still retains `slot`; re-reads the floor when the cache cannot prove it. */
+  async function retentionCovers(slot: number): Promise<boolean> {
+    const now = Date.now();
+    const trusted = floor !== null && now - floor.readAt < FLOOR_TTL_MS && slot - floor.slot >= FLOOR_MARGIN_SLOTS;
+    if (!trusted) floor = {slot: await connection.getFirstAvailableBlock(), readAt: now};
+    return floor!.slot <= slot;
+  }
 
   const runtimeSubscriptions = {
     core: false,
@@ -413,9 +448,9 @@ export function createSyncer(config: SyncerConfig): Syncer {
         const committed = store.getSyncState().processedThroughSlot;
         const cursor = committed ?? startSlot - 1;
 
-        // An archival gap must never masquerade as successfully replayed history.
-        firstAvailableBlock ??= await connection.getFirstAvailableBlock();
-        if (firstAvailableBlock > cursor + 1) {
+        // An archival gap must never masquerade as successfully replayed history:
+        // the scan's end-of-history proof needs retention down to the cursor.
+        if (!await retentionCovers(cursor + 1)) {
           store.updateSyncError(Date.now());
           healthTracker.recordPollFailure();
           break;
