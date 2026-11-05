@@ -10,7 +10,7 @@ import * as sdk from '@mgk/sdk';
 import {statusRoutes} from './rest/status.js';
 import type {DeploymentManifest} from '../../../packages/layout/manifest.js';
 import {createStore} from './store.js';
-import {syncChunk} from './syncer.js';
+import {syncHistory} from './syncer.js';
 import {layouts} from '../../../packages/layout/index.js';
 import {instructions} from '../../../packages/layout/instructions.js';
 
@@ -52,14 +52,35 @@ function rollbackAncestor(tx: ReturnType<typeof nestedTransaction>) {
     `Program ${core} success`, `Program ${wrapper} failed: custom program error: 0x1`, `Program ${outer} success`];
 }
 
-async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:'), marketSeed?: string) { const fills: Record<string, unknown>[] = [];
+/** Signature-history fake: core signatures newest first, transactions served by signature. */
+function historyConnection(blocks: Array<[number, unknown]>, getAccountInfo: (pk: PublicKey) => unknown): Connection {
+  const ledger = blocks.map(([slot, tx], i) => ({signature: `sig-${slot}-${i}`, slot, tx,
+    err: (tx as {meta?: {err?: unknown}}).meta?.err ?? null}));
+  return {
+    getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string; until?: string}) => {
+      const newestFirst = [...ledger].reverse();
+      let page = newestFirst;
+      if (options.until) page = page.slice(0, page.findIndex(e => e.signature === options.until));
+      if (options.before) page = page.slice(page.findIndex(e => e.signature === options.before) + 1);
+      return page.map(({signature, slot, err}) => ({signature, slot, err}));
+    },
+    getTransaction: async (signature: string) => {
+      const entry = ledger.find(e => e.signature === signature);
+      return entry ? {...(entry.tx as object), slot: entry.slot, blockTime: 1700000000} : null;
+    },
+    getAccountInfo: async (pk: PublicKey) => getAccountInfo(pk),
+  } as unknown as Connection;
+}
+function settledAccountInfo() {
   const {batchData, resultsData} = accounts();
-  const connection = {getBlocks: async () => [100], getBlock: async () => ({blockTime: 1700000000, transactions: [tx]}),
-    getAccountInfo: async (pk: PublicKey) => getInfo ? getInfo(pk) : ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
-  const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100, marketSeed, onFill: fill => fills.push(fill)});
+  return (pk: PublicKey) => ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData});
+}
+async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:'), marketSeed?: string) { const fills: Record<string, unknown>[] = [];
+  const connection = historyConnection([[100, tx]], getInfo ?? settledAccountInfo());
+  const result = await syncHistory({connection, store, corePk: core, matcherPk: matcher, cursorSlot: 99, confirmedSlot: 100, marketSeed, onFill: fill => fills.push(fill)});
   return {result, fills, store, connection};
 }
-describe('CPI settlement history through syncChunk', () => {
+describe('CPI settlement history through syncHistory', () => {
   it('indexes only the selected namespace for the same program IDs', async () => {
     const marketSeed = Keypair.generate().publicKey.toBase58();
     const otherSeed = Keypair.generate().publicKey.toBase58();
@@ -108,11 +129,9 @@ describe('CPI settlement history through syncChunk', () => {
     malformed.data = bs58.encode([29]);
     const valid = nestedTransaction();
     const store = createStore(':memory:');
-    const {batchData, resultsData} = accounts();
-    const connection = {getBlocks: async () => [100, 101], getBlock: async (slot: number) => ({blockTime: 1700000000, transactions: slot === 100 ? [tx] : [valid]}),
-      getAccountInfo: async (pk: PublicKey) => ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
+    const connection = historyConnection([[100, tx], [101, valid]], settledAccountInfo());
     try {
-      const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 101});
+      const result = await syncHistory({connection, store, corePk: core, matcherPk: matcher, cursorSlot: 99, confirmedSlot: 101});
       expect(result.success).toBe(true);
       expect(result.fillsInserted).toBe(1);
       expect(store.getSyncState().processedThroughSlot).toBe(101);
@@ -166,7 +185,7 @@ describe('CPI settlement history through syncChunk', () => {
     }), migrated);
     try {
       expect(result.success).toBe(true); expect(result.fillsInserted).toBe(2); expect(fills.map(f => f.qty)).toEqual([3, 7]);
-      const retry = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100});
+      const retry = await syncHistory({connection, store, corePk: core, matcherPk: matcher, cursorSlot: 99, confirmedSlot: 100});
       expect(retry.success).toBe(true); expect(retry.fillsInserted).toBe(0);
     } finally {store.close(); rmSync(directory, {recursive: true, force: true});}
   });

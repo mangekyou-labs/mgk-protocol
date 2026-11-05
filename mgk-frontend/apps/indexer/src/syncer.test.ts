@@ -1,302 +1,296 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
-import * as sdk from '@mgk/sdk';
+import { Keypair, MessageV0, PublicKey } from '@solana/web3.js';
 import { createStore } from './store.js';
-import { createSyncer, syncChunk, type SyncChunkResult } from './syncer.js';
+import { createSyncer } from './syncer.js';
+import { layouts } from '../../../packages/layout/index.js';
+import { instructions } from '../../../packages/layout/instructions.js';
 
-describe('syncer - gap-aware slot synchronization', () => {
-  const corePk = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
-  const matcherPk = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
+const corePk = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
+const matcherPk = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
+const payer = Keypair.generate().publicKey;
 
-  it('advances cursor on quiet markets even when getBlocks returns no blocks', async () => {
-    const store = createStore(':memory:');
-    const mockConnection = {
-      getBlocks: vi.fn().mockResolvedValue([]),
-    } as never;
+interface LedgerTx { signature: string; slot: number; err: unknown; response: unknown }
 
-    const result = await syncChunk({
-      connection: mockConnection,
-      store,
-      corePk,
-      matcherPk,
-      startSlot: 100,
-      endSlot: 200,
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.slotsProcessed).toBe(101); // 100..200 inclusive
-    expect(result.fillsInserted).toBe(0);
-
-    const syncState = store.getSyncState();
-    expect(syncState.processedThroughSlot).toBe(200);
-    expect(syncState.lastSuccessfulSyncAt).not.toBeNull();
+function message(keys: PublicKey[], disc: number, accountKeyIndexes: number[] = []) {
+  return new MessageV0({
+    header: {numRequiredSignatures: 1, numReadonlySignedAccounts: 0, numReadonlyUnsignedAccounts: 1},
+    staticAccountKeys: keys, recentBlockhash: PublicKey.default.toBase58(),
+    compiledInstructions: [{programIdIndex: 1, accountKeyIndexes, data: Uint8Array.of(disc)}],
+    addressTableLookups: [],
   });
+}
 
-  it('leaves chunk uncommitted on RPC failure for retry', async () => {
-    const store = createStore(':memory:');
-    store.updateSyncSuccess(50, 1700000000000);
+/** A core transaction that is not a settlement. */
+function plainTx(signature: string, slot: number, err: unknown = null): LedgerTx {
+  return {signature, slot, err, response: {slot, blockTime: 1_700_000_000 + slot,
+    meta: {err, logMessages: [`Program ${corePk} invoke [1]`, `Program ${corePk} success`], innerInstructions: [], loadedAddresses: {writable: [], readonly: []}},
+    transaction: {signatures: [signature], message: message([payer, corePk], 0)}}};
+}
 
-    const mockConnection = {
-      getBlocks: vi.fn().mockRejectedValue(new Error('RPC rate limit / 429')),
-    } as never;
+/** A settlement of `batchId` whose one effective fill has quantity `qty`. */
+function settleTx(signature: string, slot: number, batchId: bigint, qty: bigint, accounts: Map<string, unknown>): LedgerTx {
+  const batch = Keypair.generate().publicKey, results = Keypair.generate().publicKey;
+  const batchData = Buffer.alloc(layouts.Batch.size); batchData[0] = layouts.Batch.discriminator!; batchData[1] = 1;
+  batchData.writeBigUInt64LE(batchId, 8); batchData[16] = 3;
+  const resultsData = Buffer.alloc(51 + 58); resultsData[0] = 8; resultsData[1] = 1;
+  resultsData.writeBigUInt64LE(batchId, 8); resultsData[16] = 1; resultsData.writeUInt16LE(1, 49);
+  resultsData.fill(22, 51, 83); resultsData.writeBigUInt64LE(qty, 91); resultsData.writeBigInt64LE(100_000_000n, 99);
+  const receipt = Buffer.alloc(18); receipt.writeBigUInt64LE(batchId); receipt.writeUInt16LE(1, 8); receipt.writeBigUInt64LE(qty, 10);
+  accounts.set(batch.toBase58(), {owner: corePk, data: batchData});
+  accounts.set(results.toBase58(), {owner: matcherPk, data: resultsData});
+  return {signature, slot, err: null, response: {slot, blockTime: 1_700_000_000 + slot,
+    meta: {err: null, innerInstructions: [], loadedAddresses: {writable: [], readonly: []}, logMessages: [
+      `Program ${corePk} invoke [1]`,
+      `Program data: ${Buffer.from('mgk-settlement-v1').toString('base64')} ${receipt.toString('base64')}`,
+      `Program ${corePk} success`]},
+    transaction: {signatures: [signature], message: message([batch, corePk, matcherPk, results], instructions.core.SettleBatch.disc, [0, 1, 2, 3])}}};
+}
 
-    const result = await syncChunk({
-      connection: mockConnection,
-      store,
-      corePk,
-      matcherPk,
-      startSlot: 51,
-      endSlot: 100,
-    });
+/** Fake RPC over an ordered (oldest first) core-program ledger that counts every call. */
+function fakeRpc(ledger: LedgerTx[], options: {slot: number; firstAvailable?: number; accounts?: Map<string, unknown>}) {
+  const calls: Record<string, number> = {};
+  const count = (method: string) => { calls[method] = (calls[method] ?? 0) + 1; };
+  const state = {
+    slot: options.slot,
+    ledger,
+    /** Return a value (or throw) to override getTransaction for a signature; undefined falls through. */
+    failTransaction: null as null | ((signature: string) => unknown),
+    failSignatures: null as null | (() => void),
+  };
+  const connection = {
+    getSlot: async () => { count('getSlot'); return state.slot; },
+    getFirstAvailableBlock: async () => { count('getFirstAvailableBlock'); return options.firstAvailable ?? 0; },
+    getSignaturesForAddress: async (address: PublicKey, opts: {before?: string; until?: string; limit?: number} = {}) => {
+      count('getSignaturesForAddress');
+      state.failSignatures?.();
+      if (!address.equals(corePk)) throw new Error('unexpected address');
+      let newestFirst = [...state.ledger].reverse();
+      if (opts.before) newestFirst = newestFirst.slice(newestFirst.findIndex(t => t.signature === opts.before) + 1);
+      if (opts.until) { const i = newestFirst.findIndex(t => t.signature === opts.until); if (i >= 0) newestFirst = newestFirst.slice(0, i); }
+      return newestFirst.slice(0, opts.limit ?? 1000).map(t => ({signature: t.signature, slot: t.slot, err: t.err, memo: null, blockTime: null}));
+    },
+    getTransaction: async (signature: string) => {
+      count('getTransaction');
+      if (state.failTransaction) { const r = state.failTransaction(signature); if (r !== undefined) return r; }
+      return state.ledger.find(t => t.signature === signature)?.response ?? null;
+    },
+    getAccountInfo: async (pk: PublicKey) => { count('getAccountInfo'); return options.accounts?.get(pk.toBase58()) ?? null; },
+    onLogs: vi.fn().mockReturnValue(1),
+    removeOnLogsListener: vi.fn().mockResolvedValue(undefined),
+  };
+  const total = () => Object.values(calls).reduce((a, b) => a + b, 0);
+  const reset = () => { for (const k of Object.keys(calls)) delete calls[k]; };
+  return {connection: connection as never, calls, total, reset, state};
+}
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
+function syncerFor(rpc: ReturnType<typeof fakeRpc>, store = createStore(':memory:'), extra: {startSlot?: number; onFill?: (f: Record<string, unknown>) => void} = {}) {
+  const syncer = createSyncer({connection: rpc.connection, store, coreProgramId: corePk.toBase58(), matcherProgramId: matcherPk.toBase58(), startSlot: extra.startSlot ?? 100, onFill: extra.onFill});
+  return {syncer, store};
+}
 
-    // Cursor MUST NOT have advanced
-    const syncState = store.getSyncState();
-    expect(syncState.processedThroughSlot).toBe(50);
-    expect(syncState.lastSyncErrorAt).not.toBeNull();
-  });
+/** `count` plain core transactions, two per slot, starting at `firstSlot`. */
+function ledgerOf(count: number, firstSlot = 100, prefix = 'sig'): LedgerTx[] {
+  return Array.from({length: count}, (_, i) => plainTx(`${prefix}-${i}`, firstSlot + Math.floor(i / 2)));
+}
 
-  it('aggregates candles and broadcasts ONLY newly inserted fills (idempotency)', async () => {
-    const store = createStore(':memory:');
-    const broadcastFills: unknown[] = [];
-    const txSig = 'test-tx-sig-idempotency-123';
-    const makerPk = Buffer.from(new Uint8Array(32).fill(0x11));
-    const takerPk = Buffer.from(new Uint8Array(32).fill(0x22));
-
-    // Pre-insert fill 1
-    store.insertFill.run([
-      100, 1, 0, 0, 150_000_000, 1_000_000, takerPk, makerPk, Buffer.from(txSig, 'utf-8'), 0, 0,
-    ]);
-
-    // Construct mock block with 1 old fill and 1 new fill
-    const batchPk = new PublicKey('11111111111111111111111111111112');
-    const resultsPk = new PublicKey('11111111111111111111111111111113');
-    const mockBlock = {
-      blockTime: 1700000000,
-      transactions: [
-        {
-          meta: {err: null, logMessages: [
-            `Program ${corePk} invoke [1]`,
-            `Program data: ${Buffer.from('mgk-settlement-v1').toString('base64')} ${(() => {const b = Buffer.alloc(26); b.writeBigUInt64LE(1n); b.writeUInt16LE(2, 8); b.writeBigUInt64LE(1_000_000n, 10); b.writeBigUInt64LE(2_000_000n, 18); return b.toString('base64');})()}`,
-            `Program ${corePk} success`,
-          ]},
-          transaction: {
-            signatures: [txSig],
-            message: {
-              staticAccountKeys: [batchPk, corePk, matcherPk, resultsPk],
-              getAccountKeys: () => ({length: 4, get: (i: number) => [batchPk, corePk, matcherPk, resultsPk][i]}),
-              compiledInstructions: [
-                {
-                  programIdIndex: 1,
-                  data: new Uint8Array([8]), // SettleBatch
-                  accountKeyIndexes: [0, 1, 2, 3],
-                },
-              ],
-            },
-          },
-        },
-      ],
-    };
-
-    // DFBA results header (34 bytes: 8+8+8+8+2) + 2 fills (58 bytes each: 32+8+8+8+1+1)
-    const resultsBuffer = new Uint8Array(51 + 58 * 2);
-    resultsBuffer[0]=8;resultsBuffer[1]=1;resultsBuffer[16]=1;
-    const view = new DataView(resultsBuffer.buffer);view.setBigUint64(8,1n,true);
-    view.setUint16(49, 2, true); // num_fills = 2
-
-    // Fill 0: matches pre-inserted fill (price: 150_000_000, qty: 1_000_000, auction: 1 -> taker_side: 0)
-    resultsBuffer.set(takerPk, 51);
-    view.setBigUint64(51 + 40, 1_000_000n, true); // qty
-    view.setBigInt64(51 + 48, 150_000_000n, true); // price
-    resultsBuffer[51 + 56] = 0; // is_maker = 0
-    resultsBuffer[51 + 57] = 1; // auction = 1 -> taker_side = 0
-
-    // Fill 1: new fill (price: 155_000_000, qty: 2_000_000, auction: 0 -> taker_side: 1)
-    const fill1Offset = 51 + 58;
-    resultsBuffer.set(takerPk, fill1Offset);
-    view.setBigUint64(fill1Offset + 40, 2_000_000n, true); // qty
-    view.setBigInt64(fill1Offset + 48, 155_000_000n, true); // price
-    resultsBuffer[fill1Offset + 56] = 0; // is_maker = 0
-    resultsBuffer[fill1Offset + 57] = 0; // auction = 0 -> taker_side = 1
-
-    const batchBuffer = new Uint8Array(sdk.state.BATCH_SIZE);
-    batchBuffer[0]=2;batchBuffer[1]=1;
-    const batchView = new DataView(batchBuffer.buffer);
-    batchView.setBigUint64(8, 1n, true);
-    batchView.setUint8(16, sdk.state.BatchStatus.Settled);
-    batchView.setUint8(168, 1); // markValid = true (identifies as DFBA)
-
-    const mockConnection = {
-      getBlocks: vi.fn().mockResolvedValue([100]),
-      getBlock: vi.fn().mockResolvedValue(mockBlock),
-      getAccountInfo: vi.fn().mockImplementation((pk: PublicKey) => {
-        if (pk.equals(batchPk)) {
-          return Promise.resolve({
-            data: Buffer.from(batchBuffer),
-            executable: false,
-            lamports: 1000,
-            owner: corePk,
-            rentEpoch: 0,
-          });
-        }
-        return Promise.resolve({
-          data: Buffer.from(resultsBuffer),
-          executable: false,
-          lamports: 1000,
-          owner: matcherPk,
-          rentEpoch: 0,
-        });
-      }),
-    } as never;
-
-    const result = await syncChunk({
-      connection: mockConnection,
-      store,
-      corePk,
-      matcherPk,
-      startSlot: 100,
-      endSlot: 100,
-      onFill: (f) => broadcastFills.push(f),
-    });
-
-    expect(result.success).toBe(true);
-    // Only 1 new fill inserted, not 2
-    expect(result.fillsInserted).toBe(1);
-    expect(broadcastFills).toHaveLength(1);
-  });
-
-  it('resumes on restart from next unprocessed slot', async () => {
-    const store = createStore(':memory:');
-    store.updateSyncSuccess(500, 1700000000000);
-
-    const syncedChunks: Array<[number, number]> = [];
-    const mockConnection = {
-      getFirstAvailableBlock: vi.fn().mockResolvedValue(0),
-      getSlot: vi.fn().mockResolvedValue(550),
-      getBlocks: vi.fn().mockImplementation((s: number, e: number) => {
-        syncedChunks.push([s, e]);
-        return Promise.resolve([]);
-      }),
-      onLogs: vi.fn().mockReturnValue(1),
-      removeOnLogsListener: vi.fn().mockResolvedValue(undefined),
-    } as never;
-
-    const syncer = createSyncer({
-      connection: mockConnection,
-      store,
-      coreProgramId: corePk.toBase58(),
-      matcherProgramId: matcherPk.toBase58(),
-      pollIntervalMs: 50,
-      maxChunkSlots: 256,
-    });
-
-    await syncer.start();
+describe('syncer - signature-driven history replay', () => {
+  it('replays an empty store across multiple signature pages back to the start slot', async () => {
+    const ledger = [plainTx('before-start', 50), ...ledgerOf(2500)];
+    const rpc = fakeRpc(ledger, {slot: 5000});
+    const {syncer, store} = syncerFor(rpc);
     await syncer.triggerSync();
-    await syncer.stop();
-
-    expect(syncedChunks[0]).toEqual([501, 550]);
-    expect(store.getSyncState().processedThroughSlot).toBe(550);
-  });
-
-  it('replays from the inclusive deployment start slot on empty disk', async () => {
-    const store = createStore(':memory:');
-    const scanned: number[] = [];
-    const connection = {
-      getSlot: async () => 10000,
-      getFirstAvailableBlock: async () => 0,
-      getBlocks: async (start: number) => {scanned.push(start); return [];},
-    } as never;
-    const syncer = createSyncer({connection, store, coreProgramId: corePk.toBase58(), matcherProgramId: matcherPk.toBase58(), startSlot: 5});
-    await syncer.triggerSync();
-    expect(scanned[0]).toBe(5);
-    expect(store.getSyncState().processedThroughSlot).toBe(10000);
+    expect(rpc.calls.getTransaction).toBe(2500);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
     store.close();
   });
 
-  it('truthful subscription health sets flags true only after onLogs and false on stop', async () => {
+  it('resumes from the committed cursor without refetching replayed transactions', async () => {
+    const accounts = new Map<string, unknown>();
+    const ledger = [settleTx('old', 150, 1n, 5n, accounts), settleTx('new', 151, 2n, 7n, accounts)];
+    const rpc = fakeRpc(ledger, {slot: 200, accounts});
     const store = createStore(':memory:');
-    let coreListenerId = 1;
-    let matcherListenerId = 2;
+    store.updateSyncSuccess(150, 1_700_000_000_000);
+    const fills: Record<string, unknown>[] = [];
+    const {syncer} = syncerFor(rpc, store, {onFill: f => fills.push(f)});
+    await syncer.triggerSync();
+    expect(rpc.calls.getTransaction).toBe(1);
+    expect(fills.map(f => f.batch_id)).toEqual([2]);
+    expect(store.getSyncState().processedThroughSlot).toBe(200);
+    store.close();
+  });
 
-    const mockConnection = {
-      getFirstAvailableBlock: vi.fn().mockResolvedValue(0),
-      getSlot: vi.fn().mockResolvedValue(100),
-      getBlocks: vi.fn().mockResolvedValue([]),
-      onLogs: vi.fn().mockImplementation((pk: PublicKey) => {
-        if (pk.equals(corePk)) return coreListenerId;
-        return matcherListenerId;
-      }),
-      removeOnLogsListener: vi.fn().mockResolvedValue(undefined),
-    } as never;
+  it('replays oldest to newest, preserving slot order and in-block order', async () => {
+    const accounts = new Map<string, unknown>();
+    // Ledger order is chain order: slot 300 holds batches 1 then 2; slot 301 holds batch 3.
+    const ledger = [settleTx('a', 300, 1n, 1n, accounts), settleTx('b', 300, 2n, 2n, accounts), settleTx('c', 301, 3n, 3n, accounts)];
+    const rpc = fakeRpc(ledger, {slot: 400, accounts});
+    const fills: Record<string, unknown>[] = [];
+    const {syncer, store} = syncerFor(rpc, undefined, {onFill: f => fills.push(f)});
+    await syncer.triggerSync();
+    expect(fills.map(f => [f.slot, f.batch_id, f.qty])).toEqual([[300, 1, 1], [300, 2, 2], [301, 3, 3]]);
+    expect(store.db.prepare('SELECT count(*) AS n FROM candles_1m').get()).toEqual({n: 1});
+    store.close();
+  });
 
-    const syncer = createSyncer({
-      connection: mockConnection,
-      store,
-      coreProgramId: corePk.toBase58(),
-      matcherProgramId: matcherPk.toBase58(),
-      startSlot: 100,
-    });
+  it('skips failed transactions without fetching them', async () => {
+    const accounts = new Map<string, unknown>();
+    const failed = settleTx('failed', 120, 9n, 9n, accounts);
+    failed.err = {InstructionError: [0, {Custom: 1}]};
+    const rpc = fakeRpc([failed, settleTx('ok', 121, 1n, 4n, accounts)], {slot: 130, accounts});
+    const fills: Record<string, unknown>[] = [];
+    const {syncer, store} = syncerFor(rpc, undefined, {onFill: f => fills.push(f)});
+    await syncer.triggerSync();
+    expect(rpc.calls.getTransaction).toBe(1);
+    expect(fills.map(f => f.batch_id)).toEqual([1]);
+    expect(store.getSyncState().processedThroughSlot).toBe(130);
+    store.close();
+  });
 
-    // Before start: false
+  it.each([
+    ['a missing transaction', (rpc: ReturnType<typeof fakeRpc>) => { rpc.state.failTransaction = sig => sig === 'sig-3' ? null : undefined; }],
+    ['a getTransaction 429', (rpc: ReturnType<typeof fakeRpc>) => { rpc.state.failTransaction = sig => { if (sig === 'sig-3') throw new Error('429 Too Many Requests'); }; }],
+    ['a signature-page 429', (rpc: ReturnType<typeof fakeRpc>) => { rpc.state.failSignatures = () => { throw new Error('429 Too Many Requests'); }; }],
+  ])('holds the cursor and records a poll failure on %s', async (_name, inject) => {
+    const rpc = fakeRpc(ledgerOf(6), {slot: 500});
+    inject(rpc);
+    const store = createStore(':memory:');
+    store.updateSyncSuccess(99, 1_700_000_000_000);
+    const {syncer} = syncerFor(rpc, store);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(99);
+    expect(store.getSyncState().lastSyncErrorAt).not.toBeNull();
+    expect(syncer.getHealthTracker().snapshot(500).status).toBe('degraded');
+
+    // The next tick retries the held range and catches up.
+    rpc.state.failTransaction = null; rpc.state.failSignatures = null;
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(500);
+    store.close();
+  });
+
+  it('refuses to replay from a cursor older than the archival floor', async () => {
+    const rpc = fakeRpc(ledgerOf(4), {slot: 500, firstAvailable: 1000});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+    expect(rpc.calls.getSignaturesForAddress).toBeUndefined();
+    store.close();
+  });
+
+  it('advances the slot cursor to the pre-scan confirmed slot when there are no new transactions', async () => {
+    const rpc = fakeRpc(ledgerOf(4), {slot: 500});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(500);
+    rpc.state.slot = 900;
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(900);
+    store.close();
+  });
+
+  it('picks up new transactions on the next tick and never moves the cursor backwards', async () => {
+    const accounts = new Map<string, unknown>();
+    const rpc = fakeRpc([settleTx('first', 100, 1n, 1n, accounts)], {slot: 500, accounts});
+    const fills: Record<string, unknown>[] = [];
+    const {syncer, store} = syncerFor(rpc, undefined, {onFill: f => fills.push(f)});
+    await syncer.triggerSync();
+    // A late-indexed transaction below the cursor still arrives via the signature scan.
+    rpc.state.ledger.push(settleTx('second', 480, 2n, 2n, accounts));
+    rpc.state.slot = 520;
+    await syncer.triggerSync();
+    expect(fills.map(f => f.batch_id)).toEqual([1, 2]);
+    expect(store.getSyncState().processedThroughSlot).toBe(520);
+    store.close();
+  });
+
+  it('keeps committed progress when a later segment fails', async () => {
+    const store = createStore(':memory:');
+    const rpc = fakeRpc(ledgerOf(2500), {slot: 5000});
+    rpc.state.failTransaction = sig => { if (sig === 'sig-2200') throw new Error('429 Too Many Requests'); };
+    const {syncer} = syncerFor(rpc, store);
+    await syncer.triggerSync();
+    // Segments 1-2 (sig-0..sig-1999, slots 100..1099) committed before sig-2200 failed.
+    expect(store.getSyncState().processedThroughSlot).toBe(1099);
+
+    rpc.state.failTransaction = null;
+    rpc.reset();
+    await syncer.triggerSync();
+    expect(rpc.calls.getTransaction).toBe(500);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+});
+
+describe('syncer - RPC budget', () => {
+  it('catch-up costs ceil(M/1000) + M history calls and an idle tick costs at most 2 calls', async () => {
+    const M = 2500;
+    const rpc = fakeRpc(ledgerOf(M), {slot: 5000});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    const history = (rpc.calls.getSignaturesForAddress ?? 0) + (rpc.calls.getTransaction ?? 0);
+    expect(history).toBe(Math.ceil(M / 1000) + M);
+    // Only getSlot (health) and one getFirstAvailableBlock per process on top.
+    expect(rpc.total()).toBe(history + 2);
+    console.log(`[rpc-budget] catch-up M=${M}: ${rpc.total()} calls`, rpc.calls);
+
+    for (let tick = 0; tick < 3; tick++) {
+      rpc.reset();
+      rpc.state.slot += 5;
+      await syncer.triggerSync();
+      expect(rpc.total()).toBeLessThanOrEqual(2);
+      expect(rpc.calls.getFirstAvailableBlock).toBeUndefined();
+    }
+    console.log('[rpc-budget] idle tick:', rpc.total(), 'calls', rpc.calls);
+    expect(store.getSyncState().processedThroughSlot).toBe(5015);
+    store.close();
+  });
+
+  it('a restarted process reaches the 2-call idle tick after one catch-up tick', async () => {
+    const rpc = fakeRpc(ledgerOf(10), {slot: 500});
+    const store = createStore(':memory:');
+    await syncerFor(rpc, store).syncer.triggerSync();
+    const {syncer} = syncerFor(rpc, store);
+    rpc.reset();
+    await syncer.triggerSync();
+    expect(rpc.calls.getTransaction).toBeUndefined();
+    rpc.reset();
+    await syncer.triggerSync();
+    expect(rpc.total()).toBe(2);
+    store.close();
+  });
+});
+
+describe('syncer - lifecycle', () => {
+  it('truthful subscription health sets flags true only after onLogs and false on stop', async () => {
+    const rpc = fakeRpc([], {slot: 100});
+    const {syncer, store} = syncerFor(rpc);
     expect(syncer.getRuntimeHealth().subscriptions).toEqual({ core: false, matcher: false });
-
     await syncer.start();
-
-    // After start: true
     expect(syncer.getRuntimeHealth().subscriptions).toEqual({ core: true, matcher: true });
-
     await syncer.stop();
-
-    // After stop: false
     expect(syncer.getRuntimeHealth().subscriptions).toEqual({ core: false, matcher: false });
+    store.close();
   });
 
   it('single-flight worker coalesces overlapping triggers', async () => {
+    const rpc = fakeRpc([], {slot: 200});
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const listSignatures = (rpc.connection as {getSignaturesForAddress: (...a: unknown[]) => Promise<unknown>}).getSignaturesForAddress;
+    let scans = 0;
+    (rpc.connection as {getSignaturesForAddress: unknown}).getSignaturesForAddress = async (...args: unknown[]) => { scans++; await gate; return listSignatures(...args); };
     const store = createStore(':memory:');
     store.setSyncCursor(100);
+    const {syncer} = syncerFor(rpc, store);
 
-    let getBlocksCalls = 0;
-    let resolveGate: () => void;
-    const gatePromise = new Promise<void>((res) => {
-      resolveGate = res;
-    });
-
-    const mockConnection = {
-      getFirstAvailableBlock: vi.fn().mockResolvedValue(0),
-      getSlot: vi.fn().mockResolvedValue(200),
-      getBlocks: vi.fn().mockImplementation(() => {
-        getBlocksCalls++;
-        return gatePromise.then(() => []);
-      }),
-      onLogs: vi.fn().mockReturnValue(1),
-      removeOnLogsListener: vi.fn().mockResolvedValue(undefined),
-    } as never;
-
-    const syncer = createSyncer({
-      connection: mockConnection,
-      store,
-      coreProgramId: corePk.toBase58(),
-      matcherProgramId: matcherPk.toBase58(),
-    });
-
-    // Trigger 1 (in-flight)
-    const sync1 = syncer.triggerSync();
-    // Immediate subsequent triggers while in-flight
-    const sync2 = syncer.triggerSync();
-    const sync3 = syncer.triggerSync();
-
-    // Allow getSlot microtask to resolve to reach getBlocks
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(getBlocksCalls).toBe(1);
-
-    // Resolve gate
-    resolveGate!();
-    await Promise.all([sync1, sync2, sync3]);
-
-    // Should have coalesced without duplicate overlapping runs
+    const runs = [syncer.triggerSync(), syncer.triggerSync(), syncer.triggerSync()];
+    await new Promise(r => setTimeout(r, 10));
+    expect(scans).toBe(1);
+    release();
+    await Promise.all(runs);
+    // The coalesced re-scan runs once, not once per trigger.
+    expect(scans).toBe(2);
     expect(store.getSyncState().processedThroughSlot).toBe(200);
+    store.close();
   });
 });
