@@ -75,13 +75,23 @@ function fixture(id = 0n, marketSeed = null) {
     time = 0;
   const connection = {
     getAccountInfo: async (key) => accounts.get(String(key)) ?? null,
+    // Routes through getAccountInfo so tests that override it see the same reads.
+    getMultipleAccountsInfoAndContext: async (keys) => ({
+      context: { slot },
+      value: await Promise.all(
+        keys.map((key) =>
+          key.equals(payer.publicKey)
+            ? { owner: PublicKey.default, lamports: balance, data: Buffer.alloc(0) }
+            : connection.getAccountInfo(key),
+        ),
+      ),
+    }),
     getSlot: async () => slot,
     getBalance: async () => balance,
     getLatestBlockhash: async () => ({
       blockhash: Keypair.generate().publicKey.toBase58(),
       lastValidBlockHeight: 100,
     }),
-    simulateTransaction: async () => ({ value: { err: null } }),
     getSignatureStatuses: async () => ({
       value: [{ err: null, confirmationStatus: "confirmed" }],
     }),
@@ -158,6 +168,36 @@ test("current collecting batch waits for deadline, then clears and restart settl
     [6, 7, 8],
   );
   assert.equal((await restarted.tick()).batchId, 1n);
+});
+test("a collecting batch sleeps until its deadline and steady ticks cost one read", async () => {
+  const f = fixture();
+  // Count only the worker's own RPC calls, not the mock's internal reads.
+  const calls = [];
+  let depth = 0;
+  for (const [name, fn] of Object.entries(f.options.connection))
+    f.options.connection[name] = async (...args) => {
+      if (depth === 0) calls.push(name);
+      depth++;
+      try {
+        return await fn(...args);
+      } finally {
+        depth--;
+      }
+    };
+  const w = await createKeeperWorker(f.options);
+  calls.length = 0;
+  f.setSlot(5);
+  const first = await w.tick();
+  assert.equal(first.status, "collecting");
+  assert.equal(first.waitMs, 20 * 400);
+  // The first tick has no batch guess yet; the next one reads everything at once.
+  calls.length = 0;
+  await w.tick();
+  assert.deepEqual(calls, ["getMultipleAccountsInfoAndContext"]);
+  f.setSlot(0);
+  f.b.writeBigUInt64LE(10_000n, layouts.Batch.fields.commitDeadlineSlot[0]);
+  assert.equal((await w.tick()).waitMs, 30_000);
+  assert.ok(!calls.includes("simulateTransaction"));
 });
 test("missing current batch halts permanently without historical fallback", async () => {
   const f = fixture();
@@ -281,7 +321,7 @@ test("settlement serializes all twelve distinct portfolios and exact u64 success
   );
   assert.ok(ix.keys[21].isSigner);
 });
-test("bad current batch bytes and simulation failures never send", async () => {
+test("bad current batch bytes and preflight rejections never broadcast", async () => {
   for (const change of [
     (f) => (f.b[0] = 99),
     (f) => (f.b[1] = 99),
@@ -296,9 +336,10 @@ test("bad current batch bytes and simulation failures never send", async () => {
   }
   const f = fixture();
   f.setSlot(26);
-  f.options.connection.simulateTransaction = async () => ({
-    value: { err: "rejected" },
-  });
+  // A preflight rejection throws before the transaction reaches the cluster.
+  f.options.connection.sendRawTransaction = async () => {
+    throw Error("Transaction simulation failed: rejected");
+  };
   const w = await createKeeperWorker(f.options);
   assert.equal((await w.tick()).status, "retry");
   assert.equal(f.sent.length, 0);
@@ -326,10 +367,10 @@ test("reconciliation accepts only a matching batch moving through valid ordered 
   ]) {
     const f = fixture();
     f.setSlot(26);
-    f.options.connection.simulateTransaction = async () => {
+    f.options.connection.sendRawTransaction = async () => {
       f.b[layouts.Batch.fields.status[0]] = status;
       f.b.writeBigUInt64LE(id, 8);
-      return { value: { err: "concurrent or invalid" } };
+      throw Error("Transaction simulation failed: concurrent or invalid");
     };
     const w = await createKeeperWorker(f.options);
     assert.equal((await w.tick()).status, expected);

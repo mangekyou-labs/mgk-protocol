@@ -4,7 +4,6 @@ const {
   PublicKey,
   Transaction,
   TransactionInstruction,
-  VersionedTransaction,
   ComputeBudgetProgram,
   SystemProgram,
 } = require("@solana/web3.js");
@@ -19,7 +18,16 @@ const { loadManifest } = require("../mgk-frontend/packages/layout/manifest");
 const {
   confirmSignature,
 } = require("../mgk-frontend/packages/layout/confirmation");
+const {
+  CONFIRM_OPTIONS,
+  createBlockhashCache,
+  lamportsOf,
+  readAccounts,
+} = require("./rpc-budget");
 const INTERVAL_MS = 2000;
+// While a batch collects, sleep until its deadline instead of polling.
+const SLOT_MS = 400;
+const MAX_WAIT_MS = 30_000;
 const u64 = (n) => {
   const b = Buffer.alloc(8);
   b.writeBigUInt64LE(n);
@@ -38,6 +46,7 @@ async function createKeeperWorker({
   alert = (value) => console.error(JSON.stringify(value)),
   feeFloorLamports = 10000000n,
   resendIntervalMs = 2000,
+  confirmPollMs = CONFIRM_OPTIONS.pollIntervalMs,
 }) {
   if (typeof feeFloorLamports !== "bigint" || feeFloorLamports < 0n)
     throw Error("Invalid fee floor");
@@ -65,13 +74,15 @@ async function createKeeperWorker({
   ])
     if (!actual.equals(pda([Buffer.from(seed)])[0]))
       throw Error("Noncanonical manifest PDA");
-  async function account(key, name, owner = core) {
-    const a = await connection.getAccountInfo(key, "confirmed");
+  function decodeOwned(a, name, owner = core) {
     if (!a || !a.owner.equals(owner))
       throw Error("Missing or foreign owned account");
     return name === "Results"
       ? decodeResults(a.data)
       : decodeAccount(name, a.data);
+  }
+  async function account(key, name, owner = core) {
+    return decodeOwned(await connection.getAccountInfo(key, "confirmed"), name, owner);
   }
   async function bindings() {
     const i = await account(instrument, "Instrument");
@@ -84,9 +95,12 @@ async function createKeeperWorker({
       throw Error("Instrument binding mismatch");
     return id;
   }
-  await bindings();
+  // The instrument binding is fixed at deployment; validate it once at startup.
+  const id = await bindings(),
+    book = pda([Buffer.from("book"), id], matcher)[0];
+  const blockhashes = createBlockhashCache(connection, now);
   async function send(name, params, keys) {
-    const latest = await connection.getLatestBlockhash("confirmed");
+    const latest = await blockhashes.get();
     const tx = new Transaction({ feePayer: payer.publicKey, ...latest }).add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1400000 }),
       new TransactionInstruction({
@@ -97,35 +111,52 @@ async function createKeeperWorker({
     );
     tx.sign(payer);
     const raw = tx.serialize();
-    const simulation = await connection.simulateTransaction(
-      VersionedTransaction.deserialize(raw),
-      { sigVerify: true, commitment: "confirmed" },
-    );
-    if (simulation.value.err) throw Error("Simulation failed");
-    const signature = await connection.sendRawTransaction(raw, {
-      skipPreflight: false,
-      preflightCommitment: "confirmed",
-      maxRetries: 0,
-    });
-    await confirmSignature(connection, signature, {
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-      resend: () =>
-        connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }),
-      resendIntervalMs,
-    });
-    return signature;
+    try {
+      // Preflight simulates before broadcast, so a rejected crank is never sent.
+      const signature = await connection.sendRawTransaction(raw, {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+        maxRetries: 0,
+      });
+      await confirmSignature(connection, signature, {
+        ...CONFIRM_OPTIONS,
+        pollIntervalMs: confirmPollMs,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+        resend: () =>
+          connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }),
+        resendIntervalMs,
+      });
+      return signature;
+    } catch (error) {
+      blockhashes.invalidate();
+      throw error;
+    }
   }
+  // The registry counter the next tick expects, so one batched read also
+  // fetches the current batch. A wrong guess costs one extra read.
+  let expectedCounter = null;
   let halted = false,
     retryKey = "",
     attempts = 0,
     retryAt = 0;
   async function tick() {
     if (halted) return { status: "halted" };
-    const counter = (await account(registry, "Registry")).batchIdCounter;
+    const guess =
+      expectedCounter > 0n
+        ? pda([Buffer.from("batch"), u64(expectedCounter - 1n)])[0]
+        : null;
+    const snapshot = await readAccounts(
+      connection,
+      guess ? [registry, payer.publicKey, guess] : [registry, payer.publicKey],
+    );
+    const counter = decodeOwned(snapshot.accounts[0], "Registry").batchIdCounter;
     if (counter === 0n) throw Error("No current batch");
     const batchId = counter - 1n,
       batch = pda([Buffer.from("batch"), u64(batchId)])[0];
-    const raw = await connection.getAccountInfo(batch, "confirmed");
+    const raw = guess?.equals(batch)
+      ? snapshot.accounts[2]
+      : await connection.getAccountInfo(batch, "confirmed");
+    expectedCounter = counter;
     if (!raw) {
       const reread = (await account(registry, "Registry")).batchIdCounter;
       if (reread > counter) return { status: "advanced", batchId };
@@ -145,9 +176,7 @@ async function createKeeperWorker({
     if (!raw.owner.equals(core)) throw Error("Foreign batch owner");
     const state = decodeAccount("Batch", raw.data);
     if (state.batchId !== batchId) throw Error("Batch identity mismatch");
-    const balance = await connection.getBalance(payer.publicKey, "confirmed");
-    if (!Number.isSafeInteger(balance) || balance < 0)
-      throw Error("Unsafe RPC balance");
+    const balance = lamportsOf(snapshot.accounts[1]);
     if (BigInt(balance) < feeFloorLamports) {
       alert({
         service: "keeper",
@@ -169,14 +198,12 @@ async function createKeeperWorker({
     }
     if (now() < retryAt) return { status: "backoff", batchId, retryAt };
     try {
-      const id = await bindings(),
-        book = pda([Buffer.from("book"), id], matcher)[0],
-        results = pda([Buffer.from("results"), u64(batchId)], matcher)[0];
-      if (
-        state.status === 0 &&
-        BigInt(await connection.getSlot("confirmed")) < state.commitDeadlineSlot
-      )
-        return { status: "collecting", batchId };
+      const results = pda([Buffer.from("results"), u64(batchId)], matcher)[0];
+      if (state.status === 0 && BigInt(snapshot.slot) < state.commitDeadlineSlot) {
+        const slotsLeft = state.commitDeadlineSlot - BigInt(snapshot.slot);
+        const waitMs = Math.min(MAX_WAIT_MS, Number(slotsLeft) * SLOT_MS);
+        return { status: "collecting", batchId, waitMs };
+      }
       let signature, status;
       if (state.status === 0) {
         signature = await send("CloseCommitting", {}, [
@@ -235,6 +262,7 @@ async function createKeeperWorker({
           ],
         );
         status = "settled";
+        expectedCounter = counter + 1n;
       } else if (state.status === 3) status = "settled";
       else throw Error("Unsupported batch phase");
       attempts = 0;

@@ -92,11 +92,21 @@ function fixture(marketSeed = null) {
   };
   const sent = [],
     alerts = [];
-  let simulationError = null;
+  let simulationError = null,
+    balance = 2e9;
   const connection = {
     getAccountInfo: async (k) => accounts.get(String(k)) ?? null,
+    async getMultipleAccountsInfoAndContext(keys) {
+      const value = [];
+      for (const k of keys)
+        value.push(
+          k.equals(payer.publicKey)
+            ? { lamports: balance }
+            : await connection.getAccountInfo(k),
+        );
+      return { context: { slot: 0 }, value };
+    },
     getSlot: async () => 0,
-    getBalance: async () => 2e9,
     getLatestBlockhash: async () => ({
       blockhash: Keypair.generate().publicKey.toBase58(),
       lastValidBlockHeight: 100,
@@ -106,6 +116,9 @@ function fixture(marketSeed = null) {
       value: [{ err: null, confirmationStatus: "confirmed" }],
     }),
     sendRawTransaction: async (raw) => {
+      // Preflight simulation rejects before broadcast.
+      if (simulationError)
+        throw Error("Transaction simulation failed: custom program error");
       assert.ok(raw.length <= 1232);
       const tx = Transaction.from(raw);
       assert.ok(tx.verifySignatures());
@@ -138,6 +151,7 @@ function fixture(marketSeed = null) {
     book,
     p,
     setSimulationError: (e) => (simulationError = e),
+    setBalance: (v) => (balance = v),
   };
 }
 test("maker posts an atomic three-level ladder per side at 10, 20 and 30 bps, never taker", async () => {
@@ -331,7 +345,7 @@ test("maker cancels quotes when collateral or exposure limits prevent replacing 
     );
   }
 });
-test("simulation failure never sends an unfunded or unsafe ladder", async () => {
+test("preflight rejection never broadcasts an unfunded or unsafe ladder", async () => {
   const f = fixture();
   f.setSimulationError({ InstructionError: [1, "Custom"] });
   assert.equal(
@@ -406,7 +420,7 @@ test("pause flags cancel maker quotes while a cleared batch waits for settlement
 });
 test("low fee SOL and a missing current batch fail closed with no orders", async () => {
   const f = fixture();
-  f.options.connection.getBalance = async () => 1;
+  f.setBalance(1);
   assert.equal(
     (await (await createMakerWorker(f.options)).tick()).status,
     "low_fee_sol",
@@ -463,4 +477,84 @@ test('scoped maker wraps orders and rejects a manifest for a different namespace
  assert.equal(orders.length,6);
  for(const ix of orders){assert.equal(ix.data[33],20);assert.deepEqual(ix.data.subarray(1,33),new PublicKey(seed).toBuffer());}
  await assert.rejects(createMakerWorker({...f.options,manifest:{...f.options.manifest,market_seed:Keypair.generate().publicKey.toBase58()}}),/Noncanonical/);
+});
+test("a ladder within 5 bps of the desired prices rests instead of requoting", async () => {
+  const f = fixture();
+  seedOrders(f);
+  // 4 bps up keeps the ladder; 6 bps replaces it.
+  f.accounts.get(String(f.oracle)).data.writeBigInt64LE(100040000n, 80);
+  assert.equal(
+    (await (await createMakerWorker(f.options)).tick()).status,
+    "resting",
+  );
+  f.accounts.get(String(f.oracle)).data.writeBigInt64LE(100060000n, 80);
+  assert.equal(
+    (await (await createMakerWorker(f.options)).tick()).status,
+    "quoted",
+  );
+});
+test("steady ticks cost one read and the portfolio scan runs at most once a minute", async () => {
+  const f = fixture();
+  seedOrders(f);
+  let t = 1000000;
+  f.options.now = () => t;
+  const calls = [],
+    inner = f.options.connection;
+  let depth = 0;
+  f.options.connection = new Proxy(inner, {
+    get: (target, name) =>
+      typeof target[name] !== "function"
+        ? target[name]
+        : async (...args) => {
+            if (depth === 0) calls.push(name);
+            depth++;
+            try {
+              return await target[name](...args);
+            } finally {
+              depth--;
+            }
+          },
+  });
+  const worker = await createMakerWorker(f.options);
+  assert.equal((await worker.tick()).status, "resting");
+  calls.length = 0;
+  t += 5000;
+  assert.equal((await worker.tick()).status, "resting");
+  assert.deepEqual(calls, ["getMultipleAccountsInfoAndContext"]);
+  calls.length = 0;
+  t += 60000;
+  f.accounts.get(String(f.oracle)).data.writeBigInt64LE(BigInt(t / 1000), 88);
+  assert.equal((await worker.tick()).status, "resting");
+  assert.deepEqual(calls, [
+    "getMultipleAccountsInfoAndContext",
+    "getProgramAccounts",
+  ]);
+});
+test("an unserviceable victim keeps quotes withdrawn between scans", async () => {
+  const f = fixture();
+  const user = Keypair.generate().publicKey,
+    pubkey = PublicKey.findProgramAddressSync(
+      [Buffer.from("portfolio"), user.toBuffer()],
+      f.core,
+    )[0],
+    data = f.put(pubkey, "Portfolio", { user, equity: 0n, positionsLen: 1 }),
+    o = layouts.Portfolio.fields.positions[0];
+  data.writeBigInt64LE(1000n, o + layouts.Position.fields.qty[0]);
+  data.writeBigInt64LE(100000000n, o + layouts.Position.fields.entryVwap[0]);
+  let scans = 0;
+  f.options.connection.getProgramAccounts = async () => {
+    scans++;
+    return [{ pubkey, account: { owner: f.core, data } }];
+  };
+  f.options.connection.simulateTransaction = async () => ({
+    value: { err: { InstructionError: [1, "Custom"] } },
+  });
+  const worker = await createMakerWorker(f.options);
+  for (let n = 0; n < 2; n++) {
+    const result = await worker.tick();
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "liquidation_capacity");
+  }
+  assert.equal(scans, 1);
+  assert.equal(f.sent.length, 0);
 });

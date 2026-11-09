@@ -4,8 +4,12 @@ const {
   PublicKey,
   Transaction,
   TransactionInstruction,
-  VersionedTransaction,
 } = require("@solana/web3.js");
+const {
+  CONFIRM_OPTIONS,
+  createBlockhashCache,
+  readAccounts,
+} = require("./rpc-budget");
 const { decodeAccount } = require("../mgk-frontend/packages/layout");
 const {
   encodeInstruction,
@@ -25,7 +29,12 @@ const SOURCES = {
 };
 const MAX_AGE_MS = 30_000;
 const INTERVAL_MS = 10_000;
+// Skip a publication while the on-chain quote is younger than this and the
+// price is within REPUBLISH_BPS; consumers reject quotes older than 60 s.
+const REPUBLISH_AGE_S = 30n;
+const REPUBLISH_BPS = 5n;
 const I64_MAX = (1n << 63n) - 1n;
+const abs = (n) => (n < 0n ? -n : n);
 
 // Parse decimal prices exactly; confidence rounds up and price rounds down to micro-USD.
 function scaled(raw, exponent = 0, roundUp = false) {
@@ -168,11 +177,11 @@ async function createOracleWorker({
   const instrumentKey = new PublicKey(manifest.accounts.instrument);
   const context=createMarketContext(manifest.programs.perps_core,manifest.marketSeed);
   if(!context.registry.equals(new PublicKey(manifest.accounts.registry)) || !context.pda([Buffer.from("vault")])[0].equals(new PublicKey(manifest.accounts.insurance))) throw Error("Noncanonical manifest PDA");
+  /** One batched read; returns the decoded on-chain quote. */
   async function validateAccounts() {
-    const [oracleAccount, instrumentAccount] = await Promise.all([
-      connection.getAccountInfo(oracleKey, "confirmed"),
-      connection.getAccountInfo(instrumentKey, "confirmed"),
-    ]);
+    const {
+      accounts: [oracleAccount, instrumentAccount],
+    } = await readAccounts(connection, [oracleKey, instrumentKey]);
     if (
       !oracleAccount ||
       !oracleAccount.owner.equals(new PublicKey(manifest.programs.oracle))
@@ -198,12 +207,14 @@ async function createOracleWorker({
       throw new Error("Oracle/instrument binding mismatch");
     if (!oracle.isActive || !instrument.isActive)
       throw new Error("Inactive oracle or instrument");
+    return oracle;
   }
   await validateAccounts();
+  const blockhashes = createBlockhashCache(connection, now);
   const send =
     publish ??
     (async (result) => {
-      const latest = await connection.getLatestBlockhash("confirmed");
+      const latest = await blockhashes.get();
       const tx = new Transaction({
         feePayer: authority.publicKey,
         ...latest,
@@ -223,32 +234,32 @@ async function createOracleWorker({
         }),
       );
       tx.sign(authority);
-      const simulation = await connection.simulateTransaction(
-        VersionedTransaction.deserialize(tx.serialize()),
-        { commitment: "confirmed", sigVerify: true },
-      );
-      if (simulation.value.err)
-        throw new Error("Oracle update simulation failed");
-      // A delayed blockhash/simulation must never turn an old observation into a fresh on-chain quote.
-      await validateAccounts();
+      // A delayed blockhash fetch must never turn an old observation into a fresh on-chain quote.
       if (
         result.samples.some(
           (s) => now() - s.timestamp > MAX_AGE_MS || s.timestamp > now(),
         )
       )
         throw new Error("Source expired before publication");
-      const signature = await connection.sendRawTransaction(tx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: "confirmed",
-        maxRetries: 0,
-      });
-      await confirmSignature(connection, signature, {
-        lastValidBlockHeight: latest.lastValidBlockHeight,
-      });
-      return signature;
+      // Preflight simulates the signed transaction before broadcast.
+      try {
+        const signature = await connection.sendRawTransaction(tx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+          maxRetries: 0,
+        });
+        await confirmSignature(connection, signature, {
+          ...CONFIRM_OPTIONS,
+          lastValidBlockHeight: latest.lastValidBlockHeight,
+        });
+        return signature;
+      } catch (error) {
+        blockhashes.invalidate();
+        throw error;
+      }
     });
   const tick = async () => {
-    await validateAccounts();
+    const onChain = await validateAccounts();
     const results = await Promise.allSettled(
       Object.keys(SOURCES).map((venue) =>
         observation(venue, customFetch, now, hermesUrl, pythApiKey),
@@ -268,6 +279,15 @@ async function createOracleWorker({
         venues: samples.map((s) => s.venue),
         unavailableVenues,
       };
+    const age = BigInt(Math.floor(now() / 1000)) - onChain.timestamp;
+    if (
+      age >= 0n &&
+      age < REPUBLISH_AGE_S &&
+      onChain.price > 0n &&
+      abs(result.price - onChain.price) * 10000n <= onChain.price * REPUBLISH_BPS &&
+      result.confidence <= onChain.confidence
+    )
+      return { status: "unchanged", ...result, unavailableVenues };
     const signature = await send(result);
     return { status: "published", signature, ...result, unavailableVenues };
   };
