@@ -1,4 +1,11 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixture';
+
+/** The deposit/withdraw panel folds into a one-line summary once funded. */
+async function openAccountActions(page: Page) {
+  const summary = page.getByTestId('account-actions-summary');
+  if ((await summary.getAttribute('aria-expanded')) === 'false') await summary.click();
+}
 
 test('onboard, deposit, post, cancel, await settlement, settle, close and withdraw', async ({ page, market, evidence }) => {
   await page.goto('/trade');
@@ -9,6 +16,10 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await page.getByTestId('demo-notice').locator('summary').click();
   await expect(page.getByText('No mainnet, other markets,', { exact: false })).toBeVisible();
   await evidence('01-connected-not-ready');
+  // The notice opens above the status bar, over the bottom of the order form column.
+  await page.getByTestId('demo-notice').locator('summary').click();
+
+  await openAccountActions(page);
 
   await page.getByTestId('account-actions-amount').fill('1');
   await expect(page.getByTestId('account-actions-deposit')).toBeEnabled();
@@ -73,6 +84,7 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await expect(page.getByTestId('order-lifecycle')).toHaveText('Batch 0 cleared · awaiting settlement');
   // Orders and withdrawals stay available; the actions wait for the next batch window.
   await expect(submit).toBeEnabled();
+  await openAccountActions(page);
   await page.getByTestId('account-actions-amount').fill('0.5');
   await expect(page.getByTestId('account-actions-withdraw')).toBeEnabled();
   await expect(page.locator('#collateral-reason')).toBeEmpty();
@@ -105,6 +117,8 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await expect(page.getByTestId('position-row')).toHaveCount(0);
   await expect(page.getByTestId('positions')).toContainText('You have no open positions yet.');
   await evidence('11-closed');
+
+  await openAccountActions(page);
 
   await page.getByTestId('account-actions-amount').fill('0.5');
   await expect(page.getByTestId('account-actions-withdraw')).toBeEnabled();
@@ -157,6 +171,7 @@ for (const reason of ['wrong cluster', 'manifest mismatch'] as const) {
     market.manifestMismatch = reason === 'manifest mismatch';
     await page.goto('/trade');
     await expect(page.getByRole('heading', { name: 'Deposit collateral' })).toBeVisible();
+    await openAccountActions(page);
     await page.getByTestId('account-actions-amount').fill('0.1');
     await expect(page.getByTestId('account-actions-deposit')).toBeDisabled();
     await expect(page.getByTestId('readiness-reason')).toContainText(reason === 'wrong cluster' ? /Check your RPC|devnet/i : /manifest mismatch.*Reload/i);
