@@ -241,7 +241,9 @@ test("fee starvation alerts and resumes same batch after topup; unsafe RPC integ
   f.setSlot(26);
   f.setBalance(1);
   const w = await createKeeperWorker(f.options);
-  assert.equal((await w.tick()).status, "low_fee_sol");
+  const starved = await w.tick();
+  assert.equal(starved.status, "low_fee_sol");
+  assert.equal(starved.waitMs, 30_000);
   assert.equal(f.alerts[0].code, "low_fee_sol");
   assert.equal(f.sent.length, 0);
   f.setBalance(2e9);

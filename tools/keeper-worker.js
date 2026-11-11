@@ -188,7 +188,8 @@ async function createKeeperWorker({
         balanceLamports: String(balance),
         feeFloorLamports: String(feeFloorLamports),
       });
-      return { status: "low_fee_sol", batchId };
+      // Recheck slowly: nothing can proceed until someone tops up.
+      return { status: "low_fee_sol", batchId, waitMs: MAX_WAIT_MS };
     }
     const key = `${batchId}:${state.status}`;
     if (key !== retryKey) {
