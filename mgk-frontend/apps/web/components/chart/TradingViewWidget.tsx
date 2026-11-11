@@ -186,7 +186,7 @@ export function TradingViewWidget({
       {phase === 'loading' ? (
         <div
           data-testid="tradingview-loading"
-          className="text-text-muted font-mono text-xs p-4"
+          className="relative z-10 text-text-muted font-mono text-xs p-4"
         >
           Loading chart…
         </div>
@@ -194,7 +194,7 @@ export function TradingViewWidget({
       {phase === 'error' && scriptError ? (
         <div
           data-testid="tradingview-error"
-          className="text-warn font-mono text-xs p-4"
+          className="relative z-10 text-warn font-mono text-xs p-4"
         >
           <div>{scriptError}</div>
           <button
@@ -212,7 +212,7 @@ export function TradingViewWidget({
           </button>
         </div>
       ) : null}
-      <div id={`tv-${containerId}`} style={{ height: 400, width: '100%' }} />
+      <div id={`tv-${containerId}`} className="absolute inset-0" />
     </div>
   );
 }

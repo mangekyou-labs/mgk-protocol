@@ -34,7 +34,14 @@ for (const width of [375, 768, 1280]) {
     await page.goto('/trade');
     await expect(page.getByTestId('app-header')).toBeVisible();
     await expect(page.getByTestId('market-selector')).toHaveText('SOL-USD Perp');
-    await expect(page.getByRole('heading', { name: 'Connect a wallet' })).toBeVisible();
+    // Phones keep the order form in a drawer behind the Buy/Sell bar.
+    if (width < 768) {
+      await page.getByRole('button', { name: 'Buy', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Connect a wallet' })).toBeVisible();
+      await page.getByRole('button', { name: 'Close order form' }).click();
+    } else {
+      await expect(page.getByRole('heading', { name: 'Connect a wallet' })).toBeVisible();
+    }
     await expect(page.getByTestId('demo-notice')).toContainText('Earlier devnet balances were not carried over.');
     await page.getByTestId('wallet-button').getByRole('button', { name: 'Select Wallet' }).click();
     await expect(page.getByRole('heading', { name: /connect a wallet on solana/i })).toBeVisible();

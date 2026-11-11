@@ -12,10 +12,10 @@ describe('PageFrame', () => {
     expect(screen.getByTestId('child')).toBeInTheDocument();
   });
 
-  it('constrains content to a max-width container', () => {
+  it('uses the full width on large screens', () => {
     render(<PageFrame>content</PageFrame>);
     const frame = screen.getByTestId('page-frame');
-    expect(frame.className).toMatch(/max-w-/);
+    expect(frame.className).not.toMatch(/max-w-/);
   });
 
   it('uses the bg-surface background token (dark surface)', () => {
@@ -24,9 +24,10 @@ describe('PageFrame', () => {
     expect(frame.className).toMatch(/bg-bg|bg-surface/);
   });
 
-  it('contains vertical scroll to itself (not the window)', () => {
+  it('locks the page to the viewport; panels scroll on their own', () => {
     render(<PageFrame>content</PageFrame>);
     const frame = screen.getByTestId('page-frame');
-    expect(frame.className).toMatch(/overflow-y-auto/);
+    expect(frame).toHaveAttribute('data-viewport-lock');
+    expect(frame.className).toMatch(/overflow-hidden/);
   });
 });
