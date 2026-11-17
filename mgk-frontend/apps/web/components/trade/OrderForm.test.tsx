@@ -250,6 +250,15 @@ describe('<OrderForm />', () => {
     expect(price()).toHaveValue('149.9');
   });
 
+  it('takes the side picked on the phone Buy/Sell bar', () => {
+    const { rerender, props } = setup();
+    rerender(<OrderForm {...props} sideOverride={{ side: 'sell', nonce: 1 }} />);
+    expect(screen.getByRole('button', { name: 'Sell / Short' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Buy / Long' }));
+    rerender(<OrderForm {...props} sideOverride={{ side: 'sell', nonce: 2 }} />);
+    expect(screen.getByRole('button', { name: 'Sell / Short' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('prepares a reduce-only close of an open short', () => {
     setup({ positionLots: -1_500n });
     fireEvent.click(screen.getByRole('button', { name: 'Close short 1.500 SOL' }));

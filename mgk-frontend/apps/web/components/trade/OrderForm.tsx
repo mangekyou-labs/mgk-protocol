@@ -20,6 +20,12 @@ type PortfolioState = sdk.state.PortfolioState;
 
 export type OrderSide = TicketSide;
 
+/** A side picked outside the form; a new nonce re-applies the same side. */
+export interface SidePreset {
+  side: OrderSide;
+  nonce: number;
+}
+
 export interface OrderFormParams {
   side: OrderSide;
   /** Limit price, micro-USD. */
@@ -53,6 +59,8 @@ export interface OrderFormProps {
   lifecycle?: OrderLifecycle | null;
   /** Price picked on the book; a new nonce re-applies the same price. */
   priceOverride?: { price: bigint; nonce: number } | null;
+  /** Side picked on the phone Buy/Sell bar. */
+  sideOverride?: SidePreset | null;
   portfolio: PortfolioState | null;
   portfolioLoading: boolean;
   className?: string;
@@ -99,6 +107,7 @@ export function OrderForm({
   onSubmit,
   lifecycle = null,
   priceOverride = null,
+  sideOverride = null,
   portfolio,
   portfolioLoading,
   className,
@@ -115,6 +124,11 @@ export function OrderForm({
   if (priceOverride && priceOverride.nonce !== appliedNonce) {
     setAppliedNonce(priceOverride.nonce);
     setPrice(formatPriceInput(priceOverride.price));
+  }
+  const [appliedSideNonce, setAppliedSideNonce] = useState<number | null>(null);
+  if (sideOverride && sideOverride.nonce !== appliedSideNonce) {
+    setAppliedSideNonce(sideOverride.nonce);
+    setSide(sideOverride.side);
   }
 
   const lots = parseLots(size).lots;

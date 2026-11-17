@@ -7,10 +7,13 @@ export interface PageFrameProps {
 
 export function PageFrame({ children, className }: PageFrameProps) {
   return (
+    // `data-viewport-lock` makes the root layout's body exactly one viewport
+    // tall, so this frame fills it and panels scroll inside, never the page.
     <main
       data-testid="page-frame"
+      data-viewport-lock
       className={[
-        'mx-auto flex w-full max-w-screen-2xl flex-1 min-h-0 flex-col overflow-y-auto bg-bg',
+        'flex w-full flex-1 min-h-0 flex-col overflow-hidden bg-bg',
         className ?? '',
       ]
         .filter(Boolean)
