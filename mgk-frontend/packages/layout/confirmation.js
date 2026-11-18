@@ -7,9 +7,12 @@ async function confirmSignature(connection, signature, options = {}) {
     lastValidBlockHeight,
     resend,
     resendIntervalMs = 2000,
+    // 0 reads the block height on every poll; bots space it out to save RPC credits.
+    heightCheckIntervalMs = 0,
   } = options;
   const deadline = Date.now() + timeoutMs;
-  let lastSentAt = Date.now();
+  let lastSentAt = Date.now(),
+    lastHeightAt = -Infinity;
   for (;;) {
     const result = await connection.getSignatureStatuses([signature], {
       searchTransactionHistory: true,
@@ -26,7 +29,9 @@ async function confirmSignature(connection, signature, options = {}) {
       return signature;
     if (
       lastValidBlockHeight !== undefined &&
-      (await connection.getBlockHeight("confirmed")) > lastValidBlockHeight
+      Date.now() - lastHeightAt >= heightCheckIntervalMs &&
+      ((lastHeightAt = Date.now()),
+      (await connection.getBlockHeight("confirmed")) > lastValidBlockHeight)
     )
       throw new Error(`Transaction ${signature} expired`);
     if (Date.now() >= deadline)

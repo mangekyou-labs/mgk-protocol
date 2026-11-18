@@ -47,9 +47,16 @@ over the program's 1% limit: that honestly stops risk actions even though two
 venues agree. Missing/stale Pyth contributes no invented confidence. No quorum
 publishes nothing; after 60 seconds the on-chain price becomes stale. Recovery
 requires fresh valid quorum and the next cycle, without any restart or account
-patch. The worker simulates the exact signed transaction, rechecks source age
-immediately before submission, sends once with confirmed preflight and no RPC
-rebroadcast retries, and reports publication only after error-free confirmation.
+patch. The worker rechecks source age immediately before submission, sends once
+with confirmed preflight (which simulates the exact signed transaction) and no
+RPC rebroadcast retries, and reports publication only after error-free
+confirmation.
+
+RPC budget: each 10-second cycle validates the oracle and instrument in one
+batched read. It reports `unchanged` and sends nothing while the on-chain quote
+is under 30 seconds old, within 5 bps of the new price and no less confident
+than it. A blockhash is reused for up to 20 seconds, and confirmation polls once
+a second.
 
 Hermes supports `PYTH_HERMES_URL` (HTTPS base URL without credentials or query)
 and optional `PYTH_API_KEY` bearer authentication. The legacy default is

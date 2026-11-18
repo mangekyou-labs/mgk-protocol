@@ -34,17 +34,23 @@ Render's keeper service retains manual deployment and uses this entrypoint with
 the manifest and monitoring configuration. Remove old dashboard overrides before
 cutover as well as updating the blueprint.
 
-Every two seconds, a serial cycle reads the confirmed registry and derives
-`batch(batchIdCounter - 1)` using an exact u64. Collecting waits until its
-`commitDeadlineSlot`, then closes; Clearing clears on the next cycle; Cleared
+A serial cycle reads the confirmed registry and derives `batch(batchIdCounter - 1)`
+using an exact u64. To save RPC credits, one `getMultipleAccounts` call reads the
+registry, the payer balance and the expected current batch together, and its
+context slot replaces `getSlot`; a wrong batch guess costs one extra read. The
+instrument binding is checked once at startup. Collecting sleeps until its
+`commitDeadlineSlot` (about 400 ms per slot, at most 30 s), then closes; other
+phases poll every two seconds; Clearing clears on the next cycle; Cleared
 settles on the next cycle. Clear forwards the canonical book/results, instrument,
 allocation payer and System program. Settle derives distinct portfolios from the
 current matcher-owned results and forwards writable results/book, vault,
 instrument, configured oracle, next batch PDA, payer and System program.
-Each transaction is signed, simulated with signature verification, sent with
-preflight, then confirmed using observed RPC status and blockhash expiry.
+Each transaction is signed and sent with preflight, which simulates it before
+broadcast, so there is no separate simulate call. A confirmed blockhash is reused
+for up to 20 s and dropped after any failed send. Confirmation polls status every
+second and checks blockhash expiry every 10 s.
 
-Preparation, simulation, sending and confirmation failures retry the same phase
+Preparation, preflight, sending and confirmation failures retry the same phase
 with delays of 2, 4, 8, 16 and then 30 seconds. Each poll still rereads registry
 and batch; genuine on-chain phase or batch progress resets the delay. Concurrent
 progress reconciles only a higher counter or the same batch moving monotonically
@@ -84,7 +90,7 @@ node --test tools/runtime/keeper.test.js
 The production-adapter suite uses signed serialized transactions at an injected
 RPC boundary. It covers deadline/restart, missing current batch, settlement
 backoff (including absent results), fee topup, malformed bytes/owners,
-simulation rejection, u64 IDs above JavaScript's safe-integer range and a
+preflight rejection, u64 IDs above JavaScript's safe-integer range and a
 12-portfolio transaction within the 1232-byte packet limit.
 
 The candidate harness runs fresh offline SBF programs and the actual CLI child
