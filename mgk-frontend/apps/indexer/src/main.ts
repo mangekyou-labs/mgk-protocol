@@ -42,7 +42,8 @@ async function main(): Promise<void> {
     marketSeed: manifest.marketSeed,
     matcherProgramId: MATCHER_PROGRAM_ID,
     startSlot: manifest.startSlot!,
-    pollIntervalMs: 2000,
+    // Log subscriptions trigger syncs; polling is only a fallback (each tick costs 2 RPC credits).
+    pollIntervalMs: 30_000,
     onFill: (fill) => {
       if (!wss) return;
       const f = fill as Record<string, unknown>;

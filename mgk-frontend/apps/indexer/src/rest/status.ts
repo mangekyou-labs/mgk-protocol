@@ -11,10 +11,15 @@ import type { MonitoringConfig } from '../config.js';
 
 type Severity = 'ok' | 'warn' | 'critical';
 type Check = { severity: Severity; [key: string]: unknown };
+/** Every open trade tab polls status; share one chain read between them. */
+const STATUS_CACHE_MS = 10_000;
 export async function statusRoutes(app: FastifyInstance, cfg: {
   connection: Connection; store: Store; manifest: DeploymentManifest; monitoring: MonitoringConfig;
+  /** How long one chain read answers every poller. Each read costs ~10 RPC credits. */
+  cacheMs?: number;
+  now?: () => number;
 }): Promise<void> {
-  const {connection, store, manifest, monitoring} = cfg;
+  const {connection, store, manifest, monitoring, cacheMs = STATUS_CACHE_MS, now: clock = Date.now} = cfg;
   const core = new PublicKey(manifest.programs.perps_core);
   const matcher = new PublicKey(manifest.programs.perps_matcher);
   // A verified ClearBatch time is immutable for this batch address. Reuse only
@@ -65,8 +70,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
       before = next;
     }
   }
-  app.get('/api/status', async (_req, reply) => {
-    reply.header('Cache-Control', 'no-store');
+  async function readStatus() {
     const checks: Record<string, Check> = Object.fromEntries(['oracle', 'batch', 'makerDepth', 'fees', 'insurance', 'pause', 'indexer', 'rpc'].map(key => [key, {severity: 'critical', available: false}]));
     let chainTip: number | null = null;
     const lastIndexedSlot = store.getSyncState().processedThroughSlot;
@@ -152,5 +156,12 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
     }
     const severity: Severity = Object.values(checks).some(c => c.severity === 'critical') ? 'critical' : Object.values(checks).some(c => c.severity === 'warn') ? 'warn' : 'ok';
     return {severity, chainTip, lastIndexedSlot, checks};
+  }
+  let cached: {at: number; status: ReturnType<typeof readStatus>} | null = null;
+  app.get('/api/status', async (_req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const at = clock();
+    if (!cached || at - cached.at >= cacheMs) cached = {at, status: readStatus()};
+    return cached.status;
   });
 }

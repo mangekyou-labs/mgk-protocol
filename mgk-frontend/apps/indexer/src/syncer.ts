@@ -295,6 +295,8 @@ export interface SyncerConfig {
   matcherProgramId: string;
   startSlot?: number;
   pollIntervalMs?: number;
+  /** Fallback batch poll; core log notifications refresh batch state immediately. */
+  batchPollIntervalMs?: number;
   onFill?: (fill: Record<string, unknown>) => void;
   onBatchEvent?: (event: unknown) => void;
 }
@@ -326,7 +328,8 @@ export function createSyncer(config: SyncerConfig): Syncer {
     coreProgramId,
     matcherProgramId,
     startSlot = 0,
-    pollIntervalMs = 2000,
+    pollIntervalMs = 30_000,
+    batchPollIntervalMs = 15_000,
     onFill,
     onBatchEvent,
   } = config;
@@ -371,7 +374,27 @@ export function createSyncer(config: SyncerConfig): Syncer {
     matcher: false,
   };
 
+  let batchPollInFlight = false;
+  let batchPollPending = false;
+
+  /** Single-flight batch refresh; a request during a read schedules one more read. */
   async function pollBatchState(): Promise<void> {
+    if (batchPollInFlight) {
+      batchPollPending = true;
+      return;
+    }
+    batchPollInFlight = true;
+    try {
+      do {
+        batchPollPending = false;
+        await readBatchState();
+      } while (batchPollPending);
+    } finally {
+      batchPollInFlight = false;
+    }
+  }
+
+  async function readBatchState(): Promise<void> {
     try {
       const [registryPda] = sdk.deriveRegistryPda(corePk,{marketSeed:config.marketSeed});
       const accounts = await connection.getMultipleAccountsInfo([registryPda]);
@@ -494,7 +517,9 @@ export function createSyncer(config: SyncerConfig): Syncer {
         coreListenerId = connection.onLogs(
           corePk,
           () => {
+            // Batch phase changes only through core transactions.
             void triggerSync();
+            void pollBatchState();
           },
           'confirmed',
         );
@@ -516,15 +541,15 @@ export function createSyncer(config: SyncerConfig): Syncer {
         runtimeSubscriptions.matcher = false;
       }
 
-      // Start fallback poll loop (every 2s)
+      // Fallback poll loop; log notifications drive normal syncs.
       pollTimer = setInterval(() => {
         void triggerSync();
       }, pollIntervalMs);
 
-      // Start batch polling loop (every 5s)
+      // Fallback batch poll loop
       batchPollTimer = setInterval(() => {
         void pollBatchState();
-      }, 5000);
+      }, batchPollIntervalMs);
 
       // Initial runs
       void pollBatchState();
