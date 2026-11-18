@@ -1,0 +1,1 @@
+Stopped by watcher at ~94/120 min: keeper SOL fell below 0.5 (drain ~0.03 SOL/min). No protocol fault observed; oracle ok throughout after start.
