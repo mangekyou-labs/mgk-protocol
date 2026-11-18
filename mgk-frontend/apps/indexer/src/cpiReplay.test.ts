@@ -213,7 +213,7 @@ describe('CPI settlement history through syncHistory', () => {
 
 
 describe('nested ClearBatch history through HTTP status', () => {
-  async function status(fault = '', polls = 1) {
+  async function status(fault = '', polls = 1, cache: {cacheMs?: number; clock?: () => number; advanceMs?: number} = {}) {
     const store = createStore(':memory:'), app = Fastify();
     const registry = Keypair.generate().publicKey;
     const batchPk = sdk.deriveBatchPda(0n, core)[0];
@@ -228,8 +228,8 @@ describe('nested ClearBatch history through HTTP status', () => {
     if (fault === 'ancestor rollback') rollbackAncestor(tx);
     if (fault === 'missing logs') tx.meta.logMessages = [];
     const now = Math.floor(Date.now()/1000);
-    let historyReads = 0;
-    const connection = {getSlot: async () => 100,
+    let historyReads = 0, slotReads = 0, clockMs = 0;
+    const connection = {getSlot: async () => { slotReads++; return 100; },
       getAccountInfo: async (pk: PublicKey) => pk.equals(registry) ? {owner: core, data: regData} : pk.equals(batchPk) ? {owner: core, data: batchData} : null,
       getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string}) => options.before ? [] : [{signature: 'nested-clear', slot: 100, err: null}],
       getTransaction: async () => {
@@ -241,15 +241,17 @@ describe('nested ClearBatch history through HTTP status', () => {
     const manifest: DeploymentManifest = {marketSeed:null,name: 'cpi', cluster: 'localnet', ready: true, startSlot: 100,
       programs: {perps_core: String(core), perps_matcher: String(matcher), oracle: String(core)},
       accounts: {registry: String(registry), instrument: null, oracle: null, insurance: null, maker: null}};
-    await statusRoutes(app, {connection, store, manifest, monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'}});
+    await statusRoutes(app, {connection, store, manifest, monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'},
+      cacheMs: cache.cacheMs ?? 0, now: () => clockMs});
     try {
       const observations = [];
       for (let i = 0; i < polls; i++) {
         const response = await app.inject({method: 'GET', url: '/api/status'});
         expect(response.statusCode).toBe(200);
         observations.push(response.json());
+        clockMs += cache.advanceMs ?? 0;
       }
-      return {...observations.at(-1), historyReads, observations};
+      return {...observations.at(-1), historyReads, slotReads, observations};
     }
     finally {await app.close(); store.close();}
   }
@@ -266,6 +268,17 @@ describe('nested ClearBatch history through HTTP status', () => {
       expect(reading.checks.batch.ageSeconds).toBeGreaterThanOrEqual(121);
     }
     expect(observed.historyReads).toBe(1);
+  });
+  it('serves status polls inside the cache window from one chain read', async () => {
+    const observed = await status('', 3, {cacheMs: 10_000, advanceMs: 4_000});
+    expect(observed.observations).toHaveLength(3);
+    expect(observed.observations[1]).toEqual(observed.observations[0]);
+    // Polls at t=0 and t=4s share one read; t=8s is still inside the 10s window.
+    expect(observed.slotReads).toBe(1);
+  });
+  it('rereads the chain once the status cache window has passed', async () => {
+    const observed = await status('', 3, {cacheMs: 10_000, advanceMs: 10_000});
+    expect(observed.slotReads).toBe(3);
   });
   it('retries unavailable clear history on the next status poll', async () => {
     const observed = await status('transient', 2);

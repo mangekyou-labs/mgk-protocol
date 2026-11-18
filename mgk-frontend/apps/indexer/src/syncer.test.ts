@@ -342,6 +342,23 @@ describe('syncer - lifecycle', () => {
     store.close();
   });
 
+  it('refreshes batch state when a core log notification arrives', async () => {
+    const rpc = fakeRpc([], {slot: 100});
+    let accountReads = 0;
+    (rpc.connection as {getMultipleAccountsInfo: unknown}).getMultipleAccountsInfo = async () => { accountReads++; return [null]; };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.start();
+    await new Promise(r => setTimeout(r, 0));
+    const afterStart = accountReads;
+    const onLogs = (rpc.connection as unknown as {onLogs: ReturnType<typeof vi.fn>}).onLogs;
+    const coreCall = onLogs.mock.calls.find(([pk]) => (pk as PublicKey).equals(corePk))!;
+    (coreCall[1] as () => void)();
+    await new Promise(r => setTimeout(r, 0));
+    expect(accountReads).toBe(afterStart + 1);
+    await syncer.stop();
+    store.close();
+  });
+
   it('single-flight worker coalesces overlapping triggers', async () => {
     const rpc = fakeRpc([], {slot: 200});
     let release!: () => void;
