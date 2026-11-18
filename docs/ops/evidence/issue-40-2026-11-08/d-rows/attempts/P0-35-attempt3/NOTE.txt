@@ -1,0 +1,1 @@
+Stopped at ~92/120 min (started 09:58:20Z). Host Mac lid closed 11:30:59Z ('Clamshell Sleep' in pmset log, on battery 28%); soak lost network ('fetch failed'), watcher saw oracle unreachable. Keeper 1.84 SOL at stop. No protocol fault observed; all taker txs ok, oracle ok until host sleep.
