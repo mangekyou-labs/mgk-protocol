@@ -24,7 +24,6 @@ if (deployment.ready && deployment.marketSeed && (
 export const config = {
   marketSeed:deployment.marketSeed,
   marketContext,
-  rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com',
   indexerUrl: process.env.NEXT_PUBLIC_INDEXER_URL || 'http://localhost:4000',
   hermesUrl: process.env.NEXT_PUBLIC_HERMES_URL || 'https://hermes.pyth.network',
   coreProgramId,

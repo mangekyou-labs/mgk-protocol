@@ -75,13 +75,23 @@ function fixture(id = 0n, marketSeed = null) {
     time = 0;
   const connection = {
     getAccountInfo: async (key) => accounts.get(String(key)) ?? null,
+    // Routes through getAccountInfo so tests that override it see the same reads.
+    getMultipleAccountsInfoAndContext: async (keys) => ({
+      context: { slot },
+      value: await Promise.all(
+        keys.map((key) =>
+          key.equals(payer.publicKey)
+            ? { owner: PublicKey.default, lamports: balance, data: Buffer.alloc(0) }
+            : connection.getAccountInfo(key),
+        ),
+      ),
+    }),
     getSlot: async () => slot,
     getBalance: async () => balance,
     getLatestBlockhash: async () => ({
       blockhash: Keypair.generate().publicKey.toBase58(),
       lastValidBlockHeight: 100,
     }),
-    simulateTransaction: async () => ({ value: { err: null } }),
     getSignatureStatuses: async () => ({
       value: [{ err: null, confirmationStatus: "confirmed" }],
     }),
@@ -159,6 +169,36 @@ test("current collecting batch waits for deadline, then clears and restart settl
   );
   assert.equal((await restarted.tick()).batchId, 1n);
 });
+test("a collecting batch sleeps until its deadline and steady ticks cost one read", async () => {
+  const f = fixture();
+  // Count only the worker's own RPC calls, not the mock's internal reads.
+  const calls = [];
+  let depth = 0;
+  for (const [name, fn] of Object.entries(f.options.connection))
+    f.options.connection[name] = async (...args) => {
+      if (depth === 0) calls.push(name);
+      depth++;
+      try {
+        return await fn(...args);
+      } finally {
+        depth--;
+      }
+    };
+  const w = await createKeeperWorker(f.options);
+  calls.length = 0;
+  f.setSlot(5);
+  const first = await w.tick();
+  assert.equal(first.status, "collecting");
+  assert.equal(first.waitMs, 20 * 400);
+  // The first tick has no batch guess yet; the next one reads everything at once.
+  calls.length = 0;
+  await w.tick();
+  assert.deepEqual(calls, ["getMultipleAccountsInfoAndContext"]);
+  f.setSlot(0);
+  f.b.writeBigUInt64LE(10_000n, layouts.Batch.fields.commitDeadlineSlot[0]);
+  assert.equal((await w.tick()).waitMs, 30_000);
+  assert.ok(!calls.includes("simulateTransaction"));
+});
 test("missing current batch halts permanently without historical fallback", async () => {
   const f = fixture();
   f.accounts.delete(String(f.batch));
@@ -201,7 +241,9 @@ test("fee starvation alerts and resumes same batch after topup; unsafe RPC integ
   f.setSlot(26);
   f.setBalance(1);
   const w = await createKeeperWorker(f.options);
-  assert.equal((await w.tick()).status, "low_fee_sol");
+  const starved = await w.tick();
+  assert.equal(starved.status, "low_fee_sol");
+  assert.equal(starved.waitMs, 30_000);
   assert.equal(f.alerts[0].code, "low_fee_sol");
   assert.equal(f.sent.length, 0);
   f.setBalance(2e9);
@@ -281,7 +323,7 @@ test("settlement serializes all twelve distinct portfolios and exact u64 success
   );
   assert.ok(ix.keys[21].isSigner);
 });
-test("bad current batch bytes and simulation failures never send", async () => {
+test("bad current batch bytes and preflight rejections never broadcast", async () => {
   for (const change of [
     (f) => (f.b[0] = 99),
     (f) => (f.b[1] = 99),
@@ -296,9 +338,10 @@ test("bad current batch bytes and simulation failures never send", async () => {
   }
   const f = fixture();
   f.setSlot(26);
-  f.options.connection.simulateTransaction = async () => ({
-    value: { err: "rejected" },
-  });
+  // A preflight rejection throws before the transaction reaches the cluster.
+  f.options.connection.sendRawTransaction = async () => {
+    throw Error("Transaction simulation failed: rejected");
+  };
   const w = await createKeeperWorker(f.options);
   assert.equal((await w.tick()).status, "retry");
   assert.equal(f.sent.length, 0);
@@ -326,10 +369,10 @@ test("reconciliation accepts only a matching batch moving through valid ordered 
   ]) {
     const f = fixture();
     f.setSlot(26);
-    f.options.connection.simulateTransaction = async () => {
+    f.options.connection.sendRawTransaction = async () => {
       f.b[layouts.Batch.fields.status[0]] = status;
       f.b.writeBigUInt64LE(id, 8);
-      return { value: { err: "concurrent or invalid" } };
+      throw Error("Transaction simulation failed: concurrent or invalid");
     };
     const w = await createKeeperWorker(f.options);
     assert.equal((await w.tick()).status, expected);
@@ -345,4 +388,17 @@ test('scoped keeper derives its lifecycle and wraps every instruction, namespace
  for(const ix of f.sent)assert.deepEqual(ix.data.subarray(1,33),new PublicKey(seed).toBuffer());
  const bad={...f.options.manifest,market_seed:Keypair.generate().publicKey.toBase58()};
  await assert.rejects(createKeeperWorker({...f.options,manifest:bad}),/Noncanonical/);
+});
+test("an unconfirmed crank is rebroadcast with the same signed bytes until it lands", async () => {
+  const f = fixture();
+  let polls = 0;
+  f.options.connection.getSignatureStatuses = async () => ({
+    value: [++polls < 3 ? null : { err: null, confirmationStatus: "confirmed" }],
+  });
+  f.options.connection.getBlockHeight = async () => 1;
+  const w = await createKeeperWorker({ ...f.options, resendIntervalMs: 0 });
+  f.setSlot(26);
+  assert.equal((await w.tick()).status, "closed");
+  assert.equal(f.sent.length, 3);
+  assert.ok(f.sent.every((ix) => ix.data.equals(f.sent[0].data)));
 });

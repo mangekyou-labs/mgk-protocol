@@ -1,6 +1,9 @@
 import { state } from '@mgk/sdk';
 
-/** Use decoded, owner-validated snapshots. Risk is refreshed on-chain by Withdraw. */
+/**
+ * Use decoded, owner-validated snapshots. Risk is refreshed on-chain by Withdraw.
+ * The short Cleared phase is not a reason: the withdraw action waits it out.
+ */
 export function withdrawalEligibility({ portfolio, registry, batch, amount, batchError = null }: {
   portfolio: state.PortfolioState | null;
   registry: state.RegistryState | null;
@@ -16,7 +19,6 @@ export function withdrawalEligibility({ portfolio, registry, batch, amount, batc
   if (!portfolio) reason = 'No portfolio to withdraw from.';
   else if (batchError || !registry || (registry.batchIdCounter > 0n && !batch)) reason = 'Current batch status unavailable. Retry when RPC has recovered.';
   else if ((registry.pauseFlags & 2) !== 0) reason = 'Withdrawals are paused. Wait for the operator to restore withdrawals.';
-  else if (registry.batchIdCounter > 0n && batch?.status === state.BatchStatus.Cleared) reason = 'Withdrawals blocked: batch Cleared, awaiting settlement.';
   else if (amount !== null && withdrawable !== null && amount > withdrawable) reason = 'Amount exceeds withdrawable collateral, net of initial margin and order reservations.';
   return { withdrawable, reason };
 }

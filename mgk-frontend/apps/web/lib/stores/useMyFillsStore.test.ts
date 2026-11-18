@@ -97,19 +97,20 @@ describe('useMyFillsStore', () => {
     expect(url).toContain('limit=200');
   });
 
-  it('records an error when the indexer returns non-OK', async () => {
-    globalThis.fetch = mockFetchOnce({ error: 'no' }, 500);
-    await startMyFillsPolling(PUBKEY, INSTRUMENT, 60_000);
-    const s = myFillsFor(KEY);
-    expect(s.error).toMatch(/500/);
-    expect(s.fills).toEqual([]);
+  it('stays quiet after one non-OK response, then records the error once failures persist', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ error: 'no' }), { status: 500 }));
+    await startMyFillsPolling(PUBKEY, INSTRUMENT, 10);
+    const key = myFillsKey(PUBKEY, INSTRUMENT, 10);
+    expect(myFillsFor(key).error).toBeNull();
+    await vi.waitFor(() => expect(myFillsFor(key).error).toMatch(/500/));
+    expect(myFillsFor(key).fills).toEqual([]);
+    expect(myFillsFor(key).loading).toBe(false);
   });
 
-  it('records an error string on network failure', async () => {
+  it('records an error string on persistent network failure', async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('connection refused'));
-    await startMyFillsPolling(PUBKEY, INSTRUMENT, 60_000);
-    const s = myFillsFor(KEY);
-    expect(s.error).toMatch(/connection refused/);
+    await startMyFillsPolling(PUBKEY, INSTRUMENT, 10);
+    await vi.waitFor(() => expect(myFillsFor(myFillsKey(PUBKEY, INSTRUMENT, 10)).error).toMatch(/connection refused/));
   });
 
   it('restarts the interval when called twice with different params', async () => {

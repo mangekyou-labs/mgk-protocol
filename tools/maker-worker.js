@@ -7,6 +7,12 @@ const {
   VersionedTransaction,
   ComputeBudgetProgram,
 } = require("@solana/web3.js");
+const {
+  CONFIRM_OPTIONS,
+  createBlockhashCache,
+  lamportsOf,
+  readAccounts,
+} = require("./rpc-budget");
 const { decodeAccount, layouts } = require("../mgk-frontend/packages/layout");
 const {
   encodeInstruction,
@@ -16,7 +22,11 @@ const {
   confirmSignature,
 } = require("../mgk-frontend/packages/layout/confirmation");
 const { decodePortfolioHealth } = require("./ops-liquidate");
-const INTERVAL_MS = 2000;
+const INTERVAL_MS = 5000;
+// The portfolio scan is a 10-credit getProgramAccounts call; run it at most this often.
+const SCAN_INTERVAL_MS = 60_000;
+// Resting quotes within this distance of the desired ladder are kept, not replaced.
+const REQUOTE_BPS = 5n;
 const meta = (pubkey, isWritable = true, isSigner = false) => ({
   pubkey,
   isWritable,
@@ -24,6 +34,27 @@ const meta = (pubkey, isWritable = true, isSigner = false) => ({
 });
 const abs = (n) => (n < 0n ? -n : n);
 const ceil = (n, d) => (n + d - 1n) / d;
+const byPrice = (a, b) => (a.price < b.price ? -1 : a.price > b.price ? 1 : 0);
+/** True when the resting orders match the desired ladder level by level within REQUOTE_BPS. */
+function ladderHolds(orders, desired) {
+  if (orders.length !== desired.length) return false;
+  for (const side of [0, 1]) {
+    const have = orders.filter((o) => o.side === side).sort(byPrice),
+      want = desired.filter((d) => d.side === side).sort(byPrice);
+    if (have.length !== want.length) return false;
+    for (let k = 0; k < want.length; k++) {
+      const o = have[k],
+        d = want[k];
+      if (
+        o.remainingQty !== d.qty ||
+        o.reduceOnly !== 0 ||
+        abs(o.price - d.price) * 10000n > d.price * REQUOTE_BPS
+      )
+        return false;
+    }
+  }
+  return true;
+}
 async function createMakerWorker({
   manifest: rawManifest,
   payer,
@@ -32,6 +63,7 @@ async function createMakerWorker({
   alert = (value) => console.error(JSON.stringify(value)),
   feeFloorLamports = 10000000n,
   quantityLots = 100n,
+  scanIntervalMs = SCAN_INTERVAL_MS,
 }) {
   const manifest = loadManifest(rawManifest);
   if (
@@ -70,14 +102,16 @@ async function createMakerWorker({
   )
     throw Error("Noncanonical manifest PDA");
   const portfolio = pda([Buffer.from("portfolio"), payer.publicKey.toBuffer()]);
-  async function account(key, name, owner = core) {
-    const raw = await connection.getAccountInfo(key, "confirmed");
+  function decodeOwned(raw, name, owner = core) {
     if (!raw || !raw.owner.equals(owner))
       throw Error("Missing or foreign account");
     return { state: decodeAccount(name, raw.data), raw };
   }
-  async function bindings() {
-    const { state: i } = await account(instrument, "Instrument");
+  async function account(key, name, owner = core) {
+    return decodeOwned(await connection.getAccountInfo(key, "confirmed"), name, owner);
+  }
+  function bindings(raw) {
+    const { state: i } = decodeOwned(raw, "Instrument");
     const id = Buffer.alloc(2);
     id.writeUInt16LE(i.instrumentId);
     if (
@@ -88,40 +122,62 @@ async function createMakerWorker({
       throw Error("Instrument binding mismatch");
     return { i, book: pda([Buffer.from("book"), id], matcher) };
   }
-  await bindings();
+  bindings(await connection.getAccountInfo(instrument, "confirmed"));
   const ix = (name, params, keys) =>
     new TransactionInstruction({
       programId: core,
       keys,
       data: Buffer.from(encodeInstruction("core", name, params, manifest.marketSeed)),
     });
-  async function send(instructions) {
-    const latest = await connection.getLatestBlockhash("confirmed");
+  const blockhashes = createBlockhashCache(connection, now);
+  // Preflight already rejects a failing transaction before broadcast. Only a
+  // liquidation simulates separately, to tell an unserviceable victim from an
+  // RPC failure.
+  async function send(instructions, { simulate = false } = {}) {
+    const latest = await blockhashes.get();
     const tx = new Transaction({ feePayer: payer.publicKey, ...latest }).add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1400000 }),
       ...instructions,
     );
     tx.sign(payer);
     const raw = tx.serialize();
-    const simulation = await connection.simulateTransaction(
-      VersionedTransaction.deserialize(raw),
-      { sigVerify: true, commitment: "confirmed" },
-    );
-    if (simulation.value.err) {
-      const error = Error("Simulation failed");
-      error.code = "simulation_failed";
+    try {
+      if (simulate) {
+        const simulation = await connection.simulateTransaction(
+          VersionedTransaction.deserialize(raw),
+          { sigVerify: true, commitment: "confirmed" },
+        );
+        if (simulation.value.err) {
+          const error = Error("Simulation failed");
+          error.code = "simulation_failed";
+          throw error;
+        }
+      }
+      const signature = await connection.sendRawTransaction(raw, {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+        maxRetries: 0,
+      });
+      await confirmSignature(connection, signature, {
+        ...CONFIRM_OPTIONS,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      });
+      return signature;
+    } catch (error) {
+      blockhashes.invalidate();
       throw error;
     }
-    const signature = await connection.sendRawTransaction(raw, {
-      skipPreflight: false,
-      preflightCommitment: "confirmed",
-      maxRetries: 0,
-    });
-    await confirmSignature(connection, signature, {
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-    });
-    return signature;
   }
+  const batchKey = (batchId) => {
+    const b = Buffer.alloc(8);
+    b.writeBigUInt64LE(batchId);
+    return pda([Buffer.from("batch"), b]);
+  };
+  // The registry counter the next tick expects, so one batched read also
+  // fetches the current batch.
+  let expectedCounter = null,
+    lastScanAt = -Infinity,
+    liquidationBlocked = false;
   let running = false;
   async function tick() {
     if (running) return { status: "busy" };
@@ -142,22 +198,31 @@ async function createMakerWorker({
     }
   }
   async function step() {
-    const { i, book } = await bindings(),
-      { state: r } = await account(registry, "Registry");
+    const guess = expectedCounter > 0n ? batchKey(expectedCounter - 1n) : null;
+    const keys = [instrument, registry, portfolio, payer.publicKey, oracle, vault];
+    if (guess) keys.push(guess);
+    const {
+      accounts: [iRaw, rRaw, portfolioRaw, payerRaw, oracleRaw, vaultRaw, guessRaw],
+    } = await readAccounts(connection, keys);
+    const { i, book } = bindings(iRaw),
+      { state: r } = decodeOwned(rRaw, "Registry");
     if (r.batchIdCounter === 0n) throw Error("No current batch");
     const batchId = r.batchIdCounter - 1n,
-      b = Buffer.alloc(8);
-    b.writeBigUInt64LE(batchId);
-    const batch = pda([Buffer.from("batch"), b]),
-      { state: batchState } = await account(batch, "Batch");
+      batch = batchKey(batchId),
+      { state: batchState } = decodeOwned(
+        guess?.equals(batch)
+          ? guessRaw
+          : await connection.getAccountInfo(batch, "confirmed"),
+        "Batch",
+      );
     if (batchState.batchId !== batchId) throw Error("Batch identity mismatch");
-    const { state: p, raw: pRaw } = await account(portfolio, "Portfolio");
+    expectedCounter = r.batchIdCounter;
+    const { state: p, raw: pRaw } = decodeOwned(portfolioRaw, "Portfolio");
     if (
       !new PublicKey(p.user).equals(payer.publicKey) ||
       p.positionsLen > p.positions.length
     )
       throw Error("Invalid maker portfolio");
-    await account(book, "OrderBook", matcher);
     const orders = p.orders.filter((o) => o.remainingQty > 0n);
     const cancel = () =>
       ix("CancelAllRestingOrders", { numBooks: 1 }, [
@@ -169,9 +234,7 @@ async function createMakerWorker({
       ]);
     if (batchState.status === 4)
       return { status: "awaiting_settlement", batchId };
-    const balance = await connection.getBalance(payer.publicKey, "confirmed");
-    if (!Number.isSafeInteger(balance) || balance < 0)
-      throw Error("Unsafe balance");
+    const balance = lamportsOf(payerRaw);
     if (BigInt(balance) < feeFloorLamports) {
       alert({
         service: "maker",
@@ -184,7 +247,7 @@ async function createMakerWorker({
     }
     let price;
     try {
-      const { state: o } = await account(oracle, "PriceOracle", oracleProgram),
+      const { state: o } = decodeOwned(oracleRaw, "PriceOracle", oracleProgram),
         time = BigInt(Math.floor(now() / 1000));
       if (
         !o.isActive ||
@@ -208,11 +271,14 @@ async function createMakerWorker({
       });
       return { status: "invalid_price", batchId, signature };
     }
-    if (!(r.pauseFlags & 4)) {
+    const liquidating = !(r.pauseFlags & 4);
+    if (liquidating && now() - lastScanAt >= scanIntervalMs) {
       const candidates = await connection.getProgramAccounts(core, {
         commitment: "confirmed",
         filters: [{ dataSize: layouts.Portfolio.size }],
       });
+      lastScanAt = now();
+      liquidationBlocked = false;
       let unserviceable = false;
       for (const candidate of candidates) {
         if (candidate.pubkey.equals(portfolio)) continue;
@@ -243,7 +309,9 @@ async function createMakerWorker({
           ]),
         );
         try {
-          const signature = await send(instructions);
+          const signature = await send(instructions, { simulate: true });
+          // Rescan next tick: other portfolios may also be underwater.
+          lastScanAt = -Infinity;
           return {
             status: "liquidated",
             batchId,
@@ -263,15 +331,17 @@ async function createMakerWorker({
           });
         }
       }
-      if (unserviceable) {
-        const signature = orders.length ? await send([cancel()]) : undefined;
-        return {
-          status: "blocked",
-          reason: "liquidation_capacity",
-          batchId,
-          signature,
-        };
-      }
+      liquidationBlocked = unserviceable;
+    }
+    // Between scans, an unserviceable victim keeps quotes withdrawn.
+    if (liquidating && liquidationBlocked) {
+      const signature = orders.length ? await send([cancel()]) : undefined;
+      return {
+        status: "blocked",
+        reason: "liquidation_capacity",
+        batchId,
+        signature,
+      };
     }
     if (!i.isActive || r.pauseFlags & 17) {
       const signature = orders.length ? await send([cancel()]) : undefined;
@@ -291,7 +361,7 @@ async function createMakerWorker({
       price: limit,
       qty: quantityLots,
     }));
-    const { state: v } = await account(vault, "Vault");
+    const { state: v } = decodeOwned(vaultRaw, "Vault");
     const positions = p.positions.slice(0, p.positionsLen),
       held = positions.reduce((n, pos) => n + abs(pos.qty), 0n);
     const { unrealizedPnl: pnl } = decodePortfolioHealth(pRaw.data, price);
@@ -326,19 +396,7 @@ async function createMakerWorker({
       });
       return { status: "blocked", reason, batchId, signature };
     }
-    if (
-      orders.length === 6 &&
-      desired.every((d) =>
-        orders.some(
-          (o) =>
-            o.side === d.side &&
-            o.price === d.price &&
-            o.remainingQty === d.qty &&
-            o.reduceOnly === 0,
-        ),
-      )
-    )
-      return { status: "resting", batchId };
+    if (ladderHolds(orders, desired)) return { status: "resting", batchId };
     // On-chain simulation is the final margin/exposure gate, including concurrent changes.
     const instructions = orders.length ? [cancel()] : [];
     for (const d of desired)

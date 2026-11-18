@@ -5,17 +5,16 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { VersionedTransaction, type Connection, type Transaction } from '@solana/web3.js';
 import * as sdk from '@mgk/sdk';
 import { config, deployment } from '@/lib/config';
+import { DEVNET_GENESIS, genesisHash } from '@/lib/genesis';
 
 // A readiness transition may unmount the caller while the wallet prompt is open.
 // Keep the wallet lock outside React so remounting cannot open another prompt.
 const pendingWalletRequests = new Set<string>();
 
-const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
-
 /** Every signing path checks the actual RPC cluster and manifest accounts. */
 export async function assertDeployment(connection: Connection): Promise<void> {
   if (!config.deploymentReady) throw new Error('Demo deployment is pending. Wait for the published devnet market before signing.');
-  if (deployment.cluster !== 'devnet' || await connection.getGenesisHash() !== DEVNET_GENESIS) {
+  if (deployment.cluster !== 'devnet' || await genesisHash(connection) !== DEVNET_GENESIS) {
     throw new Error('Wrong cluster. Select a devnet RPC and reconnect your wallet.');
   }
   const response = await fetch('/api/deployment-manifest', { cache: 'no-store' });
@@ -55,7 +54,11 @@ export function useSafeTransaction() {
   useEffect(() => { identity.current = { publicKey, connected, connection }; }, [publicKey, connected, connection]);
   useEffect(() => () => { identity.current = { publicKey: null, connected: false, connection }; }, [connection]);
 
-  return useCallback(async (tx: Transaction): Promise<string> => {
+  /**
+   * Pass a builder when the transaction depends on fast-moving state (the open
+   * batch): it runs after the deployment checks, right before simulation.
+   */
+  return useCallback(async (input: Transaction | (() => Promise<Transaction>)): Promise<string> => {
     if (!publicKey || connected === false) throw new Error('Connect your wallet before signing.');
     const walletKey = publicKey.toBase58();
     if (pendingWalletRequests.has(walletKey)) throw new Error('A wallet request is already in progress.');
@@ -68,6 +71,8 @@ export function useSafeTransaction() {
     };
     try {
       await assertDeployment(connection);
+      unchanged();
+      const tx = typeof input === 'function' ? await input() : input;
       unchanged();
       const latest = await connection.getLatestBlockhash('confirmed');
       tx.feePayer = publicKey;

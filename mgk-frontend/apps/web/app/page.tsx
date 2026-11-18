@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 const STEPS = [
   { step: '1', title: 'Connect Wallet', desc: 'Phantom, Solflare, or Backpack. One click.' },
-  { step: '2', title: 'Deposit SOL', desc: 'Fund your portfolio with devnet SOL from the faucet.' },
+  { step: '2', title: 'Deposit SOL', desc: 'Deposit devnet SOL as collateral.' },
   { step: '3', title: 'Post Orders', desc: 'DFBA dual auctions. One fair clearing price per side, no MEV.' },
 ] as const;
 

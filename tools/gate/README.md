@@ -71,3 +71,35 @@ node --test tools/gate/gate.test.js   # harness proof; requires MGK_CANDIDATE_MA
 ```
 
 The soak CLI prints the JSON verdict and exits 0 on pass, 1 on fail, and 2 on usage or RPC errors.
+
+## Tier-D row driver (`drows.js`)
+
+`drows.js` runs the tier-D rows P0-1, P0-4, P0-5, P0-6, P0-7, P0-9, P0-10, P0-12 and P0-13 against a deployed market. It also drives the P0-33 latency taker (`--latency`) and the P0-35 soak taker (`--soak`, or `createSoakDrive` as a `runSoak` `drive` hook). It refuses any manifest that is not devnet, any market-scoped manifest (`marketSeed` must be null) and any manifest that is not ready. It also refuses an RPC whose genesis hash is not devnet's.
+
+**Signing.** It signs only with the persona keys `mgk-trader-maker.json`, `mgk-trader-taker.json` and `mgk-demo-qa.json` in `--keys` (default `~/.config/solana`). It refuses the admin key `GBz4U7gb…wt4` and never loads the maker-worker, keeper or oracle keys.
+
+**Settlement.** It never cranks. The hosted keeper advances every batch, and the driver observes settlement from chain state.
+
+**Sends and evidence.** Every transaction is simulated with `sigVerify` before it is sent. Each row asserts exact lamport deltas for the wallet, vault and portfolio. It writes `<out>/<row>.json` (steps, signatures, verdicts, cleanup, SOL spent) and merges the row into `<out>/rows.json`, which `report.js` accepts.
+
+**Funds.** It creates a portfolio (InitPortfolioForUser, self-funded) only when one is missing. P0-1 deposits exactly 0.2 SOL. Every other row deposits 0.005 SOL and uses 1-lot orders. Each row withdraws its collateral at the end and prints the SOL it spent.
+
+```sh
+node tools/gate/drows.js --rpc URL --deployment deployments/devnet.json --rows P0-1,P0-4 --out /tmp/mgk-d
+node tools/gate/drows.js --latency --orders 30 --span-min 32 --status-url https://HOST/api/status \
+  --rpc URL --deployment deployments/devnet.json --out /tmp/mgk-d
+node tools/gate/drows.js --soak --duration-min 120 --drive-every 12 --rpc URL --deployment deployments/devnet.json --out /tmp/mgk-d
+node --test tools/gate/drows.test.js
+```
+
+**`--latency` (P0-33).** The taker places 1-lot orders that cross the hosted maker ladder and alternates sides so the position stays near flat. Each order feeds `LatencyRecorder` with timestamps:
+
+- **sign:** taken just before the send.
+- **accept:** taken at chain confirmation.
+- **settle:** taken when settlement is observed.
+
+The first order is flagged `coldStart`, and the operator must make sure the run really starts cold. `againstMakerLadder` is true only if every order was priced from the hosted ladder read off the book.
+
+`monitoringGreen` is true when every `/api/status` sample was reachable and every check except those in `--monitoring-ignore` had severity `ok`. The flag takes a comma list, defaults to `indexer` and accepts an empty string to ignore nothing. The output is `P0-33-latency.json` plus a P0-33 row.
+
+**`--soak` (P0-35).** This mode runs `soak.js` `runSoak` with `createSoakDrive`. The drive trades one taker lot every `--drive-every` polls: 12 at the 5 s poll, about one order a minute. It alternates buy and sell, or reduce-only against any open position. It skips a poll when the ladder has no level and withdraws collateral at the end. The output is `P0-35.json` plus a P0-35 row.

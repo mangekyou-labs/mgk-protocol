@@ -1,0 +1,1 @@
+Stopped by watcher: host Mac slept 10:57-11:26Z on battery; keep-awake pings stopped, Render oracle service idled, oracle stale. Not a protocol fault.

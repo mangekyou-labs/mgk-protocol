@@ -10,7 +10,7 @@ import json
 import sys
 from fractions import Fraction
 
-from reference_model import Ledger, Fill
+from reference_model import Ledger, Fill, Position
 
 
 def run(request):
@@ -19,6 +19,12 @@ def run(request):
     usd_totals = {}
     for event in request["events"]:
         kind = event.get("kind", "fill")
+        if kind == "position":
+            # Seed an existing on-chain position at its exact entry fraction.
+            ledger.positions[event["account"]] = Position(
+                int(event["quantity_lots"]),
+                Fraction(int(event["entry_numerator"]), int(event["entry_denominator"])))
+            continue
         if kind == "top_up":
             ledger.top_up(int(event["amount"]))
             continue

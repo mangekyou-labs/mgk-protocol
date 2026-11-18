@@ -10,8 +10,6 @@ const NAV_LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: '/trade', label: 'Trade' },
 ];
 
-const FAUCET_URL = 'https://faucet.solana.com';
-
 export function Header() {
   const pathname = usePathname();
 
@@ -45,15 +43,6 @@ export function Header() {
       </nav>
 
       <div className="flex-1" />
-
-      <a
-        href={FAUCET_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex h-7 items-center rounded-full border border-warn/40 bg-surface-2 px-3 text-[11px] font-medium uppercase tracking-wider text-warn transition-colors hover:bg-warn/10"
-      >
-        Get devnet SOL
-      </a>
 
       <span data-testid="wallet-button">
         <WalletButton />

@@ -1,4 +1,4 @@
-import type { BatchGate, MarketExposure, OracleReading } from '@/lib/marketBar';
+import type { MarketExposure, OracleReading } from '@/lib/marketBar';
 import {
   abs,
   LAMPORTS_PER_LOT,
@@ -72,8 +72,6 @@ export interface TicketInput {
   oracle: OracleReading;
   /** null = pause flags unknown. */
   newExposurePaused: boolean | null;
-  /** Set while the current batch is clearing or cleared but not settled. */
-  batchGate: BatchGate | null;
   /** Lamports; null = unknown. */
   withdrawableCollateral: bigint | null;
   /** Signed lots; null = unknown. */
@@ -110,14 +108,6 @@ function oracleReason(oracle: OracleReading, reduceOnly: boolean): string | null
   return null;
 }
 
-function batchGateReason(gate: BatchGate | null): string | null {
-  if (gate == null) return null;
-  const id = gate.batchId.toString();
-  return gate.phase === 'clearing'
-    ? `Batch ${id} clearing. Orders reopen after settlement.`
-    : `Batch ${id} cleared, awaiting settlement.`;
-}
-
 /**
  * Exposure checks in the order perps-core applies them: portfolio exposure
  * limit, market exposure limit on the order side, then risk-off admission.
@@ -150,8 +140,7 @@ export function orderBlockReason(t: TicketInput): string | null {
   const position = t.positionLots;
   const precondition =
     (t.reduceOnly ? reduceOnlySideReason(t.side, position) : newExposureReason(t)) ??
-    oracleReason(t.oracle, t.reduceOnly) ??
-    batchGateReason(t.batchGate);
+    oracleReason(t.oracle, t.reduceOnly);
   if (precondition) return precondition;
   // Narrowing for the checks below; the precondition already reported these.
   if (t.oracle.state !== 'valid') return null;

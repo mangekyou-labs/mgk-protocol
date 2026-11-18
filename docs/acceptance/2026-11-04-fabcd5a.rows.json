@@ -1,0 +1,156 @@
+{
+  "commit": "fabcd5a9ab5f4c5ca84da2348c0730c1121d0284",
+  "testSuiteCommit": "10c6844f21bfb0450698788d4b55ea749c664076",
+  "deployedBytes": {
+    "source": "solana program dump -u devnet <program id> (read-only), 2026-11-04; executable image only, 45-byte loader header excluded by the CLI",
+    "perps_core": {
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "deploymentSlot": 518135007,
+      "imageBytes": 261824,
+      "paddingBytes": 0,
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d"
+    },
+    "perps_matcher": {
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "deploymentSlot": 518171780,
+      "imageBytes": 83360,
+      "paddingBytes": 3824,
+      "paddingZero": true,
+      "fullPayloadSha256": "48e4dcea45d144259b99fe2b3c336515e5bf9c874fc0e96d307c949361589f19",
+      "sha256": "f3e1829749fbb467504dce8a59b53e5a266f15c5d66e3050097b43d1a485553b"
+    },
+    "oracle": {
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "deploymentSlot": 517922158,
+      "imageBytes": 13808,
+      "paddingBytes": 0,
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a"
+    }
+  },
+  "buildEvidence": [
+    "solana program dump -u devnet (solana-cli 3.1.13, read-only) for all three programs: core 261,824 B sha256 efa55357..., oracle 13,808 B sha256 022f61b9..., matcher 87,184 B sha256 48e4dcea... (full payload); first 83,360 B sha256 f3e18297... with the trailing 3,824 bytes all zero; trimmed matcher ELF section headers end at byte 83,360",
+    "Reproducibility cross-check: cargo build-sbf --tools-version v1.52 at fabcd5a9ab5f4c5ca84da2348c0730c1121d0284 (detached worktree) reproduces all three deployed image hashes byte-for-byte; git diff fabcd5a..10c6844 -- programs Cargo.toml Cargo.lock .cargo is empty",
+    "Candidate manifest (candidate.json in the evidence directory) points the harness at the dumped bytes, not a local build; commit field = byte source commit fabcd5a; test suites run from 10c6844 (feature-issue-40-integration tip)",
+    "node --test tools/runtime/harness.test.js tools/runtime/invariants.test.js tools/runtime/audit.test.js tools/oracle-confidence.test.js tools/gate/report.test.js tools/gate/latency.test.js tools/gate/soak.test.js: 78 passed, 0 failed",
+    "python3 -m unittest discover -s tools/gate -p 'test_*.py': 36 tests OK (independent reference model)",
+    "BPF_OUT_DIR=<dumped bytes> cargo +stable test -p mgk-perps-core --test lifecycle --features host-hash: 22 passed, 0 failed, 4 ignored",
+    "MGK_CANDIDATE_MANIFEST=<dumped-bytes manifest> node --test tools/runtime/smoke.test.js tools/runtime/book-init.test.js tools/runtime/indexer.test.js tools/runtime/keeper.test.js tools/runtime/maker.test.js tools/gate/gate.test.js tools/runtime/checkpoint-b.test.js tools/runtime/market-isolation.test.js: 17 passed, 0 failed (every runtime report records the deployed hashes and candidateCommit fabcd5a)",
+    "No keypair file read, no transaction signed or sent to any public cluster, no deployment; all signing happened against ephemeral keypairs inside the offline local Surfpool runtime"
+  ],
+  "rows": [
+    {
+      "id": "P0-8",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. checkpoint-b.test.js P0-8: crossed taker/taker orders ($101 taker buy vs $99 taker sell) rest on the book and clear to numFills=0 with no fills; crossed maker/maker orders ($101 maker buy vs $99 maker sell) likewise clear to numFills=0; both batches settle with every portfolio flat and collateral equal to the independent Fraction reference model. Evidence: checkpoint-b-report-20141.json checkpointB.p0_8. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-11",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. checkpoint-b.test.js P0-11: cancel-first ordering cancels the order (reservation released, book order removed, cancelled order id produces no fill) and a replacement order settles; clear-first ordering rejects the cancel with 602 while Cleared and the cleared fills settle exactly once (maker long 200 lots matches the model); cancelling another user's portfolio rejects 7 and another user's order id rejects 201, both unchanged; direct matcher CancelResting and CancelSettledOrders with an arbitrary user reject unchanged. Evidence: checkpoint-b-report-20101.json checkpointB.p0_11. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-14",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js integrityRejections: portfolio exposure limit 10 SOL (error 608), market exposure limit 50 SOL per side (609), and withdrawal cannot spend oracle loss or position IM all reject unchanged at post; every settleScenario settles without a margin rejection. checkpoint-b.test.js P0-14 adds the over-5x case: the candidate instrument caps leverage at 5x (maxLeverage=5); a 6,000-lot post at $100 (6 SOL notional against 1 SOL collateral, 6x) rejects at post with InsufficientFunds (4) and all accounts unchanged, while a 4,000-lot (4x) control posts and cancels cleanly. Evidence: runtime-report.json; checkpoint-b-report-20151.json checkpointB.p0_14. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-15",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: withdrawal globally blocked while cleared rejects unchanged, and withdrawalResumedAfterSettlement=true after settle. Evidence: runtime-report.json integrityRejections[withdrawal globally blocked while cleared]. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-16",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js oracleBoundaries: exactly 60 s and 1 percent accepted; 61 s (114), above 1 percent (210), future timestamp (114), inactive, foreign instrument, foreign owner, zero price, negative confidence, foreign oracle key and invalid header all block settlement; stale settlement reverts with all protected account bytes and lamports unchanged, oracle worker no_quorum leaves the oracle untouched, then healthy recovery publishes and settle succeeds. Evidence: runtime-report.json oracleBoundaries, rejectedSettlement, oracleWorkerRecovery. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-17",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. checkpoint-b.test.js P0-17: healthy (model health 111,111,112) and health exactly 0 at $90 liquidations reject 110 unchanged; an underfunded liquidator rejects 4 on the second 25% step with the order cancellation rolled back; the funded takeover follows takeover_scenario.py steps [250, 187], victim keeps 563 lots, liquidator takes 437 lots at $85, 1% + 1% penalties match model collateral and fund exactly, victim book orders and reservations are cancelled, and vault lamports are unchanged (value conserved). Evidence: checkpoint-b-report-20111.json checkpointB.p0_17. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-18",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. checkpoint-b.test.js P0-18: the loser loses 4,000,000,000 lamports of value against 201,000,000 lamports of collateral; the fund absorbs the shortfall (fund 20,000,778,792 -> 16,202,278,792), uncovered debt stays 0, no pause flags, winner credited in full, and chain collateral/fund/vault match the independent model exactly. Evidence: checkpoint-b-report-20121.json checkpointB.p0_18. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-19",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. checkpoint-b.test.js P0-19: six signed settlements per direction reproduce the issue #8 conversion drift exactly: -757,575 lamports for $110 then $120 and +757,577 for the reverse, with taker fees separated through the model's own fee ledger and chain fund equal to the independent model fund after every settlement. Evidence: checkpoint-b-report-20121.json checkpointB.p0_19. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-20",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: maker closes at a profit against a third trader, withdraws the full profit while the original loser still holds -1000 lots, loser position unchanged afterwards. Evidence: runtime-report.json settlementScenarios[winner withdrew profit before the loser closed]. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-21",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js exhaustion scenario: uncovered bad debt recorded, fund exhausted to 0, pause flags=3, winner withdrawal and new exposure reject while paused (602), unpause refused with debt outstanding and with one lamport of debt (612), inflows repay debt before the fund, trading cannot resume before withdrawals, withdrawals resume first and the winner then withdraws in full. Evidence: runtime-report.json settlementScenarios[exhaustion..trading resumed]. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-22",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: risk-off post below 0.4 x open interest rejects unchanged (610) while reduce-only closes and withdrawals still simulate accepted. Evidence: runtime-report.json integrityRejections[risk-off]. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-23",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: permissionless signed TopUp moves real lamports into the fund; fund withdrawal above the surplus rejects (611), fund withdrawal by a non-governance signer rejects (7), governance withdraws exactly the surplus leaving the fund at the required reserve. Evidence: runtime-report.json settlementScenarios[fund withdrawn down to the required reserve]. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-24",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: missing portfolio, duplicate portfolio and malformed portfolio count settlements all reject with every integrity account unchanged. Evidence: runtime-report.json integrityRejections. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-25",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: re-clear rejected, wrong batch result rejected, spent result replay rejected, settled batch replay rejected, all unchanged. Evidence: runtime-report.json integrityRejections. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-26",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. checkpoint-b.test.js P0-26: twelve orders from twelve portfolios fill the 12-fill results cap (60 lots matched) and all twelve portfolios settle in ONE SettleBatch transaction; every position (plus/minus 10 lots) and lamport balance matches the independent model, the batch is Settled and the results are spent. Evidence: checkpoint-b-report-20131.json checkpointB.p0_26. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-27",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. smoke.test.js: direct matcher instructions 0-8 from an arbitrary signer all reject unchanged (removed paths unreachable at the runtime boundary); fundingPaid=0 asserted against the reference model after every settlement. checkpoint-b.test.js P0-27 exercises maker_fee_bps < 0 on the candidate .so: SetInstrumentFees (disc 22, governance-signed) with taker 5 / maker -1 reaches Instrument::validate_demo_fees via apply_instrument_fees and rejects with InvalidRiskParams (402), instrument and registry unchanged; the valid (5, 0) demo schedule still applies. Evidence: runtime-report.json integrityRejections, settlementScenarios; checkpoint-b-report-20161.json checkpointB.p0_27. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P0-29",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. keeper.test.js (default and scoped market): crash after filled clear recovers and settles once, two concurrent keepers produce outcomes [collecting] and [settled] with no double processing, fee starvation recovers, and a missing batch account halts the keeper with exit 1 and no fallback. Evidence: keeper-runtime-report.json keeper{crashRecovered, concurrent, feeStarvationRecovered, missingBatchHalted}. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P1-2",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. P1 row (not a Checkpoint B P0 gate). checkpoint-b.test.js P1-2: DFBA identical-price allocation at a uniform $100 clearing price: equal makers fill 50/50 pro-rata, unequal makers fill 25/75 pro-rata, and three 10-lot makers against a 10-lot taker fill 3/3/3 with exactly one lot of deterministic dust unfilled; all settlements match the independent lamport model. Evidence: checkpoint-b-report-20131.json checkpointB.p1_2. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    },
+    {
+      "id": "P1-3",
+      "status": "pass",
+      "tier": "L",
+      "notes": "Re-proved 2026-11-04 on the executable images dumped read-only from devnet (hashes above; matcher trimmed to its 83,360-byte image, 3,824 zero padding bytes verified), loaded into Surfpool 1.6.0 and re-hashed from ProgramData by the harness. Observed values identical to Checkpoint B. P1 row (not a Checkpoint B P0 gate). checkpoint-b.test.js P1-3: with a portfolio at the 12-order cap, a thirteenth order rejects 212, zero quantity 211, zero and negative prices 210, invalid side 300, quantity 2^63 rejects 608 at the exposure gate, and price i64 max rejects 4, every one with all accounts unchanged; cancelling one order frees the slot and posting succeeds again. Smoke also rejects a malformed settle portfolio count of 65535. Evidence: checkpoint-b-report-20131.json checkpointB.p1_3, runtime-report.json integrityRejections. Evidence directory: docs/ops/evidence/issue-40-2026-11-04/l-rows/."
+    }
+  ]
+}

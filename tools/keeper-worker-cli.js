@@ -78,9 +78,13 @@ async function main() {
   try {
     do {
       const started = Date.now();
+      let waitMs = INTERVAL_MS;
       try {
         const result = await worker.tick();
         markCycle(health, result.status);
+        // A collecting batch tells the loop how long until its deadline.
+        if (Number.isSafeInteger(result.waitMs) && result.waitMs > INTERVAL_MS)
+          waitMs = result.waitMs;
         console.log(
           JSON.stringify({
             ...result,
@@ -111,7 +115,7 @@ async function main() {
         if (process.argv.includes("--once")) process.exitCode = 1;
       }
       if (process.argv.includes("--once") || abort.signal.aborted) break;
-      await sleep(Math.max(0, INTERVAL_MS - (Date.now() - started)), undefined, {
+      await sleep(Math.max(0, waitMs - (Date.now() - started)), undefined, {
         signal: abort.signal,
       }).catch(() => {});
     } while (!abort.signal.aborted);

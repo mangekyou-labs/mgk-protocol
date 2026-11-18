@@ -1,0 +1,2 @@
+2026-11-05T09:01:29Z preview=https://mgk-frontend-ncxct5t4z-gadillacers-projects.vercel.app commit=7530c70 4/4 pass 59.8s
+2026-11-05T10:24:59Z preview=https://mgk-frontend-l8pvoaqfr-gadillacers-projects.vercel.app commit=c57ffc4 4/4 pass 55.9s (supersedes jd6hdatvs-258fd2a: batch-window + layout-shift fix)

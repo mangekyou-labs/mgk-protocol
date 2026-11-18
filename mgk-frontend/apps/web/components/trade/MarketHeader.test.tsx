@@ -58,6 +58,12 @@ describe('<MarketHeader />', () => {
       <MarketHeader oracle={{ state: 'valid', price: usd(150), ageSeconds: 1 }} mark={null} collectingBatchId={42n} />,
     );
     expect(screen.getByTestId('stat-collecting')).toHaveTextContent('batch 42');
+    // Fixed-width tabular digits so the header doesn't shift as batches roll over.
+    const id = screen.getByTestId('collecting-batch-id');
+    expect(id).toHaveTextContent('42');
+    expect(id.className).toMatch(/tabular-nums/);
+    expect(id.className).toMatch(/min-w-/);
+    expect(id.className).not.toMatch(/animate|transition/);
   });
 
   it('renders unknown mark and batch as "--", never 0', () => {

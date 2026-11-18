@@ -5,17 +5,23 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import * as sdk from '@mgk/sdk';
 
 import { PriceChart } from '@/components/chart/PriceChart';
-import { TxToast } from '@/components/common/TxToast';
+import { notifyTxConfirmed, notifyTxFailed } from '@/components/common/TxToast';
 import { PageFrame } from '@/components/layout/PageFrame';
 import { useAutoConnect } from '@/components/wallet/useAutoConnect';
-import { useProtocolStatus } from '@/lib/hooks/useProtocolStatus';
+import { indexerState, useProtocolStatus } from '@/lib/hooks/useProtocolStatus';
+import { useLayoutMode } from '@/lib/hooks/useLayoutMode';
 import { SystemStatus } from '@/components/trade/SystemStatus';
+import { DemoNotice } from '@/components/layout/DemoNotice';
 import { StatusBar } from '@/components/trade/StatusBar';
+import { BottomPanel } from '@/components/trade/BottomPanel';
 import { BottomTabs } from '@/components/trade/BottomTabs';
+import { OrderDrawer } from '@/components/trade/OrderDrawer';
+import { PhonePanels } from '@/components/trade/PhonePanels';
+import { TradeHistory } from '@/components/trade/history/TradeHistory';
 import { MarketHeader } from '@/components/trade/MarketHeader';
 import { BOOK_LEVELS_PER_SIDE, OrderBook } from '@/components/trade/OrderBook';
 import { ReadinessChecklist } from '@/components/trade/ReadinessChecklist';
-import { OrderForm, type OrderFormParams } from '@/components/trade/OrderForm';
+import { OrderForm, type OrderFormParams, type SidePreset, type SubmitStage } from '@/components/trade/OrderForm';
 import { useBatchStatus } from '@/lib/hooks/useBatchStatus';
 import { useMarketBar } from '@/lib/hooks/useMarketBar';
 import { decodeProgramError, usePostOrder } from '@/lib/hooks/useOrderSubmission';
@@ -64,6 +70,8 @@ export default function TradePage() {
   const myFills = useMyFills(INSTRUMENT_ID, FILLS_INTERVAL_MS);
   const { post } = usePostOrder();
   const nowMs = useNowMs();
+  const layout = useLayoutMode();
+  const [tabletView, setTabletView] = useState<'chart' | 'book'>('chart');
 
   // Clear stale in-flight state when the wallet disconnects or switches.
   useOrderFormWalletGuard();
@@ -79,7 +87,6 @@ export default function TradePage() {
     }
   }, []);
 
-  const [toast, setToast] = useState<{ sig: string; error: string | null } | null>(null);
   const [accepted, setAccepted] = useState<AcceptedOrderRef | null>(null);
   const [priceOverride, setPriceOverride] = useState<{ price: bigint; nonce: number } | null>(null);
 
@@ -113,9 +120,12 @@ export default function TradePage() {
   const position = portfolio?.positions.find((p) => p.instrumentId === INSTRUMENT_ID);
 
   const handleSubmit = useCallback(
-    async (params: OrderFormParams, onSigned: () => void) => {
+    async (params: OrderFormParams, onSigned: () => void, onStage?: (stage: SubmitStage) => void) => {
       try {
-        const result = await post({ instrumentId: INSTRUMENT_ID, ...params }, { onSigned });
+        const result = await post(
+          { instrumentId: INSTRUMENT_ID, ...params },
+          { onSigned, onWaiting: () => onStage?.('waiting'), onReady: () => onStage?.('approve') },
+        );
         if (publicKey) {
           setAccepted({
             user: publicKey,
@@ -125,9 +135,9 @@ export default function TradePage() {
             qty: params.qty,
           });
         }
-        setToast({ sig: result.sig, error: null });
+        notifyTxConfirmed('Order placed', result.sig);
       } catch (err) {
-        setToast({ sig: '', error: `Order not placed: ${decodeProgramError(err).message}` });
+        notifyTxFailed('Order not placed', decodeProgramError(err).message);
         throw err;
       }
     },
@@ -155,82 +165,164 @@ export default function TradePage() {
           ),
         });
 
-  const handleAccountSuccess = useCallback((sig: string) => {
-    setToast({ sig, error: null });
-  }, []);
-
-  const handleAccountError = useCallback((error: string) => {
-    setToast({ sig: '', error });
-  }, []);
+  const chartPanel = (
+    <PriceChart instrumentId={INSTRUMENT_ID} className="min-h-0 flex-1" />
+  );
+  const orderBook = (
+    <OrderBook
+      status={book.status}
+      ageSeconds={book.ageSeconds}
+      bids={bids}
+      asks={asks}
+      lastClear={market.lastClear}
+      ownPrices={ownPrices}
+      onSelectPrice={handleSelectPrice}
+      className="min-h-0 flex-1"
+    />
+  );
+  const renderOrderForm = (sideOverride: SidePreset | null = null) => (
+    <ReadinessChecklist
+      portfolio={portfolio}
+      loading={portfolioLoading}
+      error={portfolioError}
+    >
+      <OrderForm
+        oracle={market.oracle}
+        newExposurePaused={market.newExposurePaused}
+        withdrawableCollateral={portfolio?.freeCollateral ?? null}
+        market={market.market}
+        positionLots={portfolio ? (position?.qty ?? 0n) : null}
+        onSubmit={connected ? handleSubmit : undefined}
+        lifecycle={lifecycle}
+        priceOverride={priceOverride}
+        sideOverride={sideOverride}
+        portfolio={portfolio}
+        portfolioLoading={portfolioLoading}
+        className="flex-1"
+      />
+    </ReadinessChecklist>
+  );
+  const bottomTabsProps = {
+    status: systemStatus,
+    mark: market.lastClear,
+    oracle: market.oracle,
+  };
 
   return (
     <PageFrame>
-      <SystemStatus status={systemStatus} />
       <MarketHeader
         oracle={market.oracle}
         mark={market.lastClear}
         collectingBatchId={market.collectingBatchId}
       />
-      <div data-testid="trade-body" className="flex flex-1 min-h-0">
-        <div
-          data-testid="chart-section"
-          className="flex-[5] min-w-0 flex flex-col border-r border-border"
-        >
-          <PriceChart instrumentId={INSTRUMENT_ID} className="flex-1 min-h-0" />
-        </div>
-
-        <div
-          data-testid="orderbook-section"
-          className="flex-[2] min-w-0 flex flex-col border-r border-border"
-        >
-          <OrderBook
-            status={book.status}
-            ageSeconds={book.ageSeconds}
-            bids={bids}
-            asks={asks}
-            lastClear={market.lastClear}
-            ownPrices={ownPrices}
-            onSelectPrice={handleSelectPrice}
-            className="flex-1 min-h-0"
-          />
-        </div>
-
-        <div data-testid="orderform-section" className="flex-[2] min-w-0 flex flex-col p-2">
-          <ReadinessChecklist
-            portfolio={portfolio}
-            loading={portfolioLoading}
-            error={portfolioError}
-            onTxSuccess={handleAccountSuccess}
-            onTxError={handleAccountError}
+      {layout === null ? (
+        // Until the viewport is known; see useLayoutMode.
+        <div className="min-h-0 flex-1" />
+      ) : layout === 'phone' ? (
+        <>
+          <div
+            data-testid="trade-body"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
-            <OrderForm
-              oracle={market.oracle}
-              newExposurePaused={market.newExposurePaused}
-              batchGate={market.batchGate}
-              withdrawableCollateral={portfolio?.freeCollateral ?? null}
-              market={market.market}
-              positionLots={portfolio ? (position?.qty ?? 0n) : null}
-              onSubmit={connected ? handleSubmit : undefined}
-              lifecycle={lifecycle}
-              priceOverride={priceOverride}
-              portfolio={portfolio}
-              portfolioLoading={portfolioLoading}
-              onTxSuccess={handleAccountSuccess}
-              onTxError={handleAccountError}
-              className="flex-1"
+            <div
+              data-testid="chart-section"
+              className="flex h-[50dvh] shrink-0 flex-col border-b border-border"
+            >
+              {chartPanel}
+            </div>
+            <PhonePanels
+              book={
+                <div data-testid="orderbook-section" className="flex flex-col">
+                  {orderBook}
+                </div>
+              }
+              trades={
+                <div data-testid="phone-trades" className="text-xs text-text-muted">
+                  <TradeHistory
+                    instrumentId={INSTRUMENT_ID}
+                    indexerState={indexerState(systemStatus)}
+                  />
+                </div>
+              }
+              positions={<BottomTabs {...bottomTabsProps} />}
             />
-          </ReadinessChecklist>
+          </div>
+          <OrderDrawer>
+            {(preset) => (
+              <div data-testid="orderform-section" className="flex flex-col">
+                {renderOrderForm(preset)}
+              </div>
+            )}
+          </OrderDrawer>
+        </>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div data-testid="trade-body" className="flex min-h-0 flex-1">
+            {layout === 'tablet' ? (
+              <div className="flex min-w-0 flex-1 flex-col border-r border-border">
+                <div
+                  role="group"
+                  aria-label="Chart or book"
+                  className="flex shrink-0 gap-1 border-b border-border bg-surface-1 p-1"
+                >
+                  {(['chart', 'book'] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      aria-pressed={tabletView === view}
+                      onClick={() => setTabletView(view)}
+                      className={`rounded px-3 py-1 text-xs ${tabletView === view ? 'bg-surface-3 text-text' : 'text-text-muted hover:text-text'}`}
+                    >
+                      {view === 'chart' ? 'Chart' : 'Book'}
+                    </button>
+                  ))}
+                </div>
+                {/* Both stay mounted so switching never reloads the chart. */}
+                <div
+                  data-testid="chart-section"
+                  hidden={tabletView !== 'chart'}
+                  className="min-h-0 flex-1 flex-col [&:not([hidden])]:flex"
+                >
+                  {chartPanel}
+                </div>
+                <div
+                  data-testid="orderbook-section"
+                  hidden={tabletView !== 'book'}
+                  className="min-h-0 flex-1 flex-col [&:not([hidden])]:flex"
+                >
+                  {orderBook}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div
+                  data-testid="chart-section"
+                  className="flex min-w-0 flex-1 flex-col border-r border-border"
+                >
+                  {chartPanel}
+                </div>
+                <div
+                  data-testid="orderbook-section"
+                  className="flex w-[280px] shrink-0 flex-col border-r border-border"
+                >
+                  {orderBook}
+                </div>
+              </>
+            )}
+            <div
+              data-testid="orderform-section"
+              className="flex w-[320px] shrink-0 flex-col overflow-y-auto p-2"
+            >
+              {renderOrderForm()}
+            </div>
+          </div>
+          <BottomPanel {...bottomTabsProps} />
         </div>
-      </div>
-      <BottomTabs status={systemStatus} mark={market.lastClear} oracle={market.oracle} />
-      <StatusBar status={systemStatus} />
-      {toast && (
-        <TxToast
-          signature={toast.sig}
-          error={toast.error}
-          onDismiss={() => setToast(null)}
-        />
       )}
+      <StatusBar status={systemStatus}>
+        <SystemStatus status={systemStatus} />
+        <DemoNotice />
+      </StatusBar>
     </PageFrame>
   );
 }

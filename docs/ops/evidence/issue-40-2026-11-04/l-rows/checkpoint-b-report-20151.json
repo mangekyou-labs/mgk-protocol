@@ -1,0 +1,151 @@
+{
+  "cluster": "localnet",
+  "rpcUrl": "http://127.0.0.1:20151",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "dump/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "programDataAddress": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "dump/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "programDataAddress": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "dump/mgk_perps_matcher.so",
+      "sha256": "f3e1829749fbb467504dce8a59b53e5a266f15c5d66e3050097b43d1a485553b",
+      "programDataAddress": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH"
+    }
+  ],
+  "transactions": [
+    {
+      "label": "initialize",
+      "signature": "2EFT4LQUKVRedH7J9QfP7r717NhNY89Dzj3KUKVYhnm8bYGzTw8eNtWwKigmRBLB3picVAq7McYZLRSV1AbCiw9A",
+      "slot": 31,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "initialize book",
+      "signature": "64K6y7c5gRNvZ39kZY9N94sRhD8YEbuAEi1i6Qz2uwptCkrfen1yh57h3BbxQhJAjFqL7zYUue3Xjobu4P6bgne1",
+      "slot": 32,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "create batch",
+      "signature": "32Jru9em6xgeSSMbb5mjcus3yKytJDGx6YEwnSqp5wkz2VKPfDdPTp499CUeSoqp5WPNtyMgMrgnfD4dwt9ubC1h",
+      "slot": 33,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "top up insurance fund",
+      "signature": "4RHajzD6at71szkamuiqHy7J4p8raY7cU6UbUTpfsreYK5cUgN1XtbFFgHKjVkL868FDUHpaSFo2gs9aFYaGBmXm",
+      "slot": 34,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "3Qo7bUBoLJM921Y3wVZssDw6fsMsMiej7JfsnEbEgE9U8Fcn4aXy98kRFihfP78Ps8c1Dget3yKC64Uq6D7e1Mai",
+      "slot": 35,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "4JyZopp4itLahrTMnismBvnaDMGKm8MvJJYynKGTQVN9vrhnxYHayNFvNskUdNmKe59fzefrRyqupa8581YoXLc2",
+      "slot": 36,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 0",
+      "signature": "2ZjLgaZVHjy4xJhQhJLWV2e4QxG5PR2kfqssvF4gtjAMPboLfjZURUBZQdcYsUeMBKYJXGCVDHDgJHKLgABsHm1r",
+      "slot": 38,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 0",
+      "signature": "4YQGqwS6Z5eyEg3C9367AGEDdQvCRKC1pGbLihNyz2DYJqePGHXhANA3hUPNYYfAkx37tAGPa959mPzLen5TeTMm",
+      "slot": 39,
+      "err": null,
+      "invariants": "pass"
+    }
+  ],
+  "controls": [
+    {
+      "type": "oracle",
+      "address": "FDMMeBWE9jkHhWmsFrXjW5uaQ7tmZ6ebAeEuxbxhfQxU",
+      "price": "100000000",
+      "publishTime": "1793756838",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "FDMMeBWE9jkHhWmsFrXjW5uaQ7tmZ6ebAeEuxbxhfQxU",
+      "price": "100000000",
+      "publishTime": "1793756841",
+      "confidence": "12",
+      "active": true
+    }
+  ],
+  "marketSeeds": [
+    null
+  ],
+  "candidateCommit": "fabcd5a9ab5f4c5ca84da2348c0730c1121d0284",
+  "checkpointB": {
+    "rejections": [
+      {
+        "label": "P0-14 over-5x leverage post rejected",
+        "signature": "4no1PcRYQZ6g1kmVGC1C6Arjdes2Bxm69oKCfxosMNLJLgkS8ngvSq1Ygk3DB41AnvvD8rD8bDhdc3DFqgdJTTmE",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 4
+            }
+          ]
+        }
+      }
+    ],
+    "models": [
+      {
+        "label": "P0-14 leverage checks left balances at the model",
+        "model": {
+          "collateral": {
+            "8fHxAzkGp3VtqBm1AEZZX1eQkLv2cUn84P7kvBsgHcA7": "1000000000"
+          },
+          "fund": "20000000000",
+          "debt": "0",
+          "reserve": "0",
+          "open_interest": [
+            "0",
+            "0"
+          ],
+          "flags": 0,
+          "liability": "21000000000",
+          "above_rent": "21000000000",
+          "positions": {},
+          "realized_usd": {},
+          "realized_lamports": {},
+          "fees": {}
+        }
+      }
+    ],
+    "p0_14": {
+      "maxLeverage": "5",
+      "over5x": "4no1PcRYQZ6g1kmVGC1C6Arjdes2Bxm69oKCfxosMNLJLgkS8ngvSq1Ygk3DB41AnvvD8rD8bDhdc3DFqgdJTTmE"
+    }
+  }
+}

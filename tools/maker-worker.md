@@ -24,16 +24,22 @@ requires HTTPS and the devnet genesis hash. Legacy batch/book/portfolio override
 admin/oracle/keeper keys and role overrides are rejected. The current batch,
 book and maker portfolio are always derived from chain and canonical PDA seeds.
 
-Every two seconds the worker reads confirmed state through the frozen shared
+Every five seconds the worker reads confirmed state through the frozen shared
 layout decoders. It maintains 100 lots (0.1 SOL) at each of three levels on each
 side: 10, 20 and 30 basis points from the validated conversion price. Bids round
 down and asks round up in micro-USD. All six quotes post atomically, always with
 `isMaker=true`. It reuses a complete surviving ladder across batches and restarts.
-A moved price or partially filled ladder triggers one atomic cancel-and-replace,
+A ladder whose every level is within 5 bps of its target is kept. A larger price
+move or a partially filled ladder triggers one atomic cancel-and-replace,
 so old GTCs never stack with replacements. A failed/uncertain send is reconciled
 from the portfolio next tick; success is emitted only after error-free confirmed
 transaction status. The worker uses the existing legacy transaction adapter,
-simulates with signature verification and caps compute at 1,400,000 units.
+sends with confirmed preflight (which simulates the signed transaction) and caps
+compute at 1,400,000 units.
+
+RPC budget: a steady cycle is one batched read of the instrument, registry,
+portfolio, fee payer, oracle, vault and the expected current batch. A blockhash
+is reused for up to 20 seconds, and confirmation polls once a second.
 
 The oracle must have the configured owner, version, instrument binding and active
 flag, positive price, nonnegative confidence no greater than 1%, and age from zero
@@ -54,15 +60,17 @@ admission remain authoritative for concurrent changes. Operator monitoring uses
 `deployments/monitoring.json` (or `MONITORING_CONFIG`), including the 0.01 SOL
 fee floor. Below that floor it alerts and waits for a top-up.
 
-Before normal quoting, the worker scans core-owned portfolio accounts, validates
+Before normal quoting, at most once a minute (and again right after a
+liquidation), the worker scans core-owned portfolio accounts, validates
 their layout and canonical address, and reprices maintenance health at the same
 oracle. If liquidation is allowed and a portfolio is unhealthy, it atomically
 cancels its own quotes to release reservations and invokes the real permissionless
 `LiquidateUser` takeover. The program cancels victim orders and enforces 25% steps,
 initial margin, exposure, penalties and vault accounting. A simulation-rejected
-victim cannot starve others: the worker tries subsequent eligible portfolios. If
-none can be serviced, it cancels its quotes, alerts `liquidation_capacity`, and
-waits for capital or exposure capacity. It never advances a batch; the keeper
+victim cannot starve others: the worker simulates each takeover and tries
+subsequent eligible portfolios. If none can be serviced, it cancels its quotes,
+alerts `liquidation_capacity`, and stays withdrawn until a later scan finds no
+unserviceable victim. It never advances a batch; the keeper
 continues to own clear and settle.
 
 Structured JSON contains statuses such as `quoted`, `resting`, `liquidated`,
