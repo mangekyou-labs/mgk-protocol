@@ -27,7 +27,7 @@ function createIndexerService(runtime, { programs, accounts, startSlot, name, pr
       child = await runtime.launchWorker(process.execPath,
         [...args, resolve(__dirname, '../../mgk-frontend/apps/indexer/dist/main.js')], {
           env: { DEPLOYMENT_MANIFEST: manifestPath, MONITORING_CONFIG: monitoringPath,
-            DB_PATH: dbPath, PORT: String(port), HOST: '127.0.0.1', LOG_LEVEL: logLevel, ...env },
+            DB_PATH: dbPath, PORT: String(port), HOST: '127.0.0.1', LOG_LEVEL: logLevel, STATUS_CACHE_MS: '0', ...env },
         });
       const capture = chunk => { output = (output + chunk).slice(-8000); };
       child.stdout.on('data', capture); child.stderr.on('data', capture);
