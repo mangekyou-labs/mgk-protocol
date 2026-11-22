@@ -539,6 +539,11 @@ pub fn process_dfba_clear_in(
         }
         let mut book_data = book_account.try_borrow_mut_data()?;
         let state = book_state_from_bytes_mut(&mut book_data)?;
+        // Drop fully filled orders left linked by earlier clears so they
+        // stop showing as book depth and holding level and order slots.
+        if book_account.is_writable() {
+            crate::state::prune_filled(state);
+        }
         let live = state.resting[..state.resting_count]
             .iter()
             .filter(|r| r.qty > r.filled_qty && r.order_id != u64::MAX)
@@ -731,18 +736,7 @@ fn append_alloc_fills(
 }
 
 fn apply_one_fill_to_book(state: &mut crate::state::BookState, order_id: u64, fill_qty: u64) {
-    if fill_qty == 0 {
-        return;
-    }
-    for i in 0..state.resting_count {
-        if state.resting[i].order_id == order_id {
-            let r = &mut state.resting[i];
-            let rem = r.qty.saturating_sub(r.filled_qty);
-            let f = fill_qty.min(rem);
-            r.filled_qty = r.filled_qty.saturating_add(f);
-            break;
-        }
-    }
+    crate::state::apply_fill(state, order_id, fill_qty);
 }
 
 #[allow(dead_code)]
@@ -751,18 +745,7 @@ fn apply_dfba_fills_to_book(
     dual: &crate::state::DualAuctionResult,
 ) {
     let apply = |state: &mut crate::state::BookState, order_id: u64, fill_qty: u64| {
-        if fill_qty == 0 {
-            return;
-        }
-        for i in 0..state.resting_count {
-            if state.resting[i].order_id == order_id {
-                let r = &mut state.resting[i];
-                let rem = r.qty.saturating_sub(r.filled_qty);
-                let f = fill_qty.min(rem);
-                r.filled_qty = r.filled_qty.saturating_add(f);
-                break;
-            }
-        }
+        crate::state::apply_fill(state, order_id, fill_qty);
     };
     for i in 0..dual.bid_alloc.maker_fill_count {
         let f = &dual.bid_alloc.maker_fills[i];
