@@ -1029,8 +1029,8 @@ mod tests {
         // Only user 1 maker can fill against residual after self cancel
         assert!(alloc.matched_qty > 0);
         assert!(alloc.matched_qty <= 50);
-        for i in 0..alloc.maker_fill_count {
-            assert_ne!(alloc.maker_fills[i].user, pk(9));
+        for f in alloc.maker_fills.iter().take(alloc.maker_fill_count) {
+            assert_ne!(f.user, pk(9));
         }
     }
 

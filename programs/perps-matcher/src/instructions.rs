@@ -551,8 +551,7 @@ pub fn process_dfba_clear_in(
         if live > MAX_SETTLEMENT_ORDERS {
             return Err(ProgramError::InvalidAccountData);
         }
-        for i in 0..state.resting_count {
-            let r = &state.resting[i];
+        for r in state.resting.iter().take(state.resting_count) {
             let rem = r.qty.saturating_sub(r.filled_qty);
             if rem == 0 || r.order_id == u64::MAX {
                 continue;
@@ -724,12 +723,10 @@ fn append_alloc_fills(
             Ok(())
         };
 
-    for i in 0..alloc.maker_fill_count {
-        let f = &alloc.maker_fills[i];
+    for f in alloc.maker_fills.iter().take(alloc.maker_fill_count) {
         write_one(&f.user, f.order_id, f.fill_qty, true)?;
     }
-    for i in 0..alloc.taker_fill_count {
-        let f = &alloc.taker_fills[i];
+    for f in alloc.taker_fills.iter().take(alloc.taker_fill_count) {
         write_one(&f.user, f.order_id, f.fill_qty, false)?;
     }
     Ok(w as u16)
@@ -747,20 +744,16 @@ fn apply_dfba_fills_to_book(
     let apply = |state: &mut crate::state::BookState, order_id: u64, fill_qty: u64| {
         crate::state::apply_fill(state, order_id, fill_qty);
     };
-    for i in 0..dual.bid_alloc.maker_fill_count {
-        let f = &dual.bid_alloc.maker_fills[i];
+    for f in dual.bid_alloc.maker_fills.iter().take(dual.bid_alloc.maker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
-    for i in 0..dual.bid_alloc.taker_fill_count {
-        let f = &dual.bid_alloc.taker_fills[i];
+    for f in dual.bid_alloc.taker_fills.iter().take(dual.bid_alloc.taker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
-    for i in 0..dual.ask_alloc.maker_fill_count {
-        let f = &dual.ask_alloc.maker_fills[i];
+    for f in dual.ask_alloc.maker_fills.iter().take(dual.ask_alloc.maker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
-    for i in 0..dual.ask_alloc.taker_fill_count {
-        let f = &dual.ask_alloc.taker_fills[i];
+    for f in dual.ask_alloc.taker_fills.iter().take(dual.ask_alloc.taker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
 }
@@ -806,30 +799,26 @@ fn write_dfba_results(
 
     let mut w = 0usize;
     let bp = dual.bid_alloc.clearing_price;
-    for i in 0..dual.bid_alloc.maker_fill_count {
-        let f = &dual.bid_alloc.maker_fills[i];
+    for f in dual.bid_alloc.maker_fills.iter().take(dual.bid_alloc.maker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, bp, true, 0);
             w += 1;
         }
     }
-    for i in 0..dual.bid_alloc.taker_fill_count {
-        let f = &dual.bid_alloc.taker_fills[i];
+    for f in dual.bid_alloc.taker_fills.iter().take(dual.bid_alloc.taker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, bp, false, 0);
             w += 1;
         }
     }
     let ap = dual.ask_alloc.clearing_price;
-    for i in 0..dual.ask_alloc.maker_fill_count {
-        let f = &dual.ask_alloc.maker_fills[i];
+    for f in dual.ask_alloc.maker_fills.iter().take(dual.ask_alloc.maker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, ap, true, 1);
             w += 1;
         }
     }
-    for i in 0..dual.ask_alloc.taker_fill_count {
-        let f = &dual.ask_alloc.taker_fills[i];
+    for f in dual.ask_alloc.taker_fills.iter().take(dual.ask_alloc.taker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, ap, false, 1);
             w += 1;
