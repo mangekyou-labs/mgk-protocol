@@ -105,6 +105,8 @@ test('onboard, deposit, post, cancel, await settlement, settle, close and withdr
   await page.getByRole('button', { name: 'Close long 0.100 SOL', exact: true }).click();
   await expect(page.getByLabel('Reduce only')).toBeChecked();
   await expect(page.getByLabel('Size (SOL)', { exact: true })).toHaveValue('0.100');
+  // A readiness re-check can remount the form and clear the typed price; set it for the close.
+  await page.getByLabel('Price (USD)', { exact: true }).fill('100');
   await expect(submit).toBeEnabled();
   await submit.click();
   await expect(page.getByTestId('order-lifecycle')).toContainText('Accepted');
@@ -171,6 +173,8 @@ for (const reason of ['wrong cluster', 'manifest mismatch'] as const) {
     market.manifestMismatch = reason === 'manifest mismatch';
     await page.goto('/trade');
     await expect(page.getByRole('heading', { name: 'Deposit collateral' })).toBeVisible();
+    // The panel's default fold flips once the portfolio loads; wait for it before toggling.
+    await expect(page.getByTestId('account-actions-summary')).toContainText('Collateral 1.00 SOL');
     await openAccountActions(page);
     await page.getByTestId('account-actions-amount').fill('0.1');
     await expect(page.getByTestId('account-actions-deposit')).toBeDisabled();

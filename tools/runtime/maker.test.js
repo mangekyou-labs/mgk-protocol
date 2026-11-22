@@ -280,11 +280,9 @@ for (const identity of [null, Keypair.generate()]) test(
       const data = (await runtime.account(book)).data;
       const decoded = decodeAccount("OrderBook", data);
       const found = [];
-      for (const levels of [
-        decoded.bids.slice(0, decoded.bidCount),
-        decoded.asks.slice(0, decoded.askCount),
-      ]) {
-        for (const level of levels) {
+      // Emptied levels are cleared in place, not compacted: walk every level.
+      for (const levels of [decoded.bids, decoded.asks]) {
+        for (const level of levels.filter((l) => l.orderCount > 0)) {
           let offset = level.firstOrderOffset;
           for (let i = 0; i < level.orderCount; i++) {
             const order = decodeStruct(
