@@ -26,8 +26,8 @@ function fixture(name, fields = {}) {
   }
   return data;
 }
-async function eventually(fn) {
-  const deadline = Date.now() + 20000;
+async function eventually(fn, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
   while (true) { try { return await fn(); } catch (e) { if (Date.now() > deadline) throw e; await sleep(100); } }
 }
 test('read-only service reports chain status on empty disk', { timeout: 120000 }, async t => {
@@ -67,7 +67,8 @@ test('read-only service reports chain status on empty disk', { timeout: 120000 }
     const request = JSON.parse(body);
     try {
       if (fault === 'rpc') throw new Error('RPC unavailable');
-      if (fault === 'blocks' && request.method === 'getBlocks') throw new Error('Temporary history outage');
+      // History replay walks signatures, then fetches each transaction.
+      if (fault === 'blocks' && ['getSignaturesForAddress', 'getTransaction'].includes(request.method)) throw new Error('Temporary history outage');
       const result = await runtime.rpc(request.method, request.params);
       res.end(JSON.stringify({jsonrpc:'2.0', id: request.id, result}));
     } catch (error) {res.end(JSON.stringify({jsonrpc:'2.0', id:request.id, error:{code:-32000, message:error.message}}));}
@@ -98,7 +99,8 @@ test('read-only service reports chain status on empty disk', { timeout: 120000 }
   assert.ok(observed.checks.indexer.lagSlots > 150);
   assert.equal(observed.lastIndexedSlot, null);
   fault = '';
-  await eventually(async () => {const s = await read(); assert.ok(s.lastIndexedSlot >= slot + 151);});
+  // Without new logs, the syncer only catches up on its 30 s fallback poll.
+  await eventually(async () => {const s = await read(); assert.ok(s.lastIndexedSlot >= slot + 151);}, 45000);
   for (const [age, severity] of [[30,'ok'], [31,'warn'], [60,'warn'], [61,'critical']]) {
     // Retry at the second boundary to avoid a clock tick invalidating the fixture.
     await eventually(async () => {
