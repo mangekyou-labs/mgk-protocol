@@ -175,12 +175,11 @@ impl Portfolio {
     }
 
     pub fn find_position(&self, instrument_id: u16) -> Option<(usize, &Position)> {
-        for i in 0..self.positions_len as usize {
-            if self.positions[i].instrument_id == instrument_id {
-                return Some((i, &self.positions[i]));
-            }
-        }
-        None
+        self.positions
+            .iter()
+            .take(self.positions_len as usize)
+            .enumerate()
+            .find(|(_, p)| p.instrument_id == instrument_id)
     }
 
     /// Signed position quantity in lots on `instrument_id`; 0 when flat.
