@@ -11,6 +11,10 @@
 //   node tools/gate/soak.js [--rpc URL] [--deployment deployments/devnet.json]
 //                           [--duration-ms 7200000] [--poll-ms 5000]
 //                           [--stuck-cleared-ms 120000] [--min-batches 700]
+//                           [--max-requests 5000] [--allow-keyed-rpc]
+// Defaults to the public devnet RPC and refuses a keyed URL (api-key=...)
+// unless --allow-keyed-rpc is given. Every request is counted; polling stops
+// at --max-requests and the audit has its own cap.
 // Prints a JSON verdict; exits 0 pass, 1 fail, 2 on usage or RPC errors.
 // The optional drive(pollIndex) hook runs on every poll so a caller can
 // supply workload (ticket #40's devnet run drives maker/taker activity
@@ -19,37 +23,67 @@
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
-const { readProtocolState, programsFrom, BATCH_STATUS } = require('../runtime/invariants');
+const { PublicKey } = require('@solana/web3.js');
+const { layouts, decodeAccount } = require('../../mgk-frontend/packages/layout');
+const { createMarketContext } = require('../market-context');
+const { readOnly, programsFrom, u64, BATCH_STATUS } = require('../runtime/invariants');
 const { auditDeployment } = require('../runtime/audit');
-const { jsonRpc } = require('../runtime/rpc');
+const { jsonRpc, createRequestBudget, isBudgetError, assertUnkeyedRpc, redactRpcUrl } = require('../runtime/rpc');
 
 const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_POLL_MS = 5000;
 const DEFAULT_STUCK_CLEARED_MS = 120000;
 const DEVNET = 'https://api.devnet.solana.com';
 const DEFAULT_DEPLOYMENT = resolve(__dirname, '../../deployments/devnet.json');
+// Hard request caps. At the 5 s default poll a 2 h observe-only soak makes
+// 2 requests x 1,440 polls; the audit needs two getProgramAccounts plus one
+// getMultipleAccounts per 100 batches.
+const DEFAULT_MAX_REQUESTS = 5000;
+const AUDIT_MAX_REQUESTS = 1000;
+const RPC_RETRIES = 3;
 
 const STATUS_NAME = new Map([
   [BATCH_STATUS.settled, 'settled'],
   [BATCH_STATUS.cleared, 'cleared'],
 ]);
 
-// One real observation of the deployment: every batch with its soak status
-// ('cleared' / 'settled' / 'other') plus the highest batch id seen.
-async function observeDeployment({ rpc, rpcUrl, programs, deployment = DEFAULT_DEPLOYMENT } = {}) {
-  const transport = rpc ?? jsonRpc(rpcUrl);
+// Batch PDAs read per poll: the current batch and the ones before it. At
+// the default 5 s poll this spans far more than one poll's worth of
+// batches, so no id can slip between polls unread.
+const DEFAULT_WINDOW = 10;
+
+// One light observation of the deployment: two getMultipleAccounts calls,
+// one for the registry and one for the last `window` batch PDAs. The full invariant read
+// (getProgramAccounts over every portfolio and batch) runs only once, in the
+// end-of-run audit; polling it every few seconds is what drained an RPC
+// plan on the 2026-11-21 run. A batch PDA that does not exist is simply not
+// listed, so runSoak reports it as missing.
+async function observeDeployment({ rpc, rpcUrl, programs, deployment = DEFAULT_DEPLOYMENT, window = DEFAULT_WINDOW } = {}) {
+  const transport = readOnly(rpc ?? jsonRpc(rpcUrl));
   const resolved = programs ?? programsFrom(JSON.parse(readFileSync(deployment, 'utf8')));
-  const snapshot = await readProtocolState(transport, resolved);
-  const batches = [...snapshot.batches.entries()]
-    .map(([id, item]) => ({
-      id: Number(id),
-      status: STATUS_NAME.get(Number(item.state.status)) ?? 'other',
-    }))
-    .sort((a, b) => a.id - b.id);
-  return {
-    currentBatchId: batches.length ? batches[batches.length - 1].id : null,
-    batches,
-  };
+  const core = new PublicKey(resolved.core);
+  const context = createMarketContext(core, resolved.marketSeed);
+  const registryOnly = await getAccounts(transport, [context.registry.toBase58()]);
+  if (!registryOnly[0]) throw new Error('registry account not found');
+  const counter = BigInt(decodeAccount('Registry', registryOnly[0]).batchIdCounter);
+  if (counter === 0n) return { currentBatchId: null, batches: [] };
+  const ids = [];
+  for (let id = counter - 1n; id >= 0n && ids.length < window; id--) ids.push(id);
+  const accounts = await getAccounts(transport,
+    ids.map(id => context.pda([Buffer.from('batch'), u64(id)], core)[0].toBase58()));
+  const batches = [];
+  accounts.forEach((data, index) => {
+    if (!data || data[0] !== layouts.Batch.discriminator) return;
+    const state = decodeAccount('Batch', data);
+    batches.push({ id: Number(ids[index]), status: STATUS_NAME.get(Number(state.status)) ?? 'other' });
+  });
+  batches.sort((a, b) => a.id - b.id);
+  return { currentBatchId: Number(counter - 1n), batches };
+}
+
+async function getAccounts(rpc, addresses) {
+  const result = await rpc('getMultipleAccounts', [addresses, { encoding: 'base64', commitment: 'confirmed' }]);
+  return result.value.map(value => value ? Buffer.from(value.data[0], 'base64') : null);
 }
 
 function normalizeViolations(result, error) {
@@ -100,6 +134,7 @@ async function runSoak({
         await drive(polls);
       } catch (error) {
         failures.push(`drive failed: ${error.message}`);
+        if (isBudgetError(error)) break;
       }
     }
     try {
@@ -143,6 +178,8 @@ async function runSoak({
       }
     } catch (error) {
       failures.push(`observe failed: ${error.message}`);
+      // A spent request budget ends polling; the audit still runs.
+      if (isBudgetError(error)) break;
     }
     if (now() - start >= durationMs) break;
     await sleep(pollMs);
@@ -181,9 +218,15 @@ function parseArgs(argv) {
     pollMs: DEFAULT_POLL_MS,
     stuckClearedMs: DEFAULT_STUCK_CLEARED_MS,
     minBatches: null,
+    maxRequests: DEFAULT_MAX_REQUESTS,
+    allowKeyedRpc: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (flag === '--allow-keyed-rpc') {
+      options.allowKeyedRpc = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined) throw new Error(`${flag}: missing value`);
     if (flag === '--rpc') options.rpc = value;
@@ -192,19 +235,28 @@ function parseArgs(argv) {
     else if (flag === '--poll-ms') options.pollMs = Number(value);
     else if (flag === '--stuck-cleared-ms') options.stuckClearedMs = Number(value);
     else if (flag === '--min-batches') options.minBatches = Number(value);
+    else if (flag === '--max-requests') options.maxRequests = Number(value);
     else throw new Error(`unknown argument ${flag}`);
     i++;
   }
   // About 700 batches at the 2 h default: one batch per 10 s of run.
   if (options.minBatches === null) options.minBatches = Math.floor(options.durationMs / 10000);
+  if (!Number.isInteger(options.maxRequests) || options.maxRequests <= 0) throw new Error('--max-requests must be a positive integer');
+  assertUnkeyedRpc(options.rpc, { allowKeyed: options.allowKeyedRpc });
   return options;
 }
 
 async function main(argv) {
   const options = parseArgs(argv);
+  // Polling and the end-of-run audit have separate caps, so a spent poll
+  // budget still leaves the audit its requests.
+  const pollBudget = createRequestBudget({ max: options.maxRequests });
+  const auditBudget = createRequestBudget({ max: AUDIT_MAX_REQUESTS });
+  const pollRpc = jsonRpc(options.rpc, { budget: pollBudget, retries: RPC_RETRIES });
+  const auditRpc = jsonRpc(options.rpc, { budget: auditBudget, retries: RPC_RETRIES });
   // Startup probe: an unreachable RPC is a usage/RPC error (exit 2, like
   // audit.js), not a soak failure. Mid-run observe errors stay failures.
-  await observeDeployment({ rpcUrl: options.rpc, deployment: options.deployment });
+  await observeDeployment({ rpc: pollRpc, deployment: options.deployment });
   // No drive hook here: ticket #40's devnet run supplies maker/taker
   // activity programmatically through runSoak's drive option.
   const verdict = await runSoak({
@@ -212,10 +264,11 @@ async function main(argv) {
     pollMs: options.pollMs,
     stuckClearedMs: options.stuckClearedMs,
     minBatches: options.minBatches,
-    observe: () => observeDeployment({ rpcUrl: options.rpc, deployment: options.deployment }),
-    audit: () => auditDeployment({ rpcUrl: options.rpc, deployment: options.deployment }),
+    observe: () => observeDeployment({ rpc: pollRpc, deployment: options.deployment }),
+    audit: () => auditDeployment({ rpc: auditRpc, deployment: options.deployment }),
   });
-  return { rpcUrl: options.rpc, deployment: options.deployment, ...verdict };
+  return { rpcUrl: redactRpcUrl(options.rpc), deployment: options.deployment, ...verdict,
+    requests: { poll: pollBudget.used, pollMax: pollBudget.max, audit: auditBudget.used, auditMax: auditBudget.max } };
 }
 
 if (require.main === module) {
@@ -237,4 +290,7 @@ module.exports = {
   DEFAULT_DURATION_MS,
   DEFAULT_POLL_MS,
   DEFAULT_STUCK_CLEARED_MS,
+  DEFAULT_MAX_REQUESTS,
+  AUDIT_MAX_REQUESTS,
+  RPC_RETRIES,
 };
