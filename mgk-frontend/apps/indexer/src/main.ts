@@ -17,6 +17,9 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const RPC_URL = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
 const DB_PATH = process.env.DB_PATH ?? 'mgk-indexer.db';
+// Status response cache; runtime tests set 0 to read the chain on every request.
+const STATUS_CACHE_MS = process.env.STATUS_CACHE_MS === undefined ? undefined : Number(process.env.STATUS_CACHE_MS);
+if (STATUS_CACHE_MS !== undefined && !(Number.isInteger(STATUS_CACHE_MS) && STATUS_CACHE_MS >= 0)) throw new Error('STATUS_CACHE_MS must be a non-negative integer');
 
 async function main(): Promise<void> {
   const app = Fastify({
@@ -61,7 +64,7 @@ async function main(): Promise<void> {
     getRuntimeHealth: () => syncer.getRuntimeHealth(),
     tracker: syncer.getHealthTracker(),
   });
-  await statusRoutes(app, {connection, store, manifest, monitoring});
+  await statusRoutes(app, {connection, store, manifest, monitoring, cacheMs: STATUS_CACHE_MS});
   await marketsRoutes(app, store);
   await candlesRoutes(app, store);
   await tradesRoutes(app, store);

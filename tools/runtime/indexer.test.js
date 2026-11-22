@@ -75,7 +75,7 @@ test('read-only service reports chain status on empty disk', { timeout: 120000 }
   proxy.listen(19897, '127.0.0.1'); await once(proxy, 'listening');
   t.after(() => proxy.close());
   const child = spawn(process.execPath, ['mgk-frontend/apps/indexer/dist/main.js'], {cwd: resolve('.'), env: {...process.env, RPC_URL: 'http://127.0.0.1:19897',
-    DEPLOYMENT_MANIFEST: join(directory, 'manifest.json'), MONITORING_CONFIG: join(directory, 'monitoring.json'), DB_PATH: join(directory, 'indexer.db'), PORT: '19400', LOG_LEVEL: 'error',
+    DEPLOYMENT_MANIFEST: join(directory, 'manifest.json'), MONITORING_CONFIG: join(directory, 'monitoring.json'), DB_PATH: join(directory, 'indexer.db'), PORT: '19400', LOG_LEVEL: 'error', STATUS_CACHE_MS: '0',
   }, stdio: ['ignore','pipe','pipe']});
   runtime.workers.add(child);
   let logs = ''; child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);

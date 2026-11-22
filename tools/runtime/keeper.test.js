@@ -291,8 +291,8 @@ for (const identity of [null, Keypair.generate()]) test(
       }
       return worker;
     };
-    const wait = async (predicate, workers = []) => {
-      const deadline = Date.now() + 30000;
+    const wait = async (predicate, workers = [], timeoutMs = 30000) => {
+      const deadline = Date.now() + timeoutMs;
       while (!(await predicate())) {
         assert.ok(
           Date.now() < deadline,
@@ -422,9 +422,11 @@ for (const identity of [null, Keypair.generate()]) test(
       owner: SystemProgram.programId,
       lamports: 2e9,
     });
+    // A starved keeper rechecks its balance every 30 s.
     await wait(
       async () => (await state(next, "Batch")).status === 3,
       [starved],
+      60000,
     );
     await stop(starved);
     runtime.report.keeper.feeStarvationRecovered = true;
