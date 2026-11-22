@@ -36,6 +36,7 @@ const { encodeInstruction } = require('../../mgk-frontend/packages/layout/instru
 const { loadManifest } = require('../../mgk-frontend/packages/layout/manifest');
 const { createMarketContext } = require('../market-context');
 const { LatencyRecorder } = require('./latency');
+const { jsonRpc, createRequestBudget, budgetedFetch, assertUnkeyedRpc } = require('../runtime/rpc');
 
 const ADMIN_PUBKEY = 'GBz4U7gb3nqALmtBBYajKgngFjbEsjPzM86X7ZADPwt4';
 const PERSONA_FILES = Object.freeze({
@@ -50,6 +51,15 @@ const D_ROWS = Object.freeze(['P0-1', 'P0-4', 'P0-5', 'P0-6', 'P0-7', 'P0-9', 'P
 const OTHER_D_ROWS = new Set(['P0-28', 'P0-30', 'P0-33', 'P0-35']);
 const DEFAULT_DEPLOYMENT = resolve(__dirname, '../../deployments/devnet.json');
 const DEFAULT_KEYS = join(homedir(), '.config/solana');
+// Hard cap on RPC requests per run (driver, observer and latency taker
+// together); the run stops when it is spent. A scripted taker order costs
+// roughly 40-60 requests (send, confirm and settle polling), so a 2 h soak
+// with a taker every minute needs about 9,000. The soak's end-of-run audit
+// has its own cap so a spent run budget still gets audited.
+const DEFAULT_MAX_REQUESTS = 15000;
+const AUDIT_MAX_REQUESTS = 1000;
+const RPC_RETRIES = 3;
+const CLEANUP_GRACE_REQUESTS = 300;
 // monitoringGreen rule: every /api/status check must be 'ok' except these.
 // Indexer lag is ignored by default because P0-33 measures chain-observed
 // latency and the indexer is not on the order path.
@@ -104,12 +114,18 @@ function parseArgs(argv) {
     driveEvery: 12,
     coldStartCmd: null,
     coldStartAt: null,
+    maxRequests: DEFAULT_MAX_REQUESTS,
+    allowKeyedRpc: false,
   };
   const modes = [];
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (BOOLEAN_FLAGS.has(flag)) {
       modes.push(BOOLEAN_FLAGS.get(flag));
+      continue;
+    }
+    if (flag === '--allow-keyed-rpc') {
+      options.allowKeyedRpc = true;
       continue;
     }
     const value = argv[i + 1];
@@ -128,6 +144,7 @@ function parseArgs(argv) {
     else if (flag === '--drive-every') options.driveEvery = Number(value);
     else if (flag === '--cold-start-cmd') options.coldStartCmd = value;
     else if (flag === '--cold-start-at') options.coldStartAt = Number(value);
+    else if (flag === '--max-requests') options.maxRequests = Number(value);
     else if (flag === '--monitoring-ignore') {
       options.monitoringIgnore = (value ?? '').split(',').map(name => name.trim()).filter(Boolean);
     } else throw new Error(`unknown argument ${flag}`);
@@ -138,6 +155,8 @@ function parseArgs(argv) {
   if (modes.length) options.mode = modes[0];
   if (!options.rpc) throw new Error('--rpc is required (this tool never defaults to a cluster)');
   if (!options.out) throw new Error('--out <evidence-dir> is required');
+  assertUnkeyedRpc(options.rpc, { allowKeyed: options.allowKeyedRpc });
+  if (!Number.isInteger(options.maxRequests) || options.maxRequests <= 0) throw new Error('--max-requests must be a positive integer');
   for (const id of options.rows) {
     if (id === 'P0-28') throw new Error('P0-28 is already proven on devnet; this tool does not run it');
     if (!D_ROWS.includes(id)) {
@@ -1651,17 +1670,25 @@ function createSoakDrive({ driver, persona, everyPolls = 12, depositLamports = R
   return drive;
 }
 
-async function runSoakMode({ driver, persona, options, log, soak = require('./soak'), audit = require('../runtime/audit') }) {
+async function runSoakMode({ driver, persona, options, log, budget, soak = require('./soak'), audit = require('../runtime/audit'),
+  rpcFor = (rpcBudget) => jsonRpc(options.rpc, { budget: rpcBudget, retries: RPC_RETRIES }) }) {
   mkdirSync(options.out, { recursive: true });
   const deployment = options.deployment;
   const drive = createSoakDrive({ driver, persona, everyPolls: options.driveEvery, log });
+  // The observer shares the run budget with the driver; the audit has its own.
+  const auditBudget = createRequestBudget({ max: AUDIT_MAX_REQUESTS });
+  const observeRpc = rpcFor(budget);
+  const auditRpc = rpcFor(auditBudget);
   const report = await soak.runSoak({
     durationMs: options.soakMs,
     pollMs: options.soakPollMs,
-    observe: () => soak.observeDeployment({ rpcUrl: options.rpc, deployment }),
-    audit: () => audit.auditDeployment({ rpcUrl: options.rpc, deployment }),
+    observe: () => soak.observeDeployment({ rpc: observeRpc, deployment }),
+    audit: () => audit.auditDeployment({ rpc: auditRpc, deployment }),
     drive,
   });
+  // Cleanup (withdrawing the taker's deposit) and the final wallet read get
+  // a small grace allowance past a spent budget so funds are never stranded.
+  budget?.extend(CLEANUP_GRACE_REQUESTS);
   let cleanup = null;
   const notes = [];
   try {
@@ -1670,8 +1697,10 @@ async function runSoakMode({ driver, persona, options, log, soak = require('./so
     notes.push(`cleanup failed: ${error.message}`);
   }
   const stats = await drive.stats();
+  const requests = { run: budget?.used ?? null, runMax: budget?.max ?? null, audit: auditBudget.used, auditMax: auditBudget.max };
   const pass = report.pass === true && stats.orders > 0;
-  log(`P0-35: ${pass ? 'pass' : 'fail'}; ${stats.orders} taker orders; SOL spent ${lamportsToSol(stats.spent)}`);
+  log(`P0-35: ${pass ? 'pass' : 'fail'}; ${stats.orders} taker orders; SOL spent ${lamportsToSol(stats.spent)}; ` +
+    `RPC requests ${requests.run}/${requests.runMax} run, ${requests.audit}/${requests.auditMax} audit`);
   const row = {
     id: 'P0-35',
     status: pass ? 'pass' : 'fail',
@@ -1679,11 +1708,12 @@ async function runSoakMode({ driver, persona, options, log, soak = require('./so
     batchIds: stats.batchIds,
     expected: 'end-of-run audit clean; no stuck Cleared batch; no missing batch; scripted taker active',
     observed: JSON.stringify(plain({ pass: report.pass, failures: report.failures ?? [], takerOrders: stats.orders, filled: stats.filled, skipped: stats.skipped })),
-    notes: [...notes, `SOL spent ${lamportsToSol(stats.spent)}`].join('\n'),
+    notes: [...notes, `SOL spent ${lamportsToSol(stats.spent)}`,
+      `RPC requests: ${requests.run}/${requests.runMax} run, ${requests.audit}/${requests.auditMax} audit`].join('\n'),
   };
-  writeJson(join(options.out, 'P0-35.json'), { row, report, stats, cleanup });
+  writeJson(join(options.out, 'P0-35.json'), { row, report, stats, cleanup, requests });
   mergeRows(options.out, [row]);
-  return { row, report, stats };
+  return { row, report, stats, requests };
 }
 
 function personaNames(options) {
@@ -1694,12 +1724,14 @@ function personaNames(options) {
 async function main(argv = process.argv.slice(2), { log = console.log, error = console.error, fetchImpl = globalThis.fetch } = {}) {
   let options;
   let driver;
+  let budget;
   try {
     options = parseArgs(argv);
     const manifest = loadManifest(JSON.parse(readFileSync(options.deployment, 'utf8')));
     options.manifest = manifest;
     const personas = loadPersonas({ dir: options.keys, names: personaNames(options), forbiddenPubkeys: [manifest.accounts.maker] });
-    const connection = new Connection(options.rpc, 'confirmed');
+    budget = createRequestBudget({ max: options.maxRequests });
+    const connection = new Connection(options.rpc, { commitment: 'confirmed', fetch: budgetedFetch(budget, fetchImpl) });
     driver = createDriver({ connection, manifest, personas, log });
   } catch (failure) {
     error(failure.message);
@@ -1724,11 +1756,13 @@ async function main(argv = process.argv.slice(2), { log = console.log, error = c
       });
       return result.row.status === 'pass' ? 0 : 1;
     }
-    const result = await runSoakMode({ driver, persona, options, log });
+    const result = await runSoakMode({ driver, persona, options, log, budget });
     return result.row.status === 'pass' ? 0 : 1;
   } catch (failure) {
     error(failure.message);
     return /^(Refusing|refusing|genesis|manifest|deployment|scoped)/.test(failure.message) ? 2 : 1;
+  } finally {
+    if (budget) log(`RPC requests used: ${budget.used}/${budget.max}`);
   }
 }
 
@@ -1741,6 +1775,7 @@ module.exports = {
   PERSONA_FILES,
   D_ROWS,
   DEFAULT_MONITORING_IGNORE,
+  DEFAULT_MAX_REQUESTS,
   ROW_DEPOSIT,
   loadPersonas,
   parseArgs,
@@ -1760,6 +1795,7 @@ module.exports = {
   runRows,
   runLatency,
   createSoakDrive,
+  runSoakMode,
   mergeRows,
   main,
 };

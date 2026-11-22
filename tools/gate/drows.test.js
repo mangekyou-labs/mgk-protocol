@@ -550,3 +550,44 @@ test('checkFees credits the fund with fees minus realized PnL rounding dust', ()
   drows.checkFees(strict, 'close', result);
   assert.equal(strict.pass, false);
 });
+
+test('parseArgs caps RPC requests and refuses a keyed RPC URL unless allowed', () => {
+  const base = ['--deployment', 'd.json', '--keys', '/keys', '--out', '/ev', '--soak'];
+  const options = drows.parseArgs(['--rpc', 'https://api.devnet.solana.com', ...base]);
+  assert.equal(options.maxRequests, drows.DEFAULT_MAX_REQUESTS);
+  assert.equal(drows.parseArgs(['--rpc', 'https://api.devnet.solana.com', ...base, '--max-requests', '900']).maxRequests, 900);
+  assert.throws(() => drows.parseArgs(['--rpc', 'https://api.devnet.solana.com', ...base, '--max-requests', '0']), /--max-requests/);
+  const keyed = 'https://devnet.helius-rpc.com/?api-key=abc123';
+  assert.throws(() => drows.parseArgs(['--rpc', keyed, ...base]), /keyed RPC/);
+  assert.equal(drows.parseArgs(['--rpc', keyed, ...base, '--allow-keyed-rpc']).allowKeyedRpc, true);
+});
+
+test('runSoakMode observes and audits on separate request budgets and records the counts', async () => {
+  const { mkdtempSync, readFileSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+  const { createRequestBudget } = require('../runtime/rpc');
+  const fake = takerDriver();
+  const out = mkdtempSync(join(tmpdir(), 'soak-mode-'));
+  const budget = createRequestBudget({ max: 50 });
+  const budgets = [];
+  const rpcFor = b => { budgets.push(b); return async () => { b.take(); return null; }; };
+  const soak = {
+    runSoak: async ({ observe, audit, drive }) => {
+      await drive(1);
+      await observe();
+      await audit();
+      return { pass: true, failures: [] };
+    },
+    observeDeployment: async ({ rpc }) => { await rpc('getMultipleAccounts'); await rpc('getMultipleAccounts'); },
+  };
+  const audit = { auditDeployment: async ({ rpc }) => { await rpc('getProgramAccounts'); } };
+  const options = { out, deployment: 'd.json', rpc: 'https://api.devnet.solana.com', driveEvery: 1, soakMs: 1, soakPollMs: 1 };
+  const result = await drows.runSoakMode({ driver: fake.driver, persona: fake.taker, options, log: () => {}, budget, soak, audit, rpcFor });
+  assert.equal(budgets[0], budget);
+  assert.notEqual(budgets[1], budget);
+  assert.deepEqual(result.requests, { run: 2, runMax: 50 + 300, audit: 1, auditMax: 1000 });
+  assert.equal(result.row.status, 'pass');
+  assert.match(result.row.notes, /RPC requests: 2\/350 run, 1\/1000 audit/);
+  assert.deepEqual(JSON.parse(readFileSync(join(out, 'P0-35.json'), 'utf8')).requests, result.requests);
+});
