@@ -1,0 +1,24 @@
+{
+  "label": "stall-maker",
+  "observedAt": "2026-11-23T10:57:37.506Z",
+  "slot": 525408028,
+  "user": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+  "amount": "1",
+  "simulateOnly": true,
+  "err": {
+    "InstructionError": [
+      0,
+      {
+        "Custom": 602
+      }
+    ]
+  },
+  "customCode": 602,
+  "logs": [
+    "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+    "Program log: Instruction: Withdraw",
+    "Program log: Error: Withdrawals are paused",
+    "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 21444 of 200000 compute units",
+    "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT failed: custom program error: 0x25a"
+  ]
+}

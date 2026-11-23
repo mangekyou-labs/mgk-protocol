@@ -1,0 +1,43 @@
+{
+  "byteSourceCommit": "aac36b5f141994af989d07208271f6f1eeece1f3",
+  "testSuiteCommit": "c913b5f31a2df46c484c3bfff660e0012391f2f2",
+  "deployedBytes": {
+    "source": "solana program dump -u devnet <program id> (solana-cli 3.1.13, read-only), 2026-11-23; executable image only, loader header excluded by the CLI",
+    "perps_core": {
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "deploymentSlot": 518135007,
+      "imageBytes": 261824,
+      "paddingBytes": 0,
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d"
+    },
+    "perps_matcher": {
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "deploymentSlot": 525019866,
+      "imageBytes": 86344,
+      "paddingBytes": 840,
+      "paddingZero": true,
+      "fullPayloadSha256": "21ecf2aa9e0432fe018c93a06a17450a8d475eecbb02d5e80f2c201cb58d81cc",
+      "sha256": "40a08570dc79186f7572dfc5448ab5286939dca29f999ced566beaf54d23ab32"
+    },
+    "oracle": {
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "deploymentSlot": 517922158,
+      "imageBytes": 13808,
+      "paddingBytes": 0,
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a"
+    }
+  },
+  "buildEvidence": [
+    "solana program dump -u devnet (solana-cli 3.1.13, read-only) for all three programs: core 261,824 B sha256 efa55357..., oracle 13,808 B sha256 022f61b9..., matcher 87,184 B sha256 21ecf2aa... (full payload); first 86,344 B sha256 40a08570... with the trailing 840 bytes all zero",
+    "Core and oracle are byte-identical to the 2026-11-04 evidence (same deployment slots); only the matcher was upgraded (PR #79, slot 525019866)",
+    "Reproducibility cross-check: a clean cargo build-sbf --tools-version v1.52 at aac36b5 reproduces all three deployed image hashes byte-for-byte",
+    "Source drift: git diff aac36b5..c913b5f -- programs is non-empty (PR #81, clippy needless_range_loop rewrites in perps-core liquidation.rs/portfolio.rs and perps-matcher instructions.rs/dfba.rs). Those changes are NOT deployed; this sign-off covers the aac36b5 bytecode only, and any deploy of c913b5f or later needs a fresh gate run",
+    "Candidate manifest (candidate.json) points the harness at the dumped bytes, not a local build; test suites run from c913b5f (feature-issue-40-integration tip)",
+    "Contract suites (node --test harness, invariants, audit, rpc, oracle-confidence, report, latency, soak): 86 passed, 0 failed",
+    "python3 -m unittest discover -s tools/gate -p 'test_*.py': 37 tests OK (independent reference model)",
+    "BPF_OUT_DIR=<dumped bytes> cargo +stable test -p mgk-perps-core --test lifecycle --features host-hash: 22 passed, 0 failed, 4 ignored (lifecycle.log; the first attempt in lrows.log exited 101 because the default toolchain, rustc 1.81, is too old to compile the test crate)",
+    "MGK_CANDIDATE_MANIFEST=<dumped-bytes manifest> runtime suites (smoke, book-init, indexer, keeper, maker, gate, checkpoint-b, market-isolation): 17 passed, 0 failed",
+    "Equivalence with 2026-11-04: after normalising ephemeral keys, signatures, timestamps and relative slot offsets, checkpoint reports 20101/20111/20131/20141/20151/20161 and the maker report are identical; 20121 and runtime-report differ only in slot offsets; the keeper report also differs in the order of one nondeterministic concurrency race (both outcomes valid)",
+    "No keypair file read, no transaction signed or sent to any public cluster, no deployment; all signing happened against ephemeral keypairs inside the offline local Surfpool runtime"
+  ]
+}

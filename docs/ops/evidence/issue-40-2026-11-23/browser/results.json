@@ -1,0 +1,497 @@
+{
+  "config": {
+    "argv": [
+      "~/.nvm/versions/node/v24.10.0/bin/node",
+      "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "playwright.truthfulness.config.ts"
+    ],
+    "configFile": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/playwright.truthfulness.config.ts",
+    "rootDir": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/e2e/truthfulness",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/e2e/truthfulness",
+        "testIgnore": [],
+        "testMatch": [
+          "*.spec.ts"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/truthfulness/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "lifecycle.spec.ts",
+      "file": "lifecycle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "onboard, deposit, post, cancel, await settlement, settle, close and withdraw",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 19164,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-22T11:19:29.357Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "evidence-scope",
+                      "contentType": "application/json",
+                      "body": "eyJzY29wZSI6ImNvbnRyb2xsZWQgVUkgZml4dHVyZXMgb25seTsgbm8gY2hhaW4gZXhlY3V0aW9uIG9yIGFjY291bnRpbmcgcHJvb2YiLCJiYXNlVVJMIjoiaHR0cHM6Ly9tZ2stZnJvbnRlbmQtcXh1aDVrZzlyLWdhZGlsbGFjZXJzLXByb2plY3RzLnZlcmNlbC5hcHAvIiwibWFuaWZlc3QiOnsibWFya2V0U2VlZCI6bnVsbCwibmFtZSI6ImRldm5ldC1zb2wtZGVtby1mcmVzaC1pZHMiLCJjbHVzdGVyIjoiZGV2bmV0IiwicHJvZ3JhbXMiOnsicGVycHNfY29yZSI6IjlncjFHRHJCRjhNUU1HU3NiSFluVU1Ua3Zwek5MQU5pUDVaSGhES0tBYURUIiwicGVycHNfbWF0Y2hlciI6IjY4TVFxZHVneFpRQTJGOEdhaGhXWkV1c1BuSGJyZkFYanFxMlY5VkN6OHRLIiwib3JhY2xlIjoiR0xBdTluNDhvcW5WUktITm9xZnBlazNrWnlHVUpUSlJQUUtvN21GM3FXbW0ifSwiYWNjb3VudHMiOnsicmVnaXN0cnkiOiI1QXFVQnBaU3RWYXpZMTJEUzRtWXExUFJXUDdoWTFWUEhIQXNReFNFQmJnSCIsImluc3RydW1lbnQiOiJpaDd2dmRBUmExOUFrMm5Lc3FxaEw0NllBY29vNHp0dlNFM2JtNkRDaEVCIiwib3JhY2xlIjoiQk1Da0ZCZU00UW53ZE5SdEh4U1ZuV2tSTlBTVjZhTnQ2bk1NRzRkdEJzZnAiLCJpbnN1cmFuY2UiOiI4TDhGRkJ5d2lXQmJKZHRweDRnMVNkY2htV2Ryb3RRYXh2YTZzSEVDV3ZGViIsIm1ha2VyIjoiRFBzMU5NM1RlUjlmOVdRQmdxclQyN2RtZjhGNERvSkpWeUJwcVQ1TkdyNG8ifSwic3RhcnRTbG90Ijo1MTc5NTkzMjksInJlYWR5Ijp0cnVlfX0="
+                    },
+                    {
+                      "name": "01-connected-not-ready",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/01-connected-not-ready-9bb9817a43bb1c2df23ce7481bdff340491e5fb2.png"
+                    },
+                    {
+                      "name": "01-connected-not-ready-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/01-connected-not-ready-trace-ca62bd6e2b88201333b2745c74f0d0ba3d246988.zip"
+                    },
+                    {
+                      "name": "02-deposited",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/02-deposited-6aef83bfc3aaeadb6a1f56a58e3b0c08ffca9ddf.png"
+                    },
+                    {
+                      "name": "02-deposited-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/02-deposited-trace-e1e37c73aaecdb24850c85cdf5d9682a3bc1c49f.zip"
+                    },
+                    {
+                      "name": "03-reloaded-chain-observation",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/03-reloaded-chain-observation-4f03910021f363da159f7c96d6199e3eee17d520.png"
+                    },
+                    {
+                      "name": "03-reloaded-chain-observation-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/03-reloaded-chain-observation-trace-c070ee34ed4dd667a08563e57c9e9decb1f6f066.zip"
+                    },
+                    {
+                      "name": "04-disabled-reason",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04-disabled-reason-be35b2be5f11c1d020c55d6a945f695703b1f4c4.png"
+                    },
+                    {
+                      "name": "04-disabled-reason-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04-disabled-reason-trace-b99f8810024f4e8d41f5ba0a5a44468f467a5c51.zip"
+                    },
+                    {
+                      "name": "04b-exposure-limit",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04b-exposure-limit-fa467f714ee650c4645fa0731266b79ab2fdc1a4.png"
+                    },
+                    {
+                      "name": "04b-exposure-limit-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04b-exposure-limit-trace-736c75fc610d28b716c6298d90175cd5189f6abd.zip"
+                    },
+                    {
+                      "name": "04c-margin-reason",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04c-margin-reason-5037f2d5716834a39b85469a60cdd7ba3a6a93f2.png"
+                    },
+                    {
+                      "name": "04c-margin-reason-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04c-margin-reason-trace-2b05d87ac2611262a2eab2f4233c164d0ee8bf37.zip"
+                    },
+                    {
+                      "name": "04d-approve-in-wallet",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04d-approve-in-wallet-fb7a5e8b2bfc68d26b0653088ac78c4e5d05b382.png"
+                    },
+                    {
+                      "name": "04d-approve-in-wallet-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04d-approve-in-wallet-trace-04a88c84b61492cd0dc3427722a9a224613c3a8e.zip"
+                    },
+                    {
+                      "name": "04e-confirming",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04e-confirming-56670e188efe3647b6914cee68546a80062e2818.png"
+                    },
+                    {
+                      "name": "04e-confirming-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/04e-confirming-trace-1ce21ed6bfe628de637952e07e1cd6d8806a1f60.zip"
+                    },
+                    {
+                      "name": "05-posted-resting",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/05-posted-resting-bdd3c88c6fda8ae28336a5c9fda189fdaf6914ba.png"
+                    },
+                    {
+                      "name": "05-posted-resting-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/05-posted-resting-trace-3f9ac2eaf3f3c0ff76365c98b880e115f05cdbc4.zip"
+                    },
+                    {
+                      "name": "06-cancelled",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/06-cancelled-c5c18ddba4c79816306879c2c2ea9b8fdaeab5f8.png"
+                    },
+                    {
+                      "name": "06-cancelled-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/06-cancelled-trace-1da3d73fe7c679235073555c83b71a4998859527.zip"
+                    },
+                    {
+                      "name": "07-filled-awaiting-settlement",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/07-filled-awaiting-settlement-1af7350e1634421ade23dc3d77e1284bae7fcb19.png"
+                    },
+                    {
+                      "name": "07-filled-awaiting-settlement-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/07-filled-awaiting-settlement-trace-ad59b8012f268ae5bd3153b5993ec26b92453296.zip"
+                    },
+                    {
+                      "name": "08-settled-position",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/08-settled-position-c48a51bb3b25dc740f1398df431587d64fdd1772.png"
+                    },
+                    {
+                      "name": "08-settled-position-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/08-settled-position-trace-45ee396e2efd41f3c56db18a623405da3ce96443.zip"
+                    },
+                    {
+                      "name": "09-close-posted-reduce-only",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/09-close-posted-reduce-only-e6bd015c03fc9a0ab1f13443f051168e0ef70d1c.png"
+                    },
+                    {
+                      "name": "09-close-posted-reduce-only-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/09-close-posted-reduce-only-trace-095a313424452a4afd5a89522ba58e5baf335c96.zip"
+                    },
+                    {
+                      "name": "10-close-awaiting-settlement",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/10-close-awaiting-settlement-5f0db51ca3d36162763c6aa3f9ab1caeb2024a4b.png"
+                    },
+                    {
+                      "name": "10-close-awaiting-settlement-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/10-close-awaiting-settlement-trace-fc25959f4cb89c0865ef099e87a0b81df05c4409.zip"
+                    },
+                    {
+                      "name": "11-closed",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/11-closed-54e017710814b8a4d28a9d9bad72d9c10443ec17.png"
+                    },
+                    {
+                      "name": "11-closed-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/11-closed-trace-6e9dfa821f8f0d65259715fd7b4a7481976a02b5.zip"
+                    },
+                    {
+                      "name": "12-withdrawn",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/12-withdrawn-e73008fdbb680d741f78d994df7f5b23f002041c.png"
+                    },
+                    {
+                      "name": "12-withdrawn-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-onboard-deposit--b45f6-t-settle-close-and-withdraw/attachments/12-withdrawn-trace-4fe8cd4a8263e32a5b4465b15ca0add696718ae9.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "1f1785dee40219527314-090bb28c7184ac24fbdb",
+          "file": "lifecycle.spec.ts",
+          "line": 10,
+          "column": 5
+        },
+        {
+          "title": "unknown prices and outages remain unavailable; pause and stale oracle explain disabled actions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 28148,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-22T11:19:48.809Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "evidence-scope",
+                      "contentType": "application/json",
+                      "body": "eyJzY29wZSI6ImNvbnRyb2xsZWQgVUkgZml4dHVyZXMgb25seTsgbm8gY2hhaW4gZXhlY3V0aW9uIG9yIGFjY291bnRpbmcgcHJvb2YiLCJiYXNlVVJMIjoiaHR0cHM6Ly9tZ2stZnJvbnRlbmQtcXh1aDVrZzlyLWdhZGlsbGFjZXJzLXByb2plY3RzLnZlcmNlbC5hcHAvIiwibWFuaWZlc3QiOnsibWFya2V0U2VlZCI6bnVsbCwibmFtZSI6ImRldm5ldC1zb2wtZGVtby1mcmVzaC1pZHMiLCJjbHVzdGVyIjoiZGV2bmV0IiwicHJvZ3JhbXMiOnsicGVycHNfY29yZSI6IjlncjFHRHJCRjhNUU1HU3NiSFluVU1Ua3Zwek5MQU5pUDVaSGhES0tBYURUIiwicGVycHNfbWF0Y2hlciI6IjY4TVFxZHVneFpRQTJGOEdhaGhXWkV1c1BuSGJyZkFYanFxMlY5VkN6OHRLIiwib3JhY2xlIjoiR0xBdTluNDhvcW5WUktITm9xZnBlazNrWnlHVUpUSlJQUUtvN21GM3FXbW0ifSwiYWNjb3VudHMiOnsicmVnaXN0cnkiOiI1QXFVQnBaU3RWYXpZMTJEUzRtWXExUFJXUDdoWTFWUEhIQXNReFNFQmJnSCIsImluc3RydW1lbnQiOiJpaDd2dmRBUmExOUFrMm5Lc3FxaEw0NllBY29vNHp0dlNFM2JtNkRDaEVCIiwib3JhY2xlIjoiQk1Da0ZCZU00UW53ZE5SdEh4U1ZuV2tSTlBTVjZhTnQ2bk1NRzRkdEJzZnAiLCJpbnN1cmFuY2UiOiI4TDhGRkJ5d2lXQmJKZHRweDRnMVNkY2htV2Ryb3RRYXh2YTZzSEVDV3ZGViIsIm1ha2VyIjoiRFBzMU5NM1RlUjlmOVdRQmdxclQyN2RtZjhGNERvSkpWeUJwcVQ1TkdyNG8ifSwic3RhcnRTbG90Ijo1MTc5NTkzMjksInJlYWR5Ijp0cnVlfX0="
+                    },
+                    {
+                      "name": "unknown-mark-is-not-zero",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/unknown-mark-is-not-zero-64b97916a09cc6c65c66cdf787e7fcf7eedab3f5.png"
+                    },
+                    {
+                      "name": "unknown-mark-is-not-zero-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/unknown-mark-is-not-zero-trace-9e3bcae8439f03322af50ba099e692b6b5cecd7e.zip"
+                    },
+                    {
+                      "name": "pause-reason",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/pause-reason-cdb6a007c245e8cede572b92c2addebcdf9bb519.png"
+                    },
+                    {
+                      "name": "pause-reason-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/pause-reason-trace-10da68493188a83e6e9a1267438eb2dac96e73aa.zip"
+                    },
+                    {
+                      "name": "stale-oracle",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/stale-oracle-5663e2dcdf3936f6ee78e39e24b360c180fd552a.png"
+                    },
+                    {
+                      "name": "stale-oracle-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/stale-oracle-trace-d2e3b66688e3f40fbc0c962317f3a518e5f65d66.zip"
+                    },
+                    {
+                      "name": "oracle-down-risk-unavailable",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/oracle-down-risk-unavailable-d7ce277ac628bebfe1f077ffc3e95d07e07beb65.png"
+                    },
+                    {
+                      "name": "oracle-down-risk-unavailable-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/oracle-down-risk-unavailable-trace-034a5968b53dc06c2b338785fb7e6b68a96c5782.zip"
+                    },
+                    {
+                      "name": "indexer-syncing",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/indexer-syncing-4daa20b824162b0d3c64f56c4b11efa25d959af9.png"
+                    },
+                    {
+                      "name": "indexer-syncing-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/indexer-syncing-trace-a4102cd6013b9561bc75810d890842fafc7d0b8e.zip"
+                    },
+                    {
+                      "name": "indexer-down",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/indexer-down-026278fa9e914d54b3e7360c3f1f7fb2c2020d58.png"
+                    },
+                    {
+                      "name": "indexer-down-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/indexer-down-trace-ab0f01c5bf60ccc21ae9d42217c33dc6d8dbfc68.zip"
+                    },
+                    {
+                      "name": "rpc-down-collateral-unknown",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/rpc-down-collateral-unknown-1f1bd970176b2e44c9d1c88cab45710768afc013.png"
+                    },
+                    {
+                      "name": "rpc-down-collateral-unknown-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-unknown-prices-a-47f81-le-explain-disabled-actions/attachments/rpc-down-collateral-unknown-trace-f736a43c335d53002d512bca0722e83378f8e9ac.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "1f1785dee40219527314-90f954540dac4b7b9b38",
+          "file": "lifecycle.spec.ts",
+          "line": 133,
+          "column": 5
+        },
+        {
+          "title": "wrong cluster blocks signing with an actionable reason",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1100,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-22T11:20:16.964Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "evidence-scope",
+                      "contentType": "application/json",
+                      "body": "eyJzY29wZSI6ImNvbnRyb2xsZWQgVUkgZml4dHVyZXMgb25seTsgbm8gY2hhaW4gZXhlY3V0aW9uIG9yIGFjY291bnRpbmcgcHJvb2YiLCJiYXNlVVJMIjoiaHR0cHM6Ly9tZ2stZnJvbnRlbmQtcXh1aDVrZzlyLWdhZGlsbGFjZXJzLXByb2plY3RzLnZlcmNlbC5hcHAvIiwibWFuaWZlc3QiOnsibWFya2V0U2VlZCI6bnVsbCwibmFtZSI6ImRldm5ldC1zb2wtZGVtby1mcmVzaC1pZHMiLCJjbHVzdGVyIjoiZGV2bmV0IiwicHJvZ3JhbXMiOnsicGVycHNfY29yZSI6IjlncjFHRHJCRjhNUU1HU3NiSFluVU1Ua3Zwek5MQU5pUDVaSGhES0tBYURUIiwicGVycHNfbWF0Y2hlciI6IjY4TVFxZHVneFpRQTJGOEdhaGhXWkV1c1BuSGJyZkFYanFxMlY5VkN6OHRLIiwib3JhY2xlIjoiR0xBdTluNDhvcW5WUktITm9xZnBlazNrWnlHVUpUSlJQUUtvN21GM3FXbW0ifSwiYWNjb3VudHMiOnsicmVnaXN0cnkiOiI1QXFVQnBaU3RWYXpZMTJEUzRtWXExUFJXUDdoWTFWUEhIQXNReFNFQmJnSCIsImluc3RydW1lbnQiOiJpaDd2dmRBUmExOUFrMm5Lc3FxaEw0NllBY29vNHp0dlNFM2JtNkRDaEVCIiwib3JhY2xlIjoiQk1Da0ZCZU00UW53ZE5SdEh4U1ZuV2tSTlBTVjZhTnQ2bk1NRzRkdEJzZnAiLCJpbnN1cmFuY2UiOiI4TDhGRkJ5d2lXQmJKZHRweDRnMVNkY2htV2Ryb3RRYXh2YTZzSEVDV3ZGViIsIm1ha2VyIjoiRFBzMU5NM1RlUjlmOVdRQmdxclQyN2RtZjhGNERvSkpWeUJwcVQ1TkdyNG8ifSwic3RhcnRTbG90Ijo1MTc5NTkzMjksInJlYWR5Ijp0cnVlfX0="
+                    },
+                    {
+                      "name": "wrong-cluster",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-wrong-cluster-bl-884a6-g-with-an-actionable-reason/attachments/wrong-cluster-50d905180d3e436ca4b31a1754ba93f1b52ee8d9.png"
+                    },
+                    {
+                      "name": "wrong-cluster-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-wrong-cluster-bl-884a6-g-with-an-actionable-reason/attachments/wrong-cluster-trace-19b767b65e729e7a5ba992425c47705ba6a45cde.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "1f1785dee40219527314-2179c5b79fa1d175a8a0",
+          "file": "lifecycle.spec.ts",
+          "line": 170,
+          "column": 7
+        },
+        {
+          "title": "manifest mismatch blocks signing with an actionable reason",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1047,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-22T11:20:18.069Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "evidence-scope",
+                      "contentType": "application/json",
+                      "body": "eyJzY29wZSI6ImNvbnRyb2xsZWQgVUkgZml4dHVyZXMgb25seTsgbm8gY2hhaW4gZXhlY3V0aW9uIG9yIGFjY291bnRpbmcgcHJvb2YiLCJiYXNlVVJMIjoiaHR0cHM6Ly9tZ2stZnJvbnRlbmQtcXh1aDVrZzlyLWdhZGlsbGFjZXJzLXByb2plY3RzLnZlcmNlbC5hcHAvIiwibWFuaWZlc3QiOnsibWFya2V0U2VlZCI6bnVsbCwibmFtZSI6ImRldm5ldC1zb2wtZGVtby1mcmVzaC1pZHMiLCJjbHVzdGVyIjoiZGV2bmV0IiwicHJvZ3JhbXMiOnsicGVycHNfY29yZSI6IjlncjFHRHJCRjhNUU1HU3NiSFluVU1Ua3Zwek5MQU5pUDVaSGhES0tBYURUIiwicGVycHNfbWF0Y2hlciI6IjY4TVFxZHVneFpRQTJGOEdhaGhXWkV1c1BuSGJyZkFYanFxMlY5VkN6OHRLIiwib3JhY2xlIjoiR0xBdTluNDhvcW5WUktITm9xZnBlazNrWnlHVUpUSlJQUUtvN21GM3FXbW0ifSwiYWNjb3VudHMiOnsicmVnaXN0cnkiOiI1QXFVQnBaU3RWYXpZMTJEUzRtWXExUFJXUDdoWTFWUEhIQXNReFNFQmJnSCIsImluc3RydW1lbnQiOiJpaDd2dmRBUmExOUFrMm5Lc3FxaEw0NllBY29vNHp0dlNFM2JtNkRDaEVCIiwib3JhY2xlIjoiQk1Da0ZCZU00UW53ZE5SdEh4U1ZuV2tSTlBTVjZhTnQ2bk1NRzRkdEJzZnAiLCJpbnN1cmFuY2UiOiI4TDhGRkJ5d2lXQmJKZHRweDRnMVNkY2htV2Ryb3RRYXh2YTZzSEVDV3ZGViIsIm1ha2VyIjoiRFBzMU5NM1RlUjlmOVdRQmdxclQyN2RtZjhGNERvSkpWeUJwcVQ1TkdyNG8ifSwic3RhcnRTbG90Ijo1MTc5NTkzMjksInJlYWR5Ijp0cnVlfX0="
+                    },
+                    {
+                      "name": "manifest-mismatch",
+                      "contentType": "image/png",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-manifest-mismatc-02882-g-with-an-actionable-reason/attachments/manifest-mismatch-238cc08717334699418240c66c15011dd7f78703.png"
+                    },
+                    {
+                      "name": "manifest-mismatch-trace",
+                      "contentType": "application/zip",
+                      "path": "/private/tmp/bt-aac36b5/mgk-frontend/apps/web/test-results/truthfulness/lifecycle-manifest-mismatc-02882-g-with-an-actionable-reason/attachments/manifest-mismatch-trace-ac97af17a2fe785f3a73c20b1b98b9935b81843c.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "1f1785dee40219527314-2a9ab6a2d706a1ec6420",
+          "file": "lifecycle.spec.ts",
+          "line": 170,
+          "column": 7
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-22T11:19:29.001Z",
+    "duration": 50238.427,
+    "expected": 4,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

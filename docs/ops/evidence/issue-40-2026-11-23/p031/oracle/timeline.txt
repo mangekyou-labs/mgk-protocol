@@ -1,0 +1,26 @@
+20261123T104039Z baseline ok oracle ok 10 maker ok {"bid":true,"ask":true} batch ok 9370 0 null indexer ok 9 true
+2026-11-23T10:40:40Z suspend oracle -> 202
+20261123T104101Z down warn oracle warn 32 maker ok {"bid":true,"ask":true} batch ok 9371 4 0 indexer ok 5 true
+20261123T104122Z down warn oracle warn 44 maker ok {"bid":true,"ask":true} batch ok 9372 0 4 indexer ok 38 true
+20261123T104142Z down critical oracle critical 69 maker ok {"bid":true,"ask":true} batch ok 9373 4 8 indexer ok 29 true
+20261123T104203Z down unparsable
+20261123T104435Z down unparsable
+20261123T105459Z down unparsable
+2026-11-23T10:56:04Z resume oracle -> 000
+20261123T105707Z recover critical oracle critical 998 maker ok {"bid":true,"ask":true} batch critical 9373 4 937 indexer ok 72 true
+2026-11-23T10:57:29Z resume oracle (manual retry) -> 202
+20261123T105728Z recover critical oracle critical 1020 maker ok {"bid":true,"ask":true} batch critical 9373 4 959 indexer ok 39 true
+20261123T105749Z recover critical oracle critical 1041 maker ok {"bid":true,"ask":true} batch critical 9373 4 980 indexer ok 125 true
+20261123T105810Z recover critical oracle critical 1054 maker ok {"bid":true,"ask":true} batch critical 9373 4 993 indexer ok 54 true
+20261123T105831Z recover critical oracle critical 1078 maker ok {"bid":true,"ask":true} batch critical 9373 4 1017 indexer ok 29 true
+20261123T105851Z recover critical oracle critical 1102 maker ok {"bid":true,"ask":true} batch critical 9373 4 1041 indexer ok 4 true
+20261123T105912Z recover critical oracle critical 1114 maker ok {"bid":true,"ask":true} batch critical 9373 4 1053 indexer ok 53 true
+20261123T105932Z recover critical oracle critical 1138 maker ok {"bid":true,"ask":true} batch critical 9373 4 1077 indexer ok 30 true
+20261123T105953Z recover ok oracle ok 7 maker ok {"bid":true,"ask":true} batch ok 9374 0 null indexer ok 4 true
+20261123T110013Z recover ok oracle ok 29 maker ok {"bid":true,"ask":true} batch ok 9375 4 1 indexer ok 2 true
+20261123T110034Z recover ok oracle ok 11 maker ok {"bid":true,"ask":true} batch ok 9377 0 null indexer ok 16 true
+20261123T110055Z recover ok oracle ok 3 maker ok {"bid":true,"ask":true} batch ok 9378 0 null indexer ok 4 true
+20261123T110115Z recover ok oracle ok 15 maker ok {"bid":true,"ask":true} batch ok 9379 0 4 indexer ok 37 true
+20261123T110136Z recover ok oracle ok 8 maker ok {"bid":true,"ask":true} batch ok 9381 0 null indexer ok 8 true
+20261123T110156Z recover ok oracle ok 12 maker ok {"bid":true,"ask":true} batch ok 9382 4 1 indexer ok 7 true
+2026-11-23T11:02:10Z recovery snapshots stopped early by operator (>=5 consecutive ok) to start maker drill

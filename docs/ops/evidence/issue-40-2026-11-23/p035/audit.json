@@ -1,0 +1,71 @@
+{
+  "row": "P0-35",
+  "kind": "standalone end-of-run audit",
+  "candidate": "aac36b5",
+  "rpc": "https://api.devnet.solana.com",
+  "startedAt": "2026-11-23T10:04:57.041Z",
+  "finishedAt": "2026-11-23T10:05:24.985Z",
+  "requestCap": 1000,
+  "slot": 525395009,
+  "accounts": {
+    "vault": "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+    "portfolios": 5,
+    "batches": 9321,
+    "results": 9321
+  },
+  "invariants": [
+    {
+      "name": "vault balance",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "per-auction signed base quantity sums to 0",
+      "status": "pass",
+      "evaluated": 494
+    },
+    {
+      "name": "fills never exceed eligible submitted size",
+      "status": "not evaluable",
+      "reason": "no cleared batch awaits settlement"
+    },
+    {
+      "name": "each receipt applied exactly once",
+      "status": "pass",
+      "evaluated": 9321
+    },
+    {
+      "name": "a valid reduce never increases exposure",
+      "status": "not evaluable",
+      "reason": "needs the state before and after the settling transaction"
+    },
+    {
+      "name": "no withdrawable balance is negative",
+      "status": "pass",
+      "evaluated": 2
+    }
+  ],
+  "checks": [
+    {
+      "name": "portfolio equity is never negative",
+      "status": "pass",
+      "evaluated": 5
+    },
+    {
+      "name": "vault collateral equals total portfolio equity",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "open interest equals settled positions",
+      "status": "pass",
+      "evaluated": 1
+    },
+    {
+      "name": "settled positions net to zero per instrument",
+      "status": "pass",
+      "evaluated": 1
+    }
+  ],
+  "violations": []
+}

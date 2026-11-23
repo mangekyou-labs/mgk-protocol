@@ -1,0 +1,30 @@
+{
+  "row": "P0-31",
+  "case": "maker missing depth (cancellation drill)",
+  "candidate": "aac36b5",
+  "method": "Render suspend of mgk-maker, then CancelAllRestingOrders signed by the demo maker key (DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o); no admin key",
+  "suspend": { "at": "2026-11-23T11:06:50Z", "http": 202 },
+  "cancel": {
+    "firstAttempt": "2026-11-23T11:07:16Z transient 602 (batch in Cleared), simulation only, nothing sent",
+    "signature": "w15AgEHLgWxYgqLz71VYhMBhHwRAjN7m1xbFrdtBpGWpmsHqHbGKPH1ydMJyvTY7vgdYT1jSzRn4PQR2qC7A7mN",
+    "confirmedSlot": 525410463,
+    "observedAt": "2026-11-23T11:07:20Z"
+  },
+  "detection": {
+    "statusCritical": "2026-11-23T11:07:31Z",
+    "secondsAfterCancel": 11,
+    "makerDepth": { "bid": false, "ask": false },
+    "otherChecks": "oracle, batch, indexer stayed ok throughout the hold",
+    "ui": "footer 'Protocol maker depth unavailable' (ui/maker-depth-unavailable-110801Z.jpg); book shows no maker quotes (ui/book-no-maker-quotes-110901Z.jpg)"
+  },
+  "resume": { "at": "2026-11-23T11:12:02Z", "http": 202, "renderAfter": "not_suspended (render-maker-after.json)" },
+  "recovery": {
+    "makerOk": "2026-11-23T11:12:43Z",
+    "secondsAfterResume": 41,
+    "makerDepth": { "bid": true, "ask": true },
+    "sustained": "ok for all following recovery snapshots through 11:22:33Z (30 snapshots) (one oracle warn at 11:15:12Z, age 32s, self-cleared)",
+    "ui": "both sides quoted, depth warning gone (ui/book-recovered-111915Z.jpg)"
+  },
+  "note": "A residual 0.10 x 0.010 bid is not the demo maker's and persisted through the drill. Process stop alone (maker-processstop/) leaves resting GTC depth ok, matching 2026-11-03.",
+  "result": "pass"
+}

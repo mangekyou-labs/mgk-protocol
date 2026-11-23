@@ -1,0 +1,6 @@
+preview: https://mgk-frontend-qxuh5kg9r-gadillacers-projects.vercel.app/trade (aac36b5)
+captured ~2026-11-23T10:57:45Z during oracle suspend; batch 9373 phase 4 age ~960s
+header: ORACLE · RISK $72.17 · stale 1033s
+notices (2):
+- Oracle stale or unavailable. On-chain price checks still apply.
+- Settlement delayed. Fills may await settlement; no settlement time is promised.

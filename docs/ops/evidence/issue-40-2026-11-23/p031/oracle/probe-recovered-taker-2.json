@@ -1,0 +1,24 @@
+{
+  "label": "recovered-taker-2",
+  "observedAt": "2026-11-23T11:01:21.418Z",
+  "slot": 525408960,
+  "user": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+  "amount": "1",
+  "simulateOnly": true,
+  "err": {
+    "InstructionError": [
+      0,
+      {
+        "Custom": 4
+      }
+    ]
+  },
+  "customCode": 4,
+  "logs": [
+    "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+    "Program log: Instruction: Withdraw",
+    "Program log: Error: Insufficient free collateral",
+    "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 22973 of 200000 compute units",
+    "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT failed: custom program error: 0x4"
+  ]
+}

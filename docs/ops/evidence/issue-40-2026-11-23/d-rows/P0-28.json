@@ -1,0 +1,100 @@
+{
+ "row": "P0-28",
+ "verdict": "pass",
+ "batchId": "7082",
+ "txsAfterResume": [
+  {
+   "signature": "Pp5Um9LVWYGEbDUzHQrhipks4e6mQ58hShwhKtwRAF14X7nc3FUHzCHH1rgP9QDcJKLiwYtf47MY32QkZ7EoDzj",
+   "slot": 525024988,
+   "err": null,
+   "feePayer": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+   "logs": [
+    "Program log: Instruction: SettleBatch",
+    "Program log: SettleBatch: next batch PDA created"
+   ]
+  }
+ ],
+ "log": [
+  {
+   "at": "2026-11-22T09:21:18.240Z",
+   "m": "qa payer",
+   "pubkey": "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+   "lamports": 225889516
+  },
+  {
+   "at": "2026-11-22T09:21:18.567Z",
+   "m": "keeper before",
+   "startedAt": "2026-11-22T07:08:59.283Z",
+   "lastCycleAt": "2026-11-22T09:21:16.726Z"
+  },
+  {
+   "at": "2026-11-22T09:21:19.068Z",
+   "m": "suspend requested",
+   "http": 202
+  },
+  {
+   "at": "2026-11-22T09:21:19.278Z",
+   "m": "keeper down",
+   "health": {
+    "http": 503
+   }
+  },
+  {
+   "at": "2026-11-22T09:21:31.138Z",
+   "m": "qa tick",
+   "status": "closed",
+   "batchId": "7082",
+   "signature": "4K1GRfFrz4fg7B6fqA5fTiAJdXkBDiKVckAEiYLETFYfGoHXk8R3yHM9fEVnhbRkdx5Cno3Ug6Q9f6EtpPzXeRwc"
+  },
+  {
+   "at": "2026-11-22T09:21:32.851Z",
+   "m": "qa tick",
+   "status": "cleared",
+   "batchId": "7082",
+   "signature": "3S3VDR3ELHiYNdaEHv4JV48tEH2CCkpLnAkZogboHx1rMNMUZ2Di6X2aLeKTsERT6wwF51tqm1UacxwfWumbxwte"
+  },
+  {
+   "at": "2026-11-22T09:21:32.936Z",
+   "m": "batch cleared, awaiting settle",
+   "batchId": "7082"
+  },
+  {
+   "at": "2026-11-22T09:21:33.982Z",
+   "m": "state at kill window",
+   "batchId": "7082",
+   "status": 4,
+   "registryCounter": "7083"
+  },
+  {
+   "at": "2026-11-22T09:21:54.120Z",
+   "m": "after hold",
+   "status": 4,
+   "registryCounter": "7083"
+  },
+  {
+   "at": "2026-11-22T09:21:54.451Z",
+   "m": "resume requested",
+   "http": 202
+  },
+  {
+   "at": "2026-11-22T09:22:15.802Z",
+   "m": "keeper back",
+   "startedAt": "2026-11-22T09:22:12.123Z",
+   "lastCycleAt": "2026-11-22T09:22:14.609Z"
+  },
+  {
+   "at": "2026-11-22T09:22:47.499Z",
+   "m": "verdict",
+   "verdict": "pass",
+   "batchId": "7082",
+   "batchStatus": 3,
+   "nextBatchId": "7083",
+   "nextBatchExists": true,
+   "nextBatchStatus": 3,
+   "registryCounterBefore": "7083",
+   "registryCounterAfter": "7086",
+   "successfulTxsOnBatchAfterResume": 1,
+   "failedTxsOnBatchAfterResume": 0
+  }
+ ]
+}

@@ -1,0 +1,845 @@
+[
+  {
+    "id": "P0-1",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [],
+    "signatures": [
+      "3HModfLKyJtfwMw1ktVTPSKGsV1VBXbgsa5uR56tMetxB9utfkHMCADFyHsYiDhNraxTTedvJDvyauGENZFHaAiS",
+      "38SdMixB2qyWBKXz9nHADNosaJ5D8pQX54SmbZ6jg1rtyYX9Qicg7XaomHc9E7CDTDa2K58wLckQfNhRcSy2Pm85"
+    ],
+    "preSnapshot": {
+      "slot": 525400977,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "qa": {
+          "wallet": "221434516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401005,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "qa": {
+          "wallet": "221424516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "deposit: wallet tx delta = -(amount + fee): -200005000\ndeposit: vault lamports tx delta = +amount: 200000000\ndeposit: collateral (equity) delta: 200000000\ndeposit: principal delta: 200000000\nreload (finalized): collateral survives: 200000000\nwithdraw 0.2 SOL: wallet tx delta = amount - fee: 199995000\nwithdraw 0.2 SOL: vault lamports tx delta = -amount: -200000000\nwithdraw 0.2 SOL: collateral delta: -200000000\nqa: wallet delta reconciles to the row's transactions: -10000\nno fills against non-persona orders: none",
+    "observed": "deposit: wallet tx delta = -(amount + fee): -200005000\ndeposit: vault lamports tx delta = +amount: 200000000\ndeposit: collateral (equity) delta: 200000000\ndeposit: principal delta: 200000000\nreload (finalized): collateral survives: 200000000\nwithdraw 0.2 SOL: wallet tx delta = amount - fee: 199995000\nwithdraw 0.2 SOL: vault lamports tx delta = -amount: -200000000\nwithdraw 0.2 SOL: collateral delta: -200000000\nqa: wallet delta reconciles to the row's transactions: -10000\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000010000 (fees 10000, portfolio rent 0, 2 transactions)"
+  },
+  {
+    "id": "P0-4",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [],
+    "signatures": [
+      "2sVPNd8HawFXg7TuFGfUVsXXk7KGAxsHbZw9zno4T9aBcc6vXfjQVTmNkK3V5uRcWj5W8DC2Ypeh8vPLnJgdgC9t",
+      "22rjKE8m2PRkrBxo7zK59KqZ7zmu48zjZJsSW811HVAnMQ1k9YQysZ4EYFdDJhcz9egY8tCfVZKdDo7dUcqZfgZW"
+    ],
+    "preSnapshot": {
+      "slot": 525401005,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "qa": {
+          "wallet": "221424516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401067,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "qa": {
+          "wallet": "221414516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "deposit: vault lamports tx delta: 5000000\nflat before withdraw: 0\nfree collateral positive: > 0\nover-withdraw (free + 1) rejects InsufficientFunds (simulation, not sent): 4\nwithdraw free: vault lamports tx delta = -free: -5000000\nwithdraw free: wallet tx delta = free - fee: 4995000\nwithdraw free: collateral delta: -5000000\nsecond withdrawal (1 lamport) rejects InsufficientFunds (simulation, not sent): 4\nqa: wallet delta reconciles to the row's transactions: -10000\nno fills against non-persona orders: none",
+    "observed": "deposit: vault lamports tx delta: 5000000\nflat before withdraw: 0\nfree collateral positive: 5000000\nover-withdraw (free + 1) rejects InsufficientFunds (simulation, not sent): 4\nwithdraw free: vault lamports tx delta = -free: -5000000\nwithdraw free: wallet tx delta = free - fee: 4995000\nwithdraw free: collateral delta: -5000000\nsecond withdrawal (1 lamport) rejects InsufficientFunds (simulation, not sent): 4\nqa: wallet delta reconciles to the row's transactions: -10000\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000010000 (fees 10000, portfolio rent 0, 2 transactions)"
+  },
+  {
+    "id": "P0-5",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [],
+    "signatures": [
+      "3sFeTyJk2gjif9x3LMLcSFeKFD9DZD1WAtLMKFB1kpSaKadMfx7MN3Q7wmpjczmZhYYFyES1yJji3RWhYTRmtysX",
+      "5tg2Yj5n7G6ocaFDzxZUpeUu7qbQzrj2NViihWAK81ydpMeZ1uqYxEFwwXVXn1tXyNVXRS61Kgmg4Z8rHxeifvPv",
+      "N1iFTxJMPsHVi2Tkgvcazip5eHEbB1X5QMG5EYBhpr51eb78fiaoFeYn2A4SMABnA9thKWnTjPo1gSTXmuVTGRg",
+      "49gkvN23rwGL71CeRnysfKwGY4381sjBGxa9obxmKpCrrNKxhorLHocU74mdRbAGdeqxj2LrQT1SL44tJTUHg1mR",
+      "2m4nzxTQnHq43pM58e8ELffWpa141BAnFiL7WQnpQUnspuZzx9kk4bZLJAKzhUeRJhdYTZqkXZGyCfkLrK2B8429"
+    ],
+    "preSnapshot": {
+      "slot": 525401071,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284263794",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8126",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6624",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401191,
+      "oraclePrice": "72205000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284238794",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8126",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6624",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "reservation delta = new order initial reserve: 200500\nreservation = reservation(1 lot, limit, conversion): 200500 or 200500\nwithdraw free + 1 rejects InsufficientFunds (simulation, not sent): 4\nwithdraw capped by the reservation: vault tx delta = -free: -4799500\nfree collateral excludes the reservation: equity >= 200500\ncancel releases the full reservation: 200500\nmaker: wallet delta reconciles to the row's transactions: -25000\nno fills against non-persona orders: none",
+    "observed": "reservation delta = new order initial reserve: 200500\nreservation = reservation(1 lot, limit, conversion): 200500\nwithdraw free + 1 rejects InsufficientFunds (simulation, not sent): 4\nwithdraw capped by the reservation: vault tx delta = -free: -4799500\nfree collateral excludes the reservation: 200500\ncancel releases the full reservation: 200500\nmaker: wallet delta reconciles to the row's transactions: -25000\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000025000 (fees 25000, portfolio rent 0, 5 transactions)"
+  },
+  {
+    "id": "P0-6",
+    "status": "fail",
+    "tier": "D",
+    "batchIds": [
+      "9329",
+      "9330",
+      "9331"
+    ],
+    "signatures": [
+      "2KyAwAfMXWasXshvKaX5qYcWUNu2yxxeL2LzyuPYXA3tnNqQD1nP2GUL23uwqybAdseqKU6ZKgQYADBXhV1EEHXj",
+      "3NiV2Mry9uhGn3oZ92rkLx3a6nhL6ohVmTQcdyTiYqUuP7DSCbfzk49P2uKCfHM3S52LTFjA8vkzwrqGnVL2LKAF",
+      "4kJajP9Vycg7aiEdkyjy4xVVVnEYa3yneRVvPvJX9WvLpfm8MEWtSF5F4YtUSUhJnZRaD7toCQVtiV5t2Sk2EhfK",
+      "49CuwkdTD3PHai1FbLRQYrB2pq5Q69VZsjkeRNF2jCQPK397rtS1dHjt6pwobgrE1nbUL5j2vYvAjCaMDpxwECud",
+      "YQpntQvpF52fWtU6modUrzdX51qjtJ5sfUsLnjxsgsPTLrtL3Xre32r6EXj3kk1XN2fGKbs87anuXgVmRGNDBgu",
+      "3ej49TeiArX25STJcSi5YcXUiYvFsq7bdeTABpMvbedP93QoAQ9qyfyVLHrp8UTZjQSmJApTYEFx5z2HnAX22ezk",
+      "5YDMp4ko9yh5fqmKn19uFaa16LtE4TT6YQYEiJxAM6HcFLTjivaabNaDFzS8z5SgCExi97iMsuwpaUF3iC4LbW2N",
+      "3N4857W65M9VWvYe8y9NA4GEW2RCkQG3BdMYaQxv1Up19TdVx84i97bcomgjMJWknyZaGxt227u1k6FRJzedyzrH",
+      "3hDqMW15CqcPFSsxr8hKQxrrinN1kXCLQGK8kSx9E4BBEFvd9yWZ4QzALejAqeVtnz3sm8DZoEaL5eKgvStLr7fT",
+      "2CuTkb8hSBqB8hzfAQENM22oAo8w2GjUzCqN9JsRKXQSjDvQAHmJ1ndv1zeGxWetFXCGxuZ8piwEAgpMC66kfWim"
+    ],
+    "preSnapshot": {
+      "slot": 525401195,
+      "oraclePrice": "72205000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284238794",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8126",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6624",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "365531803",
+          "portfolio": {
+            "equity": "14789727",
+            "principal": "15480118",
+            "freeCollateral": "14588309",
+            "reservedCollateral": "0",
+            "feesPaid": "252749",
+            "realizedLamports": "-437642",
+            "qty": "1",
+            "entry": {
+              "num": "72107035",
+              "den": "1"
+            },
+            "openOrders": []
+          }
+        },
+        "qa": {
+          "wallet": "221414516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401545,
+      "oraclePrice": "72260000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701759946",
+        "insuranceFund": "19999353569",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284188194",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8726",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-7224",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380305546",
+          "portfolio": {
+            "equity": "0",
+            "principal": "691375",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "255249",
+            "realizedLamports": "-436126",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "qa": {
+          "wallet": "221403715",
+          "portfolio": {
+            "equity": "0",
+            "principal": "3205",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "4004",
+            "realizedLamports": "799",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "P0-6 open: batch 9329 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nopen: taker fees = sum ceil(qty*price*5bps/conversion): 1500\nopen: insurance fund delta = taker fees - realized PnL: 1500\nopen: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\n[FAIL] open: taker long 2: 2\nopen: qa long 1: 1\nP0-6 partial close: batch 9330 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\npartial close: taker fees = sum ceil(qty*price*5bps/conversion): 1000\npartial close: insurance fund delta = taker fees - realized PnL: 549\npartial close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\npartial close: taker realized PnL positive (exact value model-checked): > 0\npartial close: qa realized PnL positive (exact value model-checked): > 0\nP0-6 full close: batch 9331 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nfull close: taker fees = sum ceil(qty*price*5bps/conversion): 500\nfull close: insurance fund delta = taker fees - realized PnL: 49\nfull close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\nfull close: maker flat: 0\n[FAIL] full close: taker flat: 0\npartial close: qa flat: 0\nmaker: wallet delta reconciles to the row's transactions: -50600\ntaker: wallet delta reconciles to the row's transactions: 14773743\nqa: wallet delta reconciles to the row's transactions: -10801\nno fills against non-persona orders: none",
+    "observed": "P0-6 open: batch 9329 matches the reference model: conversion 72210000\nopen: taker fees = sum ceil(qty*price*5bps/conversion): 1500\nopen: insurance fund delta = taker fees - realized PnL: 1500\nopen: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\n[FAIL] open: taker long 2: 3\nopen: qa long 1: 1\nP0-6 partial close: batch 9330 matches the reference model: conversion 72220000\npartial close: taker fees = sum ceil(qty*price*5bps/conversion): 1000\npartial close: insurance fund delta = taker fees - realized PnL: 549\npartial close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\npartial close: taker realized PnL positive (exact value model-checked): 652\npartial close: qa realized PnL positive (exact value model-checked): 199\nP0-6 full close: batch 9331 matches the reference model: conversion 72260000\nfull close: taker fees = sum ceil(qty*price*5bps/conversion): 500\nfull close: insurance fund delta = taker fees - realized PnL: 49\nfull close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\nfull close: maker flat: 0\n[FAIL] full close: taker flat: 1\npartial close: qa flat: 0\nmaker: wallet delta reconciles to the row's transactions: -50600\ntaker: wallet delta reconciles to the row's transactions: 14773743\nqa: wallet delta reconciles to the row's transactions: -10801\nno fills against non-persona orders: none",
+    "notes": "SOL spent -0.014712342 (fees 75000, portfolio rent 0, 10 transactions)"
+  },
+  {
+    "id": "P0-7",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [
+      "9334"
+    ],
+    "signatures": [
+      "WcZM4iZVMvbvgEQrmsyWZmnxRXGhNVyRvYuaaZETpkgXVV9q14LehfTBzTBSJDyqeBQobLbp2ALNtNb92LjYvXw",
+      "2uhpzk85H7L3b2j6GNrehFVQxC7AjwGwdjkgn7ezTm6faadpqzTYVa9UMiYncYzcnYqUBDxPmZzbPbcWELLf3k1g",
+      "siFWaBoiQimAJKFz8i9n1REhm8vWE6zoRhH6JxiVsZbUeFfhCqy4edaw6aj2Pe46cq5SPaUm9uF38hegX8NZtKM",
+      "49a9xDY3LKyTeGWE4mRH5fanhSDRkr2guBb9T5VaKuQpet3XNBtw5wEzpWttqVUVnVAmmfZniR94xhnbZyXNmQNM",
+      "3UjuBvAAsiALF3frqbrcfEysfWtnd73zeA2JB4uwSprQrVPq7f2Uj1VVi9KKfHwF2rpv7Xr83WeqpJVovbfU8FoP"
+    ],
+    "preSnapshot": {
+      "slot": 525401545,
+      "oraclePrice": "72260000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701759946",
+        "insuranceFund": "19999353569",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284188194",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8726",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-7224",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380305546",
+          "portfolio": {
+            "equity": "0",
+            "principal": "691375",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "255249",
+            "realizedLamports": "-436126",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401697,
+      "oraclePrice": "72310000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701760947",
+        "insuranceFund": "19999354570",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284178593",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8327",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6825",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380284146",
+          "portfolio": {
+            "equity": "0",
+            "principal": "692775",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "256249",
+            "realizedLamports": "-436526",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "P0-7 both auctions: batch 9334 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nbid auction clears at its own uniform price: 72245548\nask auction clears at its own uniform price: 72274452\nbid auction matched qty: 1\nask auction matched qty: 1\nfill #72000: maker flag by designation: true\nfill #71998: maker flag by designation: false\nfill #72001: maker flag by designation: true\nfill #71999: maker flag by designation: false\nmaker flat after both auctions: 0\ntaker flat after both auctions: 0\nmaker: wallet delta reconciles to the row's transactions: -9601\ntaker: wallet delta reconciles to the row's transactions: -21400\nno fills against non-persona orders: none",
+    "observed": "P0-7 both auctions: batch 9334 matches the reference model: conversion 72310000\nbid auction clears at its own uniform price: 72245548\nask auction clears at its own uniform price: 72274452\nbid auction matched qty: 1\nask auction matched qty: 1\nfill #72000: maker flag by designation: true\nfill #71998: maker flag by designation: false\nfill #72001: maker flag by designation: true\nfill #71999: maker flag by designation: false\nmaker flat after both auctions: 0\ntaker flat after both auctions: 0\nmaker: wallet delta reconciles to the row's transactions: -9601\ntaker: wallet delta reconciles to the row's transactions: -21400\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000031001 (fees 30000, portfolio rent 0, 5 transactions)"
+  },
+  {
+    "id": "P0-9",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [
+      "9337",
+      "9338",
+      "9339"
+    ],
+    "signatures": [
+      "3jm6EtCPNek5pDiytBDTS6JiuZi1wNFhF5LF7VNtMtHMeheDtr41ZVetav6qp97tqAPeBsRSk6zprFCiwSjSaTF3",
+      "2wwtyjGTuhEPWLrYtb5Bx4dRVwpzHGtKRexnV29UBbP8Ank9szeSPd79pdRjin598hnrZFucbrQ22BoKu3buJswN",
+      "uiEfujiNvM2sSMzKBDMfA7DkjkDPhcwZR44P2LVGWLAXirnFkYDaDhtU3qRsWGAVUmY1UCP2FNGamiKo3LNYDyU",
+      "3saGTEh9dDGVjsygAmwe13rvzC9voZizPzTeuPefXNYnnwv2qbTyKv48TDZ3vUpNjQuanLfNUDMwzoFf5NRA9xdL",
+      "4TfV6Kr1rABZPoNGZY8jAQ7UL1Bu2qQ51Jgao4zqdPyojssFP8kNLUFViX36sDqbA61W5BNaWx27BVDbS8p31wxw",
+      "4rDQeCQZ33ZMnJFSDKAzcwHJ71VJtek2Nz6YAymecGcDZ6NyozQV5vf1vsx4M8hiiJZZD52MyvNZbszZgfkMNXnu",
+      "61pMz3VMWE2w34K5S8uozAXUgKkjmWbC185BV3FEhMPTtMffk2CqCU4dRp2ZEDHNREfiKLTRyM1bjF4jRp5FD8Y8"
+    ],
+    "preSnapshot": {
+      "slot": 525401701,
+      "oraclePrice": "72310000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701760947",
+        "insuranceFund": "19999354570",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284178593",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8327",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6825",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380284146",
+          "portfolio": {
+            "equity": "0",
+            "principal": "692775",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "256249",
+            "realizedLamports": "-436526",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401989,
+      "oraclePrice": "72265000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701763948",
+        "insuranceFund": "19999357571",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284148593",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8327",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6825",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380266145",
+          "portfolio": {
+            "equity": "0",
+            "principal": "695776",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "259250",
+            "realizedLamports": "-436526",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "P0-9 partial fill: batch 9337 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nbatch 1: resting ask filled 1: 1\nbatch 1: filled + remaining = submitted: 3\nP0-9 next-batch fill: batch 9338 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nbatch 2: same order fills the remaining 2: 2\nbatch 2: one fill row for the order (no duplicate): 1\norder fully consumed: no remaining reservation\ntaker long 3 = 1 + 2 (no duplicate fill): 3\nclose taker: batch 9339 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nclose taker: flat: 0\nmaker: wallet delta reconciles to the row's transactions: -30000\ntaker: wallet delta reconciles to the row's transactions: -18001\nno fills against non-persona orders: none",
+    "observed": "P0-9 partial fill: batch 9337 matches the reference model: conversion 72310000\nbatch 1: resting ask filled 1: 1\nbatch 1: filled + remaining = submitted: 3\nP0-9 next-batch fill: batch 9338 matches the reference model: conversion 72310000\nbatch 2: same order fills the remaining 2: 2\nbatch 2: one fill row for the order (no duplicate): 1\norder fully consumed: checked\ntaker long 3 = 1 + 2 (no duplicate fill): 3\nclose taker: batch 9339 matches the reference model: conversion 72265000\nclose taker: flat: 0\nmaker: wallet delta reconciles to the row's transactions: -30000\ntaker: wallet delta reconciles to the row's transactions: -18001\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000048001 (fees 45000, portfolio rent 0, 7 transactions)"
+  },
+  {
+    "id": "P0-10",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [
+      "9342",
+      "9343"
+    ],
+    "signatures": [
+      "3EhBo3rkXZAgnxQGCXn6v5dS3MJF2GkVNAVBZ3mu3yATNffpxnh9ZvKZj1FEu1keBVob1PPpbobcP1HNRbMth7DG",
+      "4NzEHDY7Epy7TdamvLjPedEdijvAtkgge1hbH4G1zBaj3JaEFuw3EYurqW2Et5zCLFQhWtS9BqDzhJqDKV5ub2NR",
+      "5CeACfmkAUtrJgFph9ydc2XSqHWJ8dD9Dkc6HUytr93XDKgwSie8Q96PqR4PTq99GLc5GAPJMNWttfeJMa8K9gCK",
+      "651fZ3r9in2aw6ys8JHbEMh42jCfToQ1q6SCMd4W12wq3k3XPNaxWHpMb3kSTRcy1tPrmiQwFXVgZjUpLTDCHNe4",
+      "phyQ2RwWMnT9p1anBgTgTJPQZAbuzobe1vpHXijYRbb7CD3C3imNAV6oDZeXv236LSZG4uEEtZLfyG1RzDzJuMq",
+      "3JES2HsxincJcrvGx2KRkDSKJttRdQiwWDp8oJ6yrTtEKTFgxtNBhjVvwFjhiNL8htpRaBCpgwCXxocm6tL3zE5W",
+      "eEUdVTak2pywSWv79HN9LDfVtkNKQjEq5d5g1a6GAevRcz1vPngcivEDLuzD1aCeZgeZbpEWH9WT8LZW1k5XcX1",
+      "5i43bnXBoK1X4SpPcgxehxLCfFoNp5FyzrDckQSGcQKyuMXvnQSBSC8oMG6qXSyc3jZZrRSDiUeeuFtfBmJV2RUA",
+      "55wmFPxvLSWCtqM7Yj1B2rHugu2SfYEJ7Ps1E8mPL2qtzuNeAek78XkBhhedgMQz26xrroThY8wYnQ3fTq3CxXL1"
+    ],
+    "preSnapshot": {
+      "slot": 525401989,
+      "oraclePrice": "72265000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701763948",
+        "insuranceFund": "19999357571",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284148593",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8327",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6825",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380266145",
+          "portfolio": {
+            "equity": "0",
+            "principal": "695776",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "259250",
+            "realizedLamports": "-436526",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525402236,
+      "oraclePrice": "72170000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701764951",
+        "insuranceFund": "19999358574",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284103793",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8127",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6625",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380254942",
+          "portfolio": {
+            "equity": "0",
+            "principal": "696979",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "260252",
+            "realizedLamports": "-436727",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "cancel unfilled: full reservation released: 200500\nP0-10 partial fill: batch 9342 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\ncancel partial: reservation released pro rata (2 of 3): 401000\ncancel partial: settled fill untouched: 1\ncancel partial: maker long 1: 1\nclose taker: batch 9343 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nclose taker: flat: 0\nmaker: wallet delta reconciles to the row's transactions: -44800\ntaker: wallet delta reconciles to the row's transactions: -11203\nno fills against non-persona orders: none",
+    "observed": "cancel unfilled: full reservation released: 200500\nP0-10 partial fill: batch 9342 matches the reference model: conversion 72215000\ncancel partial: reservation released pro rata (2 of 3): 401000\ncancel partial: settled fill untouched: 1\ncancel partial: maker long 1: 1\nclose taker: batch 9343 matches the reference model: conversion 72170000\nclose taker: flat: 0\nmaker: wallet delta reconciles to the row's transactions: -44800\ntaker: wallet delta reconciles to the row's transactions: -11203\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000056003 (fees 55000, portfolio rent 0, 9 transactions)"
+  },
+  {
+    "id": "P0-12",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [
+      "9345",
+      "9346",
+      "9347",
+      "9348",
+      "9349"
+    ],
+    "signatures": [
+      "441FTjWf8aSxoF29MUjMRbpjTPhfsAEaFxnik1LADEMcCX4bcc8g8XxUkUSKBitdKmZi78SA8gbjr3G2AUkVQpgT",
+      "3NtAtms4SjcKtdiQ17RqemsV216noDY7sWxVc7JttwgRuz98MbqsDJd426XADxw9aXXwgdP9iuhxP9EZJjbSx4vk",
+      "5SrQ8dRbTGpX6eN7uws1GmMWtnmuMRE9jLbC7Qa4ZGahbCDTGMvf45H94far3K5B5VDip23Bw5csBXnXopRva4dz",
+      "fYuuVseVsH6RDG9g7Pq1c7HcxXk3tYJ2hx1D3GBK4BRb98oQXwP6uYLgCxff5aVtC7yxqAUmrE7LAN2bxtff53N",
+      "5RHDnwjCcf7k2hT7zQ8auBLQZua2QtjTKJ2JrURHje9dfUeQERqEfYe2hH4c2nmbU1HMeCZdHM27Pm7YMyjEadpR",
+      "4nz1WirmBf5NoVZ9EKBqdFXjGkBbsvDDRpWZsjRJG2CVpDqU7cea12t5FWzCTYvaZbkpHfucE3RuHV5LrMWF4y6F",
+      "4T8L72oSGyRz3HgC2qh5PZXaePcRsQRxpWdPoFN4AHjb3oo7EtZmsfWLkNmH4vNrTyfyoCwwpf9ma8EuH9psnGsF",
+      "uDJPcFUjDFZ8zBRmeee4DhLMKxxqmtmkJKqj7uCWhBCs31kk2H8t7qxBjvDgdjy3jiwPwUeygNomrv9vkqarApZ",
+      "5QpDxyVSKD8rczfD9w4hRpp4UmDrResVaoPyjGdD8p96fZP49Mu7Duy3Yoqx1rg6uauLuLFUzjVdDJfz8BaB5GEa"
+    ],
+    "preSnapshot": {
+      "slot": 525402236,
+      "oraclePrice": "72170000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701764951",
+        "insuranceFund": "19999358574",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284103793",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8127",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6625",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380254942",
+          "portfolio": {
+            "equity": "0",
+            "principal": "696979",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "260252",
+            "realizedLamports": "-436727",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525402575,
+      "oraclePrice": "72235000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701767957",
+        "insuranceFund": "19999361580",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284043991",
+          "portfolio": {
+            "equity": "0",
+            "principal": "7929",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6427",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380241738",
+          "portfolio": {
+            "equity": "0",
+            "principal": "700183",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "263255",
+            "realizedLamports": "-436928",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "P0-12 open: batch 9345 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nP0-12 add: batch 9346 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nadd: weighted entry = (px1 + px2) / 2: 144354434/2\nP0-12 partial close: batch 9347 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\npartial close: entry unchanged: 72177217\npartial close: long 1: 1\nP0-12 flip: batch 9348 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nflip: short 1: -1\nflip: new entry = flip fill price: 72155566\nP0-12 full close: batch 9349 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nfull close: flat: 0\nfull close: flat position deleted: 0\nmaker: wallet delta reconciles to the row's transactions: -59802\ntaker: wallet delta reconciles to the row's transactions: -13204\nno fills against non-persona orders: none",
+    "observed": "P0-12 open: batch 9345 matches the reference model: conversion 72165000\nP0-12 add: batch 9346 matches the reference model: conversion 72165000\nadd: weighted entry = (px1 + px2) / 2: 72177217/1\nP0-12 partial close: batch 9347 matches the reference model: conversion 72175000\npartial close: entry unchanged: 72177217\npartial close: long 1: 1\nP0-12 flip: batch 9348 matches the reference model: conversion 72175000\nflip: short 1: -1\nflip: new entry = flip fill price: 72155566\nP0-12 full close: batch 9349 matches the reference model: conversion 72235000\nfull close: flat: 0\nfull close: flat position deleted: 0\nmaker: wallet delta reconciles to the row's transactions: -59802\ntaker: wallet delta reconciles to the row's transactions: -13204\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000073006 (fees 70000, portfolio rent 0, 9 transactions)"
+  },
+  {
+    "id": "P0-13",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [
+      "9351",
+      "9352"
+    ],
+    "signatures": [
+      "37zhK9c9aFoQqajnCYUN6NWxnJWeBV745jGvdmEqTnrvSqSsiYkCASs5zfPJeYFwJw8q38J5hhGtVv5WVWQNUC2R",
+      "3BJyqEsVt1VrEkqGzubmCSLmCJFiPkr2QrAKByAaFih8XyJuJgdb4jyUME48E989ipnTdM3ydHPkN4C9cC7g16g9",
+      "5gEPD5VMSx5kKqbUyffjegrZESECVTfqoUPKF9WNEhCWi5AouFpCQ3BrAb3gbKPXUAJHX1PCUz9e8couGvnx7JF",
+      "5GseUgvwsFsAp5TYjzQdLHQX99t1Msth3eU2k6Mkp1JNsiLmPsEv8CbR6A4uvBh3vWRm2GTtvqwadzrXi9GiZBF4",
+      "2YWGdkEwEoB469B1NyQbYhcU4zQyJUVCqCyJHSWz8bjqCqt27rZA2W56d2djYWJBGQRBdfhJexofbQEFWcWdAqri",
+      "2csfHtJeVNFt2kpDv9P8piJP8iJ5iCLR7Szh7piLgp1ho1ERReiAwbY4VNMW4zpRwvUdssron256DcjNavd3SPfG"
+    ],
+    "preSnapshot": {
+      "slot": 525402575,
+      "oraclePrice": "72235000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701767957",
+        "insuranceFund": "19999361580",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284043991",
+          "portfolio": {
+            "equity": "0",
+            "principal": "7929",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6427",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380241738",
+          "portfolio": {
+            "equity": "0",
+            "principal": "700183",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "263255",
+            "realizedLamports": "-436928",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525402775,
+      "oraclePrice": "72290000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701768959",
+        "insuranceFund": "19999362582",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284013991",
+          "portfolio": {
+            "equity": "0",
+            "principal": "7929",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6427",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380230736",
+          "portfolio": {
+            "equity": "0",
+            "principal": "701185",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "264257",
+            "realizedLamports": "-436928",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "P0-13 open long 1: batch 9351 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\ntaker long 1: 1\nP0-13 two concurrent reduce-only closes: batch 9352 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\neffective receipt: taker sells exactly the remaining 1: 1\ntaker flat (nothing opens or flips): 0\nexcess reduce-only cancelled (no open taker orders): 0\nstale reduce-only after close rejects (simulation, not sent): 606\nmaker: wallet delta reconciles to the row's transactions: -30000\ntaker: wallet delta reconciles to the row's transactions: -11002\nno fills against non-persona orders: none",
+    "observed": "P0-13 open long 1: batch 9351 matches the reference model: conversion 72205000\ntaker long 1: 1\nP0-13 two concurrent reduce-only closes: batch 9352 matches the reference model: conversion 72220000\neffective receipt: taker sells exactly the remaining 1: 1\ntaker flat (nothing opens or flips): 0\nexcess reduce-only cancelled (no open taker orders): 0\nstale reduce-only after close rejects (simulation, not sent): 606\nmaker: wallet delta reconciles to the row's transactions: -30000\ntaker: wallet delta reconciles to the row's transactions: -11002\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000041002 (fees 40000, portfolio rent 0, 6 transactions)"
+  }
+]

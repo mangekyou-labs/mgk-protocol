@@ -1,0 +1,17 @@
+{
+  "row": "P0-31",
+  "drill": "keeper fee SOL below floor (natural, unplanned; keeper drained by #74 burn)",
+  "keeper": "FnuTgyBSp7wmvymWEFEQafYfqsgUZEXd8YxP5SWWkm2",
+  "observations": [
+    {"at": "2026-11-23T10:00:08Z", "source": "getSignaturesForAddress(keeper)", "note": "last keeper tx before stall"},
+    {"at": "~2026-11-23T10:08Z", "source": "https://mgk-indexer-q6sz.onrender.com/api/status",
+     "severity": "critical",
+     "checks": {"batch": {"severity": "critical", "batchId": "9320", "phase": 4, "ageSeconds": 1535},
+                "fees": {"severity": "critical", "balances": {"keeper": "5561281", "oracle": "289135001", "maker": "2019396920"}, "floorLamports": "10000000"},
+                "oracle": {"severity": "ok"}, "makerDepth": {"severity": "ok"}, "pause": {"severity": "ok", "flags": 0}}},
+    {"at": "~2026-11-23T10:28Z", "source": "keeper /healthz", "body": {"ok": true, "lastStatus": "low_fee_sol", "lastCycleAt": "2026-11-23T10:28:09.884Z"}},
+    {"at": "~2026-11-23T10:28Z", "source": "status", "note": "operator top-up: keeper 5005561281 lamports; batch 9320 still phase 4"},
+    {"at": "~2026-11-23T10:29Z", "source": "status", "severity": "ok", "checks": {"batch": {"severity": "ok", "batchId": "9323", "phase": 0}}, "keeperLamports": "4992003321"}
+  ],
+  "result": "fails closed (no crank below floor, fees+batch critical); recovers on top-up without manual intervention; UI banner not captured for this event"
+}

@@ -1,0 +1,33 @@
+{
+  "startSlot": 517959329,
+  "fills": {
+    "pre": 200,
+    "post": 200,
+    "postBatchRange": [
+      6494,
+      9358
+    ],
+    "earliestPostSlot": 524751899,
+    "earliestGeStart": true,
+    "duplicateTuples": [],
+    "missingFromPre": 0
+  },
+  "trades": {
+    "pre": 200,
+    "post": 200,
+    "earliestPostSlot": 525314288,
+    "earliestGeStart": true,
+    "identicalRows": [
+      {
+        "key": "525403038|9357|72304458|1|1|0",
+        "count": 2
+      },
+      {
+        "key": "525401409|9330|72219441|1|1|0",
+        "count": 2
+      }
+    ],
+    "missingFromPre": 0
+  },
+  "pass": true
+}
