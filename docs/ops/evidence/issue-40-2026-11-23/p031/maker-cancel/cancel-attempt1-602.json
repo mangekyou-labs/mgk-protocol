@@ -1,0 +1,24 @@
+{
+  "action": "cancel-maker",
+  "observedAt": "2026-11-23T11:07:16.055Z",
+  "signer": "DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o",
+  "portfolio": "2t2Baf6TwxrVrgtQVgvqPq1j97ofvyqK4gWAC4jXyMcP",
+  "book": "2oHNZE83cyVgyuTXesdDH3xguHj91zbJhruoDDGR7VQY",
+  "simulation": {
+    "slot": 525410439,
+    "err": {
+      "InstructionError": [
+        0,
+        {
+          "Custom": 602
+        }
+      ]
+    },
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: CancelAllRestingOrders",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 8713 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT failed: custom program error: 0x25a"
+    ]
+  }
+}

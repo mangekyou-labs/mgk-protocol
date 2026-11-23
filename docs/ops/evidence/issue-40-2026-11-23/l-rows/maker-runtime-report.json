@@ -1,0 +1,204 @@
+{
+  "cluster": "localnet",
+  "rpcUrl": "http://127.0.0.1:20419",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "programDataAddress": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "programDataAddress": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_perps_matcher.so",
+      "sha256": "40a08570dc79186f7572dfc5448ab5286939dca29f999ced566beaf54d23ab32",
+      "programDataAddress": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH"
+    }
+  ],
+  "transactions": [
+    {
+      "label": "initialize maker market",
+      "signature": "58BGYamvectqnMTzdCHo5yi456NQVaGSiwgh4UxhiPhaPSJPJpZ3RwR1KEiuoHRo8LBKiV7RccGHbMv2L5Fsv2Ub",
+      "slot": 31,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "initialize maker book",
+      "signature": "5qz6vhw16X6pZX1gBcAydS65fFpcC71jqdKAYS98ZixQvAC4g5mgmmbhvP5LLmW2jMoetbPhuoUn4xubu9zbWEgS",
+      "slot": 32,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "create initial batch",
+      "signature": "5sTCEyQA1jJcEVCMFbJ9dnf2UXjgM2SQ9RMmhweGxccjv7H1TgMxWPWyYzh69xaWUHz9jnyGHyytjN2sQq2HUEDf",
+      "slot": 33,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "fund insurance",
+      "signature": "3haKPcwK8J6iYA8cXHo8Q4CZ3yZiycr95vW2ZvvF4c9qSRVNcsLKaYSXuoMxu67vfpzzVuYm5cHYYvUqPTK4mtzW",
+      "slot": 34,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init trader 0",
+      "signature": "3Cp7TW7pUNa6c6mfcUoZtm7r4fNso7nDZXimMKaVi9im4KYNx8pUSwxzE9mYWMNHTDVSLUo2XS6GSPvfG8btfZgF",
+      "slot": 35,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit trader 0",
+      "signature": "33Xcu6qnUNpKf75kxAJhBeV1VYGGsxQ2kVqaUiMoaeEziw7iBXQyqxiEmedzPUDtEM4qA4Biimki24NgcBzmzNyS",
+      "slot": 36,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init trader 1",
+      "signature": "c64KAkvhkroKfDs21ukYzNXpznhwzfSZvpw9mYXHaRB9NaUSSNXoWEvPCiV22qDtyF5Z19AQgUXzJ1rY9ooRkr4",
+      "slot": 37,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit trader 1",
+      "signature": "8CdC2vVwaQv8hCaTu2wUoeYjkAJNVJGSZV7DgMvD9MgGtrcsuywAdMEQ3WS2xvSnHVXjaSWCs24VLVsui4fa5u8",
+      "slot": 38,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "taker sells into protocol maker",
+      "signature": "5GM9ECPoWxkwBVgkXoEPjf8chjmReMXZtpjYNpzo1wSGAy6gSy8wRtSsdNGpN2ANYiBug8GDVjeMYMTvLFr2YbfP",
+      "slot": 42,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "withdraw taker collateral before adverse move",
+      "signature": "2MTaag4B6BFckfX9PysZ1yXPaxf1XmWx7QC4QxwQnod6LkS86zysCBE7P3tSR76hthSSsK3JFeKCjsewgSFcrrbP",
+      "slot": 87,
+      "err": null,
+      "invariants": "pass"
+    }
+  ],
+  "controls": [
+    {
+      "type": "oracle",
+      "address": "vwWDdbZm2Wg2dZb2mrAxsjF19YVyTivScszyaP2jejM",
+      "price": "100000000",
+      "publishTime": "1795405937",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "vwWDdbZm2Wg2dZb2mrAxsjF19YVyTivScszyaP2jejM",
+      "price": "100000000",
+      "publishTime": "1795405940",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 42,
+      "to": 72
+    },
+    {
+      "type": "oracle",
+      "address": "vwWDdbZm2Wg2dZb2mrAxsjF19YVyTivScszyaP2jejM",
+      "price": "100000000",
+      "publishTime": "1795405942",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "vwWDdbZm2Wg2dZb2mrAxsjF19YVyTivScszyaP2jejM",
+      "price": "100000000",
+      "publishTime": "0",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "vwWDdbZm2Wg2dZb2mrAxsjF19YVyTivScszyaP2jejM",
+      "price": "100000000",
+      "publishTime": "1795405947",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "vwWDdbZm2Wg2dZb2mrAxsjF19YVyTivScszyaP2jejM",
+      "price": "200000000",
+      "publishTime": "1795405948",
+      "confidence": "12",
+      "active": true
+    }
+  ],
+  "marketSeeds": [
+    "22rgqJYwrtmXZLM2wUDucZjaV9mKsVTjLgPbKqDVGDXG"
+  ],
+  "candidateCommit": "c913b5f31a2df46c484c3bfff660e0012391f2f2",
+  "makerTransitions": [
+    {
+      "status": "quoted",
+      "batchId": "0",
+      "signature": "5GxxJyLohc2B5UfxdLT4ii6yJc6bwEBVVVui6A4KNJ2airUyoLsC7voXRb8gAs6wMbKxVgRhV9JfvFBNz21NZjA3",
+      "service": "maker"
+    },
+    {
+      "status": "resting",
+      "batchId": "0",
+      "service": "maker"
+    },
+    {
+      "status": "invalid_price",
+      "batchId": "1",
+      "signature": "3jwFdCXsmGBGfh9GUr9Szstp5hcBwxjMk92agX7th2FjVex9iFgU6FNTq4BVTdGbqiJo7uQ3QqY3RTLc3NQbFUnZ",
+      "service": "maker"
+    },
+    {
+      "status": "invalid_price",
+      "batchId": "1",
+      "service": "maker"
+    },
+    {
+      "status": "quoted",
+      "batchId": "1",
+      "signature": "smKbbfPKQZMgxVzZ6HjwArgSzUeL59vspKj2ceA89DimV8bzppqXpuFSXfroSNtVxbB8bLgJeaojkBAS8gCLwAR",
+      "service": "maker"
+    },
+    {
+      "status": "liquidated",
+      "batchId": "1",
+      "signature": "4XdtiGq7KzavDUHhVaNsE2yw94CucLBrcHY5QY3cRbcY1zmuxcfnTgEwAdZ9dXGzqgBuM5JCTfxy2VfEjYFHgmdS",
+      "victim": "8KLXDhRkiFE53YbwkyZfxr2q5R3CaQQut6nLHTzZ7gZT",
+      "service": "maker"
+    }
+  ],
+  "maker": {
+    "ladder": "pass",
+    "restart": "pass",
+    "takerSettlement": "pass",
+    "invalidPriceCancellation": "pass",
+    "recovery": "pass",
+    "takeover": "pass",
+    "invariants": "pass"
+  }
+}

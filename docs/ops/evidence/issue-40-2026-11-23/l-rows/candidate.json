@@ -1,0 +1,23 @@
+{
+  "commit": "c913b5f31a2df46c484c3bfff660e0012391f2f2",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_perps_matcher.so",
+      "sha256": "40a08570dc79186f7572dfc5448ab5286939dca29f999ced566beaf54d23ab32"
+    }
+  ]
+}

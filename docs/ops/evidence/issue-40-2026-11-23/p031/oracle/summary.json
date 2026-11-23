@@ -1,0 +1,90 @@
+{
+  "rows": [
+    "P0-31 (oracle stopped)",
+    "P0-32 Drill A (Cleared > 2 min)"
+  ],
+  "candidate": "aac36b5",
+  "method": "Render suspend of mgk-oracle (srv-dbu693sipgvc73ares4g) via MIGRATE Render API; no admin or oracle-authority key loaded; withdraw probes are simulate-only (sigVerify:false) with no keypair",
+  "timeline": {
+    "suspendedAt": "2026-11-23T10:40:40Z",
+    "oracleWarnAt": "10:41:01Z (age 32s)",
+    "oracleCriticalAt": "10:41:42Z (age 69s)",
+    "stuckBatch": {
+      "id": 9373,
+      "phase": 4,
+      "firstSeen": "10:41:42Z"
+    },
+    "monitoringGap": "10:42-10:57Z local network outage on operator host: status snapshots empty, scripted resume at 10:56:04Z failed (HTTP 000); hold extended from planned 240s to ~17 min",
+    "resumedAt": "2026-11-23T10:57:29Z (manual retry, 202)",
+    "batchCriticalMaxAgeSeconds": 1077,
+    "recoveredAt": "2026-11-23T10:59:53Z (status ok, oracle age 7s, batch 9374 phase 0; keeper settled 9373 unassisted)"
+  },
+  "withdrawProbe": {
+    "baseline": {
+      "observedAt": "2026-11-23T10:40:22.414Z",
+      "slot": 525403720,
+      "customCode": 4,
+      "meaning": "past lock; collateral check"
+    },
+    "stall": [
+      {
+        "user": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+        "observedAt": "2026-11-23T10:57:37.168Z",
+        "slot": 525408027,
+        "customCode": 602,
+        "log": "Program log: Error: Withdrawals are paused"
+      },
+      {
+        "user": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+        "observedAt": "2026-11-23T10:57:37.506Z",
+        "slot": 525408028,
+        "customCode": 602,
+        "log": "Program log: Error: Withdrawals are paused"
+      }
+    ],
+    "recovered": {
+      "note": "Post-recovery probes alternate 4 (collateral check, past lock) and 602 (transient unsettled batch during normal ~1-2s Cleared windows); pause flags 0. During the drill 602 was continuous while batch 9373 was held in phase 4 for >900s.",
+      "probes": [
+        {
+          "observedAt": "2026-11-23T11:01:14.901Z",
+          "slot": 525408932,
+          "customCode": 4
+        },
+        {
+          "observedAt": "2026-11-23T11:01:21.418Z",
+          "slot": 525408960,
+          "customCode": 4
+        },
+        {
+          "observedAt": "2026-11-23T11:01:28.295Z",
+          "slot": 525408991,
+          "customCode": 602
+        },
+        {
+          "observedAt": "2026-11-23T11:01:34.805Z",
+          "slot": 525409017,
+          "customCode": 4
+        },
+        {
+          "observedAt": "2026-11-23T11:01:41.320Z",
+          "slot": 525409045,
+          "customCode": 602
+        }
+      ],
+      "pauseFlagsAfter": 0
+    }
+  },
+  "ui": {
+    "preview": "mgk-frontend-qxuh5kg9r (aac36b5)",
+    "header": "ORACLE · RISK $72.17 · stale 1033s",
+    "notices": [
+      "Oracle stale or unavailable. On-chain price checks still apply.",
+      "Settlement delayed. Fills may await settlement; no settlement time is promised."
+    ],
+    "files": [
+      "ui/oracle-stale-header-105745Z.jpg",
+      "ui/notices-oracle-stale-settlement-delayed-105748Z.jpg"
+    ]
+  },
+  "result": "pass"
+}

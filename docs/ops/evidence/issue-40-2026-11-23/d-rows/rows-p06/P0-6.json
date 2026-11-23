@@ -1,0 +1,1248 @@
+{
+  "row": {
+    "id": "P0-6",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [
+      "9356",
+      "9357",
+      "9358"
+    ],
+    "signatures": [
+      "qeLAZXBGEW31h7kx1rYTh2WgHBZyt6az3V6q1jW4PKNBkx9uWecJ2f5zhpxWxLEBTzHhxYbz5hNKL8eKvb4diTP",
+      "5jnzjoHhnpaorrtztv4EswApnSEMKHsET4V6DkTXrUV5wgFwdihW2ufbQoTy42bTd4gTTxV2MiTfvprkrupBWXWt",
+      "2THakEhKNGC2i26iqMmaJz7yA2tVtESX8tHkNeLxqTr8B4ai5c5WBKRdVDUEpxe8p3ZqZgDWtzypcSb1XFMT1hHn",
+      "38Yi865xxWSJV2m1bHKYkhCWrpymzif3goU7DXo1Qtq5wsaZKAjoXWtPwv1uj8jP2NLRXEQKAnEDcLDjsLkbkZ5j",
+      "5EN8XBW4EfwbYLCp4SkYZqNrKeD8zHYmQdvPSQ1JsrQK1oM2ZRKHgH9qaggJ5GhZoiRLLTCvdgHWuatht98D5Zdd",
+      "2bLNqhEiqF1VajLQykndkuicpf7tuVoJV7H4ktyDY5KxsN3nD2VaoFXKziYGdFynkW46roSvLLk3hDKZsRyaNH2x",
+      "4hG8W9Ce7g6bmC86Rf3cGzQYzQCkbnGs5pnBEUvXEqt62y6QkZLo4pPp3WJur4rDZ3gVaeZPEy4QqTyrqxa273Bb",
+      "43mHdwQ2td71js5kzJtxgVkVRo7H5u4JTcJ9BVm6XiFgFNdkkdYF6kENSmy4iJk32KwmRigvaKDXq2J7fNRBNGSK",
+      "2XWXryhBHoR61f4jdFLkyvLMjJbsaZHP9bQshAmBDq3UywcnS2NMEMFTW8uLenYMDUtaqUHgaJAz7McnJPbaVH5o"
+    ],
+    "preSnapshot": {
+      "slot": 525402835,
+      "oraclePrice": "72290000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701768959",
+        "insuranceFund": "19999362582",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "284013991",
+          "portfolio": {
+            "equity": "0",
+            "principal": "7929",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-6427",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380230736",
+          "portfolio": {
+            "equity": "0",
+            "principal": "701185",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "264257",
+            "realizedLamports": "-436928",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "qa": {
+          "wallet": "221403715",
+          "portfolio": {
+            "equity": "0",
+            "principal": "3205",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "4004",
+            "realizedLamports": "799",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525403175,
+      "oraclePrice": "72265000",
+      "vault": {
+        "balance": "1701349737",
+        "lamports": "21701771966",
+        "insuranceFund": "19999365589",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "maker": {
+          "wallet": "283963389",
+          "portfolio": {
+            "equity": "0",
+            "principal": "8531",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "1502",
+            "realizedLamports": "-7029",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "taker": {
+          "wallet": "380219133",
+          "portfolio": {
+            "equity": "0",
+            "principal": "702788",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "266260",
+            "realizedLamports": "-436528",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        },
+        "qa": {
+          "wallet": "221392913",
+          "portfolio": {
+            "equity": "0",
+            "principal": "4007",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "5006",
+            "realizedLamports": "999",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "P0-6 open: batch 9356 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nopen: taker fees = sum ceil(qty*price*5bps/conversion): 1502\nopen: insurance fund delta = taker fees - realized PnL: 1502\nopen: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\nopen: taker long 2: 2\nopen: qa long 1: 1\nP0-6 partial close: batch 9357 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\npartial close: taker fees = sum ceil(qty*price*5bps/conversion): 1002\npartial close: insurance fund delta = taker fees - realized PnL: 1003\npartial close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\npartial close: taker realized PnL positive (exact value model-checked): > 0\npartial close: qa realized PnL positive (exact value model-checked): > 0\nP0-6 full close: batch 9358 matches the reference model: exact equity, position, entry, fee, realized and fund deltas\nfull close: taker fees = sum ceil(qty*price*5bps/conversion): 501\nfull close: insurance fund delta = taker fees - realized PnL: 502\nfull close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\nfull close: maker flat: 0\nfull close: taker flat: 0\npartial close: qa flat: 0\nmaker: wallet delta reconciles to the row's transactions: -50602\ntaker: wallet delta reconciles to the row's transactions: -11603\nqa: wallet delta reconciles to the row's transactions: -10802\nno fills against non-persona orders: none",
+    "observed": "P0-6 open: batch 9356 matches the reference model: conversion 72235000\nopen: taker fees = sum ceil(qty*price*5bps/conversion): 1502\nopen: insurance fund delta = taker fees - realized PnL: 1502\nopen: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\nopen: taker long 2: 2\nopen: qa long 1: 1\nP0-6 partial close: batch 9357 matches the reference model: conversion 72235000\npartial close: taker fees = sum ceil(qty*price*5bps/conversion): 1002\npartial close: insurance fund delta = taker fees - realized PnL: 1003\npartial close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\npartial close: taker realized PnL positive (exact value model-checked): 200\npartial close: qa realized PnL positive (exact value model-checked): 200\nP0-6 full close: batch 9358 matches the reference model: conversion 72250000\nfull close: taker fees = sum ceil(qty*price*5bps/conversion): 501\nfull close: insurance fund delta = taker fees - realized PnL: 502\nfull close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee: 0\nfull close: maker flat: 0\nfull close: taker flat: 0\npartial close: qa flat: 0\nmaker: wallet delta reconciles to the row's transactions: -50602\ntaker: wallet delta reconciles to the row's transactions: -11603\nqa: wallet delta reconciles to the row's transactions: -10802\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000073007 (fees 70000, portfolio rent 0, 9 transactions)"
+  },
+  "steps": [
+    {
+      "label": "P0-6 open: batch 9356 matches the reference model",
+      "pass": true,
+      "expected": "exact equity, position, entry, fee, realized and fund deltas",
+      "observed": "conversion 72235000"
+    },
+    {
+      "label": "open: taker fees = sum ceil(qty*price*5bps/conversion)",
+      "pass": true,
+      "expected": "1502",
+      "observed": "1502"
+    },
+    {
+      "label": "open: insurance fund delta = taker fees - realized PnL",
+      "pass": true,
+      "expected": "1502",
+      "observed": "1502"
+    },
+    {
+      "label": "open: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "open: taker long 2",
+      "pass": true,
+      "expected": "2",
+      "observed": "2"
+    },
+    {
+      "label": "open: qa long 1",
+      "pass": true,
+      "expected": "1",
+      "observed": "1"
+    },
+    {
+      "label": "P0-6 partial close: batch 9357 matches the reference model",
+      "pass": true,
+      "expected": "exact equity, position, entry, fee, realized and fund deltas",
+      "observed": "conversion 72235000"
+    },
+    {
+      "label": "partial close: taker fees = sum ceil(qty*price*5bps/conversion)",
+      "pass": true,
+      "expected": "1002",
+      "observed": "1002"
+    },
+    {
+      "label": "partial close: insurance fund delta = taker fees - realized PnL",
+      "pass": true,
+      "expected": "1003",
+      "observed": "1003"
+    },
+    {
+      "label": "partial close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "partial close: taker realized PnL positive (exact value model-checked)",
+      "pass": true,
+      "expected": "> 0",
+      "observed": "200"
+    },
+    {
+      "label": "partial close: qa realized PnL positive (exact value model-checked)",
+      "pass": true,
+      "expected": "> 0",
+      "observed": "200"
+    },
+    {
+      "label": "P0-6 full close: batch 9358 matches the reference model",
+      "pass": true,
+      "expected": "exact equity, position, entry, fee, realized and fund deltas",
+      "observed": "conversion 72250000"
+    },
+    {
+      "label": "full close: taker fees = sum ceil(qty*price*5bps/conversion)",
+      "pass": true,
+      "expected": "501",
+      "observed": "501"
+    },
+    {
+      "label": "full close: insurance fund delta = taker fees - realized PnL",
+      "pass": true,
+      "expected": "502",
+      "observed": "502"
+    },
+    {
+      "label": "full close: maker 6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe pays no fee",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "full close: maker flat",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "full close: taker flat",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "partial close: qa flat",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "maker: wallet delta reconciles to the row's transactions",
+      "pass": true,
+      "expected": "-50602",
+      "observed": "-50602"
+    },
+    {
+      "label": "taker: wallet delta reconciles to the row's transactions",
+      "pass": true,
+      "expected": "-11603",
+      "observed": "-11603"
+    },
+    {
+      "label": "qa: wallet delta reconciles to the row's transactions",
+      "pass": true,
+      "expected": "-10802",
+      "observed": "-10802"
+    },
+    {
+      "label": "no fills against non-persona orders",
+      "pass": true,
+      "expected": "none",
+      "observed": "none"
+    }
+  ],
+  "records": [
+    {
+      "label": "Deposit maker 5000000",
+      "signature": "qeLAZXBGEW31h7kx1rYTh2WgHBZyt6az3V6q1jW4PKNBkx9uWecJ2f5zhpxWxLEBTzHhxYbz5hNKL8eKvb4diTP",
+      "slot": 525402860,
+      "fee": "5000",
+      "signers": [
+        "maker"
+      ],
+      "signedAt": 1795430215215,
+      "acceptedAt": 1795430216265,
+      "accounts": [
+        "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "C5BdZLuy6gzKcjseQKK3dsT7cBGCuiCLZVonLNUbFwKD",
+        "11111111111111111111111111111111",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "ComputeBudget111111111111111111111111111111"
+      ],
+      "preBalances": [
+        "284013991",
+        "21701768959",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "postBalances": [
+        "279008991",
+        "21706768959",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Deposit",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Program 11111111111111111111111111111111 success",
+        "Program log: Deposit successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 18166 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "Deposit taker 5000000",
+      "signature": "5jnzjoHhnpaorrtztv4EswApnSEMKHsET4V6DkTXrUV5wgFwdihW2ufbQoTy42bTd4gTTxV2MiTfvprkrupBWXWt",
+      "slot": 525402865,
+      "fee": "5000",
+      "signers": [
+        "taker"
+      ],
+      "signedAt": 1795430216623,
+      "acceptedAt": 1795430217604,
+      "accounts": [
+        "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "BRDcocaNpVcFsELJsvB5pJhG4o71zMoNJQHjVWkHYYHx",
+        "11111111111111111111111111111111",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "ComputeBudget111111111111111111111111111111"
+      ],
+      "preBalances": [
+        "380230736",
+        "21706768959",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "postBalances": [
+        "375225736",
+        "21711768959",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Deposit",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Program 11111111111111111111111111111111 success",
+        "Program log: Deposit successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 19666 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "Deposit qa 5000000",
+      "signature": "2THakEhKNGC2i26iqMmaJz7yA2tVtESX8tHkNeLxqTr8B4ai5c5WBKRdVDUEpxe8p3ZqZgDWtzypcSb1XFMT1hHn",
+      "slot": 525402872,
+      "fee": "5000",
+      "signers": [
+        "qa"
+      ],
+      "signedAt": 1795430217953,
+      "acceptedAt": 1795430219648,
+      "accounts": [
+        "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "95C8bsGLKNK6C2WRrbgej9Ve2MZYianELSjFHksN7462",
+        "11111111111111111111111111111111",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "ComputeBudget111111111111111111111111111111"
+      ],
+      "preBalances": [
+        "221403715",
+        "21711768959",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "postBalances": [
+        "216398715",
+        "21716768959",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Deposit",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Program 11111111111111111111111111111111 success",
+        "Program log: Deposit successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 22666 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "P0-6 open",
+      "signature": "38Yi865xxWSJV2m1bHKYkhCWrpymzif3goU7DXo1Qtq5wsaZKAjoXWtPwv1uj8jP2NLRXEQKAnEDcLDjsLkbkZ5j",
+      "slot": 525402922,
+      "fee": "15000",
+      "signers": [
+        "maker",
+        "taker",
+        "qa"
+      ],
+      "signedAt": 1795430229941,
+      "acceptedAt": 1795430231528,
+      "accounts": [
+        "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+        "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+        "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+        "2oHNZE83cyVgyuTXesdDH3xguHj91zbJhruoDDGR7VQY",
+        "95C8bsGLKNK6C2WRrbgej9Ve2MZYianELSjFHksN7462",
+        "BRDcocaNpVcFsELJsvB5pJhG4o71zMoNJQHjVWkHYYHx",
+        "C5BdZLuy6gzKcjseQKK3dsT7cBGCuiCLZVonLNUbFwKD",
+        "CT1SPvMMKb7dNBXpi85WQSeH388KBd4a3NUocu1tpYQi",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "279008991",
+        "216398715",
+        "375225736",
+        "141427200",
+        "15118080",
+        "15118080",
+        "15118080",
+        "1544320",
+        "1127760",
+        "833120",
+        "21716768959",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "278993991",
+        "216398715",
+        "375225736",
+        "141427200",
+        "15118080",
+        "15118080",
+        "15118080",
+        "1544320",
+        "1127760",
+        "833120",
+        "21716768959",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 10164 of 1326371 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 83792 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 10179 of 1241081 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 85305 of 1316058 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 9727 of 1152776 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 87853 of 1230753 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "P0-6 partial close",
+      "signature": "5EN8XBW4EfwbYLCp4SkYZqNrKeD8zHYmQdvPSQ1JsrQK1oM2ZRKHgH9qaggJ5GhZoiRLLTCvdgHWuatht98D5Zdd",
+      "slot": 525402989,
+      "fee": "15000",
+      "signers": [
+        "maker",
+        "taker",
+        "qa"
+      ],
+      "signedAt": 1795430246086,
+      "acceptedAt": 1795430247278,
+      "accounts": [
+        "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+        "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+        "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+        "2oHNZE83cyVgyuTXesdDH3xguHj91zbJhruoDDGR7VQY",
+        "95C8bsGLKNK6C2WRrbgej9Ve2MZYianELSjFHksN7462",
+        "B6MW83tdbP36Kn19Am8tWKnBvaCvP13yZpFhy8MJtU8R",
+        "BRDcocaNpVcFsELJsvB5pJhG4o71zMoNJQHjVWkHYYHx",
+        "C5BdZLuy6gzKcjseQKK3dsT7cBGCuiCLZVonLNUbFwKD",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "278993991",
+        "216398715",
+        "375225736",
+        "141427200",
+        "15118080",
+        "1544320",
+        "15118080",
+        "15118080",
+        "1127760",
+        "833120",
+        "21716768959",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "278978991",
+        "216398715",
+        "375225736",
+        "141427200",
+        "15118080",
+        "1544320",
+        "15118080",
+        "15118080",
+        "1127760",
+        "833120",
+        "21716768959",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 10165 of 1340164 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 70000 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 10177 of 1269135 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 71041 of 1329850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 9724 of 1195094 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 73588 of 1258809 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "P0-6 full close",
+      "signature": "2bLNqhEiqF1VajLQykndkuicpf7tuVoJV7H4ktyDY5KxsN3nD2VaoFXKziYGdFynkW46roSvLLk3hDKZsRyaNH2x",
+      "slot": 525403050,
+      "fee": "10000",
+      "signers": [
+        "maker",
+        "taker"
+      ],
+      "signedAt": 1795430260469,
+      "acceptedAt": 1795430262061,
+      "accounts": [
+        "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+        "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+        "2oHNZE83cyVgyuTXesdDH3xguHj91zbJhruoDDGR7VQY",
+        "BRDcocaNpVcFsELJsvB5pJhG4o71zMoNJQHjVWkHYYHx",
+        "C5BdZLuy6gzKcjseQKK3dsT7cBGCuiCLZVonLNUbFwKD",
+        "FvYHejmaVbp7t2tXunB6h2J6sAvcVo76wCcpc5hBiWp4",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "278978991",
+        "375225736",
+        "141427200",
+        "15118080",
+        "15118080",
+        "1544320",
+        "1127760",
+        "833120",
+        "21716768959",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "278968991",
+        "375225736",
+        "141427200",
+        "15118080",
+        "15118080",
+        "1544320",
+        "1127760",
+        "833120",
+        "21716768959",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 10165 of 1340165 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 69999 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: PostOrder",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+        "Program log: Instruction: PlaceResting",
+        "Program log: PlaceResting: order placed",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 10177 of 1269136 compute units",
+        "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+        "Program log: PostOrder: placed",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 71041 of 1329851 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "Withdraw maker 4999398",
+      "signature": "4hG8W9Ce7g6bmC86Rf3cGzQYzQCkbnGs5pnBEUvXEqt62y6QkZLo4pPp3WJur4rDZ3gVaeZPEy4QqTyrqxa273Bb",
+      "slot": 525403112,
+      "fee": "5000",
+      "signers": [
+        "maker"
+      ],
+      "signedAt": 1795430275591,
+      "acceptedAt": 1795430276545,
+      "accounts": [
+        "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "C5BdZLuy6gzKcjseQKK3dsT7cBGCuiCLZVonLNUbFwKD",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "278968991",
+        "21716768959",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "283963389",
+        "21711769561",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Withdraw",
+        "Program log: Withdraw successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 22056 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "Withdraw taker 4998397",
+      "signature": "43mHdwQ2td71js5kzJtxgVkVRo7H5u4JTcJ9BVm6XiFgFNdkkdYF6kENSmy4iJk32KwmRigvaKDXq2J7fNRBNGSK",
+      "slot": 525403119,
+      "fee": "5000",
+      "signers": [
+        "taker"
+      ],
+      "signedAt": 1795430277160,
+      "acceptedAt": 1795430278124,
+      "accounts": [
+        "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "BRDcocaNpVcFsELJsvB5pJhG4o71zMoNJQHjVWkHYYHx",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "375225736",
+        "21711769561",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "380219133",
+        "21706771164",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Withdraw",
+        "Program log: Withdraw successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 23556 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "Withdraw qa 4999198",
+      "signature": "2XWXryhBHoR61f4jdFLkyvLMjJbsaZHP9bQshAmBDq3UywcnS2NMEMFTW8uLenYMDUtaqUHgaJAz7McnJPbaVH5o",
+      "slot": 525403174,
+      "fee": "5000",
+      "signers": [
+        "qa"
+      ],
+      "signedAt": 1795430290485,
+      "acceptedAt": 1795430291559,
+      "accounts": [
+        "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "95C8bsGLKNK6C2WRrbgej9Ve2MZYianELSjFHksN7462",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "216398715",
+        "21706771164",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "221392913",
+        "21701771966",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Withdraw",
+        "Program log: Withdraw successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 26556 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    }
+  ],
+  "verdicts": [
+    {
+      "pass": true,
+      "failures": [],
+      "fills": [
+        {
+          "user": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+          "orderId": "72063",
+          "allocated": "3",
+          "qty": "3",
+          "price": "72290000",
+          "isMaker": true,
+          "auction": 1,
+          "signed": "-3"
+        },
+        {
+          "user": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+          "orderId": "72064",
+          "allocated": "2",
+          "qty": "2",
+          "price": "72290000",
+          "isMaker": false,
+          "auction": 1,
+          "signed": "2"
+        },
+        {
+          "user": "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+          "orderId": "72065",
+          "allocated": "1",
+          "qty": "1",
+          "price": "72290000",
+          "isMaker": false,
+          "auction": 1,
+          "signed": "1"
+        }
+      ],
+      "foreign": [],
+      "settle": {
+        "signature": "58Z3oErJmGSz1YLo9jNwD6BwhAGJG88vGq8HRC9JejWxkFk2PNqeR9UqFyUZoHEh7vQv8GGDceS3tw4cK1ZJhTY8",
+        "slot": 525402976,
+        "receipt": [
+          "3",
+          "2",
+          "1"
+        ],
+        "vaultLamportDelta": "0"
+      },
+      "conversion": "72235000",
+      "expected": {
+        "collateral": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "5000000",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "4998999",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "4999499"
+        },
+        "fund": "19999364084",
+        "debt": "0",
+        "reserve": "1200000",
+        "open_interest": [
+          "3",
+          "3"
+        ],
+        "flags": 0,
+        "liability": "20014362582",
+        "above_rent": "20014362582",
+        "positions": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": {
+            "qty": "-3",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": {
+            "qty": "2",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": {
+            "qty": "1",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          }
+        },
+        "realized_usd": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "0",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "0",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "0"
+        },
+        "realized_lamports": {},
+        "fees": {
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "1001",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "501"
+        }
+      },
+      "request": {
+        "fund": "19999362582",
+        "collateral": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "5000000",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "5000000",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "5000000"
+        },
+        "events": [
+          {
+            "account": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+            "quantity_lots": "-3",
+            "fill_price": "72290000",
+            "conversion_price": "72235000",
+            "maker": true
+          },
+          {
+            "account": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+            "quantity_lots": "2",
+            "fill_price": "72290000",
+            "conversion_price": "72235000",
+            "maker": false
+          },
+          {
+            "account": "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+            "quantity_lots": "1",
+            "fill_price": "72290000",
+            "conversion_price": "72235000",
+            "maker": false
+          }
+        ]
+      }
+    },
+    {
+      "pass": true,
+      "failures": [],
+      "fills": [
+        {
+          "user": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+          "orderId": "72072",
+          "allocated": "2",
+          "qty": "2",
+          "price": "72304458",
+          "isMaker": true,
+          "auction": 0,
+          "signed": "2"
+        },
+        {
+          "user": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+          "orderId": "72073",
+          "allocated": "1",
+          "qty": "1",
+          "price": "72304458",
+          "isMaker": false,
+          "auction": 0,
+          "signed": "-1"
+        },
+        {
+          "user": "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+          "orderId": "72074",
+          "allocated": "1",
+          "qty": "1",
+          "price": "72304458",
+          "isMaker": false,
+          "auction": 0,
+          "signed": "-1"
+        }
+      ],
+      "foreign": [],
+      "settle": {
+        "signature": "39Ckxmxku8NxDkw4WKDStdyXcskN5cAuMU7CABxG3fLfgDhBeg4oXTEGhgVTv5TzWxfU9KCeRbX2kWJ9E5rkEAgU",
+        "slot": 525403038,
+        "receipt": [
+          "2",
+          "1",
+          "1"
+        ],
+        "vaultLamportDelta": "0"
+      },
+      "conversion": "72235000",
+      "expected": {
+        "collateral": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "4999599",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "4998698",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "4999198"
+        },
+        "fund": "19999365087",
+        "debt": "0",
+        "reserve": "400000",
+        "open_interest": [
+          "1",
+          "1"
+        ],
+        "flags": 0,
+        "liability": "20014362582",
+        "above_rent": "20014362582",
+        "positions": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": {
+            "qty": "-1",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": {
+            "qty": "1",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          }
+        },
+        "realized_usd": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "-29",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "14",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "14"
+        },
+        "realized_lamports": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "-401",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "200",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "200"
+        },
+        "fees": {
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "501",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "501"
+        }
+      },
+      "request": {
+        "fund": "19999364084",
+        "collateral": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "5000000",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "4998999",
+          "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8": "4999499"
+        },
+        "events": [
+          {
+            "kind": "position",
+            "account": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+            "quantity_lots": "-3",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          {
+            "kind": "position",
+            "account": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+            "quantity_lots": "2",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          {
+            "kind": "position",
+            "account": "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+            "quantity_lots": "1",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          {
+            "account": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+            "quantity_lots": "2",
+            "fill_price": "72304458",
+            "conversion_price": "72235000",
+            "maker": true
+          },
+          {
+            "account": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+            "quantity_lots": "-1",
+            "fill_price": "72304458",
+            "conversion_price": "72235000",
+            "maker": false
+          },
+          {
+            "account": "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+            "quantity_lots": "-1",
+            "fill_price": "72304458",
+            "conversion_price": "72235000",
+            "maker": false
+          }
+        ]
+      }
+    },
+    {
+      "pass": true,
+      "failures": [],
+      "fills": [
+        {
+          "user": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+          "orderId": "72075",
+          "allocated": "1",
+          "qty": "1",
+          "price": "72304458",
+          "isMaker": true,
+          "auction": 0,
+          "signed": "1"
+        },
+        {
+          "user": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+          "orderId": "72076",
+          "allocated": "1",
+          "qty": "1",
+          "price": "72304458",
+          "isMaker": false,
+          "auction": 0,
+          "signed": "-1"
+        }
+      ],
+      "foreign": [],
+      "settle": {
+        "signature": "2G14f8kGrpATe3mYbyEuY1HZcHrtmAkh9yEz6SeSpsrJRqJ2QKEpmcYsyVcs4d988cCmgzXzNbWGYYTjzNsn3v38",
+        "slot": 525403100,
+        "receipt": [
+          "1",
+          "1"
+        ],
+        "vaultLamportDelta": "0"
+      },
+      "conversion": "72250000",
+      "expected": {
+        "collateral": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "4999398",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "4998397"
+        },
+        "fund": "19999365589",
+        "debt": "0",
+        "reserve": "0",
+        "open_interest": [
+          "0",
+          "0"
+        ],
+        "flags": 0,
+        "liability": "20009363384",
+        "above_rent": "20009363384",
+        "positions": {},
+        "realized_usd": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "-15",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "14"
+        },
+        "realized_lamports": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "-201",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "200"
+        },
+        "fees": {
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "501"
+        }
+      },
+      "request": {
+        "fund": "19999365087",
+        "collateral": {
+          "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe": "4999599",
+          "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe": "4998698"
+        },
+        "events": [
+          {
+            "kind": "position",
+            "account": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+            "quantity_lots": "-1",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          {
+            "kind": "position",
+            "account": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+            "quantity_lots": "1",
+            "entry_numerator": "72290000",
+            "entry_denominator": "1"
+          },
+          {
+            "account": "6LZPnkFwdT1xPoVy4y1WCyF6mRUyzvcs6Ndo9oFqBwWe",
+            "quantity_lots": "1",
+            "fill_price": "72304458",
+            "conversion_price": "72250000",
+            "maker": true
+          },
+          {
+            "account": "BeBT1zZAcPxeze8wiWNR7JFfPJL2QRPjd1cg26WJeXFe",
+            "quantity_lots": "-1",
+            "fill_price": "72304458",
+            "conversion_price": "72250000",
+            "maker": false
+          }
+        ]
+      }
+    }
+  ],
+  "cleanups": {
+    "maker": {
+      "flat": true,
+      "residualQty": "0",
+      "withdrawn": "4999398",
+      "equityLeft": "0",
+      "notes": []
+    },
+    "taker": {
+      "flat": true,
+      "residualQty": "0",
+      "withdrawn": "4998397",
+      "equityLeft": "0",
+      "notes": []
+    },
+    "qa": {
+      "flat": true,
+      "residualQty": "0",
+      "withdrawn": "4999198",
+      "equityLeft": "0",
+      "notes": []
+    }
+  },
+  "spent": {
+    "lamports": "73007",
+    "fees": "70000",
+    "rent": "0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "row": {
+    "id": "P0-30",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": ["9468", "9512", "9357", "9330"],
+    "signatures": [],
+    "expected": "Indexer cold start: trading and balances stay truthful from RPC; UI shows unavailable, never 0; history backfills from the start slot (517959329) with no duplicates",
+    "observed": "Indexer (Render) restarted 2026-11-23T11:22:45Z from a clean cursor; status went indexer warn (lag 7.46M slots, syncing) at 11:23:27Z while oracle, maker (bid and ask) and batch stayed ok and batches kept clearing (9468 -> 9512 during the first 10 min). Replay: lag 6.79M -> 6.15M (11:39Z) -> 1.78M (11:48Z) -> 312k (12:01Z) -> indexer ok, lag 22, at 12:08:00Z (about 45 min).\nDuring sync the API served mark_price 0 and a replaying last_price; the UI showed MARK \"—\" and \"Last clear --\", never 0 (ui/ screenshots at 11:24Z). After catch-up (12:09Z) the UI still shows MARK \"—\" and \"Last clear --\" with a live book.\nBackfill: pre-restart and post-catch-up snapshots of the taker fills and market trades (200-row API cap each) are identical; taker fills cover batches 6494-9358, earliest slot 524751899 >= start slot; 0 duplicate fill tuples; 0 pre-restart fills or trades missing.",
+    "notes": "Two pairs of identical market-trade rows (batch 9357 slot 525403038 and batch 9330 slot 525401409) were already present before the restart; each is two different takers filling 1 lot in the same settle (only one belongs to the scripted taker), as with batch 1684 on 2026-11-08, not a replay duplicate. A transient overall critical at 11:30:10Z was an oracle staleness blip (63 s, recovered by 11:30:30Z), unrelated to the drill. After catch-up the indexer still reports syncing:true with lag in single digits, the same quirk recorded on 2026-11-08 (follow-up #74). Fill history in the UI needs a connected wallet, so backfill was checked through the API. No admin key; Render restart only. Evidence: docs/ops/evidence/issue-40-2026-11-23/p030/ (drill/timeline.txt, pre/, post/verify.json, run*/capture.log, ui/)."
+  }
+}

@@ -1,0 +1,244 @@
+{
+  "row": {
+    "id": "P0-4",
+    "status": "pass",
+    "tier": "D",
+    "batchIds": [],
+    "signatures": [
+      "2sVPNd8HawFXg7TuFGfUVsXXk7KGAxsHbZw9zno4T9aBcc6vXfjQVTmNkK3V5uRcWj5W8DC2Ypeh8vPLnJgdgC9t",
+      "22rjKE8m2PRkrBxo7zK59KqZ7zmu48zjZJsSW811HVAnMQ1k9YQysZ4EYFdDJhcz9egY8tCfVZKdDo7dUcqZfgZW"
+    ],
+    "preSnapshot": {
+      "slot": 525401005,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "qa": {
+          "wallet": "221424516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "postSnapshot": {
+      "slot": 525401067,
+      "oraclePrice": "72165000",
+      "vault": {
+        "balance": "1716139464",
+        "lamports": "21716547288",
+        "insuranceFund": "19999351184",
+        "uncoveredBadDebt": "0"
+      },
+      "personas": {
+        "qa": {
+          "wallet": "221414516",
+          "portfolio": {
+            "equity": "0",
+            "principal": "2404",
+            "freeCollateral": "0",
+            "reservedCollateral": "0",
+            "feesPaid": "3004",
+            "realizedLamports": "600",
+            "qty": "0",
+            "entry": null,
+            "openOrders": []
+          }
+        }
+      }
+    },
+    "expected": "deposit: vault lamports tx delta: 5000000\nflat before withdraw: 0\nfree collateral positive: > 0\nover-withdraw (free + 1) rejects InsufficientFunds (simulation, not sent): 4\nwithdraw free: vault lamports tx delta = -free: -5000000\nwithdraw free: wallet tx delta = free - fee: 4995000\nwithdraw free: collateral delta: -5000000\nsecond withdrawal (1 lamport) rejects InsufficientFunds (simulation, not sent): 4\nqa: wallet delta reconciles to the row's transactions: -10000\nno fills against non-persona orders: none",
+    "observed": "deposit: vault lamports tx delta: 5000000\nflat before withdraw: 0\nfree collateral positive: 5000000\nover-withdraw (free + 1) rejects InsufficientFunds (simulation, not sent): 4\nwithdraw free: vault lamports tx delta = -free: -5000000\nwithdraw free: wallet tx delta = free - fee: 4995000\nwithdraw free: collateral delta: -5000000\nsecond withdrawal (1 lamport) rejects InsufficientFunds (simulation, not sent): 4\nqa: wallet delta reconciles to the row's transactions: -10000\nno fills against non-persona orders: none",
+    "notes": "SOL spent 0.000010000 (fees 10000, portfolio rent 0, 2 transactions)"
+  },
+  "steps": [
+    {
+      "label": "deposit: vault lamports tx delta",
+      "pass": true,
+      "expected": "5000000",
+      "observed": "5000000"
+    },
+    {
+      "label": "flat before withdraw",
+      "pass": true,
+      "expected": "0",
+      "observed": "0"
+    },
+    {
+      "label": "free collateral positive",
+      "pass": true,
+      "expected": "> 0",
+      "observed": "5000000"
+    },
+    {
+      "label": "over-withdraw (free + 1) rejects InsufficientFunds (simulation, not sent)",
+      "pass": true,
+      "expected": "4",
+      "observed": "4"
+    },
+    {
+      "label": "withdraw free: vault lamports tx delta = -free",
+      "pass": true,
+      "expected": "-5000000",
+      "observed": "-5000000"
+    },
+    {
+      "label": "withdraw free: wallet tx delta = free - fee",
+      "pass": true,
+      "expected": "4995000",
+      "observed": "4995000"
+    },
+    {
+      "label": "withdraw free: collateral delta",
+      "pass": true,
+      "expected": "-5000000",
+      "observed": "-5000000"
+    },
+    {
+      "label": "second withdrawal (1 lamport) rejects InsufficientFunds (simulation, not sent)",
+      "pass": true,
+      "expected": "4",
+      "observed": "4"
+    },
+    {
+      "label": "qa: wallet delta reconciles to the row's transactions",
+      "pass": true,
+      "expected": "-10000",
+      "observed": "-10000"
+    },
+    {
+      "label": "no fills against non-persona orders",
+      "pass": true,
+      "expected": "none",
+      "observed": "none"
+    }
+  ],
+  "records": [
+    {
+      "label": "Deposit qa 5000000",
+      "signature": "2sVPNd8HawFXg7TuFGfUVsXXk7KGAxsHbZw9zno4T9aBcc6vXfjQVTmNkK3V5uRcWj5W8DC2Ypeh8vPLnJgdgC9t",
+      "slot": 525401027,
+      "fee": "5000",
+      "signers": [
+        "qa"
+      ],
+      "signedAt": 1795429769027,
+      "acceptedAt": 1795429777251,
+      "accounts": [
+        "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "95C8bsGLKNK6C2WRrbgej9Ve2MZYianELSjFHksN7462",
+        "11111111111111111111111111111111",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "ComputeBudget111111111111111111111111111111"
+      ],
+      "preBalances": [
+        "221424516",
+        "21716547288",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "postBalances": [
+        "216419516",
+        "21721547288",
+        "15118080",
+        "1",
+        "833120",
+        "1"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Deposit",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Program 11111111111111111111111111111111 success",
+        "Program log: Deposit successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 22666 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    },
+    {
+      "label": "Withdraw qa 5000000",
+      "signature": "22rjKE8m2PRkrBxo7zK59KqZ7zmu48zjZJsSW811HVAnMQ1k9YQysZ4EYFdDJhcz9egY8tCfVZKdDo7dUcqZfgZW",
+      "slot": 525401059,
+      "fee": "5000",
+      "signers": [
+        "qa"
+      ],
+      "signedAt": 1795429780583,
+      "acceptedAt": 1795429781515,
+      "accounts": [
+        "59MPtNZtkupFj4uMjrsi838JVQbVrKHGT33QL6bBRsU8",
+        "8L8FFBywiWBbJdtpx4g1SdchmWdrotQaxva6sHECWvFV",
+        "95C8bsGLKNK6C2WRrbgej9Ve2MZYianELSjFHksN7462",
+        "5AqUBpZStVazY12DS4mYq1PRWP7hY1VPHHAsQxSEBbgH",
+        "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+        "BMCkFBeM4QnwdNRtHxSVnWkRNPSV6aNt6nMMG4dtBsfp",
+        "ComputeBudget111111111111111111111111111111",
+        "ih7vvdARa19Ak2nKsqqhL46YAcoo4ztvSE3bm6DChEB"
+      ],
+      "preBalances": [
+        "216419516",
+        "21721547288",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "postBalances": [
+        "221414516",
+        "21716547288",
+        "15118080",
+        "1127760",
+        "833120",
+        "1300480",
+        "1",
+        "2438400"
+      ],
+      "logs": [
+        "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+        "Program ComputeBudget111111111111111111111111111111 success",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+        "Program log: Instruction: Withdraw",
+        "Program log: Withdraw successful",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 26556 of 1399850 compute units",
+        "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+      ],
+      "err": null
+    }
+  ],
+  "verdicts": [],
+  "cleanups": {
+    "qa": {
+      "flat": true,
+      "residualQty": "0",
+      "withdrawn": "0",
+      "equityLeft": "0",
+      "notes": []
+    }
+  },
+  "spent": {
+    "lamports": "10000",
+    "fees": "10000",
+    "rent": "0"
+  }
+}
