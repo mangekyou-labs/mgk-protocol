@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type * as sdk from '@mgk/sdk';
 import { AccountActions } from '@/components/orderform/AccountActions';
@@ -8,6 +8,7 @@ import type { BatchGate, MarketExposure, OracleReading } from '@/lib/marketBar';
 import { lifecycleLabel, type OrderLifecycle } from '@/lib/orderLifecycle';
 import { abs, LOTS_PER_SOL } from '@/lib/protocol';
 import { formatSol } from '@/lib/solAmount';
+import { useOrderTicketStore } from '@/lib/stores/useOrderTicketStore';
 import {
   orderBlockReason,
   parseLots,
@@ -97,19 +98,24 @@ export function OrderForm({
   onTxError,
   className,
 }: OrderFormProps) {
-  const [side, setSide] = useState<OrderSide>('buy');
-  const [price, setPrice] = useState('');
-  const [size, setSize] = useState('');
-  const [reduceOnly, setReduceOnly] = useState(false);
+  // The draft lives in a store so it survives the form being unmounted and
+  // remounted when readiness blips during a data refresh.
+  const { side, price, size, reduceOnly, appliedPriceNonce, update } = useOrderTicketStore();
+  const setSide = (next: OrderSide) => update({ side: next });
+  const setPrice = (next: string) => update({ price: next });
+  const setSize = (next: string) => update({ size: next });
+  const setReduceOnly = (next: boolean) => update({ reduceOnly: next });
   const [phase, setPhase] = useState<Phase>('idle');
   const pending = useRef(false);
 
   // A book click sends a new nonce; copy its price into the field once per click.
-  const [appliedNonce, setAppliedNonce] = useState<number | null>(null);
-  if (priceOverride && priceOverride.nonce !== appliedNonce) {
-    setAppliedNonce(priceOverride.nonce);
-    setPrice(formatPriceInput(priceOverride.price));
-  }
+  // The applied nonce is stored with the draft, so a remount does not re-apply
+  // an old click over a price typed since.
+  useEffect(() => {
+    if (priceOverride && priceOverride.nonce !== appliedPriceNonce) {
+      update({ appliedPriceNonce: priceOverride.nonce, price: formatPriceInput(priceOverride.price) });
+    }
+  }, [priceOverride, appliedPriceNonce, update]);
 
   const lots = parseLots(size).lots;
   const priceMicro = parsePriceMicro(price);
