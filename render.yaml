@@ -59,6 +59,8 @@ services:
         sync: false  # set in Render dashboard
       - key: KEEPER_KEYPAIR
         sync: false  # mounted as Render secret file
+      - key: KEEPER_INDEXER_URL
+        sync: false  # indexer origin for rent reclamation; unset closes nothing
       - key: DEPLOYMENT_MANIFEST
         value: "deployments/devnet.json"
       - key: MONITORING_CONFIG
