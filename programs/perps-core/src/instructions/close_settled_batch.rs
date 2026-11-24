@@ -10,6 +10,9 @@ use pinocchio::{account_info::AccountInfo, instruction::AccountMeta, ProgramResu
 /// `batch_id <= current_batch_id - CLOSE_WINDOW`.
 pub const CLOSE_WINDOW: u64 = 3;
 
+/// Matcher `CloseResults` discriminator.
+pub const MATCHER_CLOSE_RESULTS: u8 = 11;
+
 /// Pure close precondition. `results_spent` is whether the matcher Results
 /// account for this batch has been consumed by SettleBatch.
 pub fn close_settled_gate(
@@ -44,7 +47,7 @@ pub fn process_close_settled_batch(
     batch_id: u64,
 ) -> ProgramResult {
     let mut data = [0u8; 9];
-    data[0] = 11;
+    data[0] = MATCHER_CLOSE_RESULTS;
     data[1..].copy_from_slice(&batch_id.to_le_bytes());
     let metas = [
         AccountMeta::readonly_signer(registry_account.key()),
@@ -70,6 +73,11 @@ mod tests {
         let mut b = Batch::new(id);
         b.status = BatchStatus::Settled;
         b
+    }
+
+    #[test]
+    fn matcher_close_results_disc_is_eleven() {
+        assert_eq!(MATCHER_CLOSE_RESULTS, 11);
     }
 
     #[test]

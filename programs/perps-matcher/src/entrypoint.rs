@@ -189,16 +189,17 @@ fn process_close_results(
     mgk_common::matcher::validate_authority_in(context, authority)?;
     let results = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
     let recipient = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if data.len() != 8 {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-    let batch_id = u64::from_le_bytes(data.try_into().unwrap());
+    let batch_id = u64::from_le_bytes(
+        data.try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
     mgk_common::matcher::validate_results_in(context, results, batch_id)?;
-    if !recipient.is_writable() || recipient.key() == results.key() {
+    // Keep the documented InvalidAccountData code (interface.md).
+    mgk_common::validate_writable(recipient).map_err(|_| ProgramError::InvalidAccountData)?;
+    if recipient.key() == results.key() {
         return Err(ProgramError::InvalidAccountData);
     }
-    mgk_common::matcher::spent_results(&results.try_borrow_data()?, batch_id)?;
-    mgk_common::matcher::close_account(results, recipient)
+    instructions::close_results(results, recipient, batch_id)
 }
 
 #[cfg(test)]

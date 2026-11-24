@@ -58,29 +58,23 @@ pub fn validate_results_in(
     }
     Ok(())
 }
-pub fn unspent_results(raw: &[u8], batch_id: u64) -> Result<&[u8], ProgramError> {
+/// Results payload for `batch_id` whose spent flag equals `spent`.
+///
+/// Settlement reads unspent output (`spent == false`); issue 74's close
+/// path requires output core has already consumed (`spent == true`).
+pub fn results_with_spent(raw: &[u8], batch_id: u64, spent: bool) -> Result<&[u8], ProgramError> {
     let body = layout::body(
         raw,
         layout::discriminator::BATCH_RESULTS,
         layout::LAYOUT_VERSION_1,
     )?;
-    if body.len() < RESULTS_ENVELOPE_LEN || body[..8] != batch_id.to_le_bytes() || body[8] != 0 {
+    if body.len() < RESULTS_ENVELOPE_LEN
+        || body[..8] != batch_id.to_le_bytes()
+        || body[8] != u8::from(spent)
+    {
         return Err(ProgramError::InvalidAccountData);
     }
     Ok(&body[RESULTS_ENVELOPE_LEN..])
-}
-/// Issue 74: Results for `batch_id` that core has already consumed
-/// (`spent == 1`) and so may be closed.
-pub fn spent_results(raw: &[u8], batch_id: u64) -> ProgramResult {
-    let body = layout::body(
-        raw,
-        layout::discriminator::BATCH_RESULTS,
-        layout::LAYOUT_VERSION_1,
-    )?;
-    if body.len() < RESULTS_ENVELOPE_LEN || body[..8] != batch_id.to_le_bytes() || body[8] != 1 {
-        return Err(ProgramError::InvalidAccountData);
-    }
-    Ok(())
 }
 
 /// Close a program-owned account: move every lamport to `recipient`, then
@@ -111,10 +105,10 @@ mod tests {
         )
         .unwrap();
         body[..8].copy_from_slice(&7u64.to_le_bytes());
-        assert!(unspent_results(&raw, 7).is_ok());
-        assert!(unspent_results(&raw, 8).is_err());
+        assert!(results_with_spent(&raw, 7, false).is_ok());
+        assert!(results_with_spent(&raw, 8, false).is_err());
         raw[layout::ACCOUNT_HEADER_LEN + 8] = 1;
-        assert!(unspent_results(&raw, 7).is_err());
+        assert!(results_with_spent(&raw, 7, false).is_err());
     }
 
     #[test]
@@ -127,10 +121,16 @@ mod tests {
         )
         .unwrap();
         body[..8].copy_from_slice(&7u64.to_le_bytes());
-        assert_eq!(spent_results(&raw, 7), Err(ProgramError::InvalidAccountData));
+        assert_eq!(
+            results_with_spent(&raw, 7, true),
+            Err(ProgramError::InvalidAccountData)
+        );
         raw[layout::ACCOUNT_HEADER_LEN + 8] = 1;
-        assert_eq!(spent_results(&raw, 7), Ok(()));
-        assert_eq!(spent_results(&raw, 8), Err(ProgramError::InvalidAccountData));
-        assert!(spent_results(&[0u8; 4], 7).is_err());
+        assert!(results_with_spent(&raw, 7, true).is_ok());
+        assert_eq!(
+            results_with_spent(&raw, 8, true),
+            Err(ProgramError::InvalidAccountData)
+        );
+        assert!(results_with_spent(&[0u8; 4], 7, true).is_err());
     }
 }

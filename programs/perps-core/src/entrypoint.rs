@@ -16,7 +16,7 @@ use crate::instructions::{
 };
 use crate::state::{Portfolio, Registry, Vault};
 use crate::matcher_cpi::{validate_registry, validate_vault};
-use mgk_common::{validate_owner, validate_writable, MgkError};
+use mgk_common::{validate_owner, validate_signer, validate_writable, MgkError};
 
 #[cfg(all(target_os = "solana", not(test)))]
 pinocchio::entrypoint!(process_instruction);
@@ -250,9 +250,8 @@ fn process_close_settled_batch_inner(
     validate_writable(results_account)?;
     validate_owner(registry_account, program_id)?;
     validate_registry(context, registry_account)?;
-    if !recipient.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
+    // Keep the documented MissingRequiredSignature code (interface.md).
+    validate_signer(recipient).map_err(|_| ProgramError::MissingRequiredSignature)?;
     validate_writable(recipient)?;
     if recipient.key() == batch_account.key() || recipient.key() == results_account.key() {
         return Err(ProgramError::InvalidArgument);
@@ -265,7 +264,7 @@ fn process_close_settled_batch_inner(
         }
         let counter = unsafe { load_account::<Registry>(registry_account)? }.batch_id_counter;
         let spent = results_account.owner() == &mgk_common::program_ids::PERPS_MATCHER_ID
-            && mgk_common::matcher::spent_results(&results_account.try_borrow_data()?, batch_id)
+            && mgk_common::matcher::results_with_spent(&results_account.try_borrow_data()?, batch_id, true)
                 .is_ok();
         crate::instructions::close_settled_gate(batch, counter, spent)?;
     }

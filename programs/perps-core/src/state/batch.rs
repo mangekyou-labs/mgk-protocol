@@ -294,6 +294,7 @@ impl RevealedOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pinocchio::pubkey::Pubkey;
 
     #[test]
     fn first_post_into_idle_batch_restarts_commit_deadline() {
@@ -320,7 +321,6 @@ mod tests {
         b.record_post(u64::MAX - 1, 150);
         assert_eq!(b.commit_deadline_slot, u64::MAX);
     }
-    use pinocchio::pubkey::Pubkey;
 
     /// Copy a `T` into a 16-aligned byte buffer so `load` sees a realistic,
     /// aligned account body (Batch holds u128s).
