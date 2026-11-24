@@ -6,7 +6,7 @@ import type { Store } from './store.js';
 import { decodeBatchEvent, decodeDfbaFills } from './decoder.js';
 import { aggregateCandles } from './aggregator.js';
 import { resultsLayout, decodeAccount } from '../../../packages/layout/index.js';
-import { settlementQuantities } from './settlementReceipt.js';
+import { settledBatchId, settlementQuantities } from './settlementReceipt.js';
 import { createHealthTracker, type HealthTracker } from './healthTracker.js';
 
 /** Provider maximum for one getSignaturesForAddress page. */
@@ -129,6 +129,27 @@ async function mapBounded<T, R>(items: T[], limit: number, fn: (item: T) => Prom
   return out;
 }
 
+/**
+ * Whether a settlement whose Batch account is gone was closed by CloseSettledBatch:
+ * its Results account is gone too, its own receipt names the batch it settled and,
+ * for a selected market, both addresses are that batch's PDAs.
+ */
+async function closedSettlement(
+  params: SyncHistoryParams, ix: {logs: string[]; accountKeyIndexes: number[]}, staticKeys: PublicKey[], batchPk: PublicKey,
+): Promise<boolean> {
+  const { connection, corePk, matcherPk, marketSeed } = params;
+  const resultsIdx = ix.accountKeyIndexes[3];
+  const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
+  if (!resultsPk) throw new Error('Settlement missing results address');
+  if (await connection.getAccountInfo(resultsPk, 'confirmed')) return false;
+  const batchId = settledBatchId(ix.logs, corePk.toBase58());
+  if (marketSeed) {
+    if (!sdk.deriveBatchPda(batchId, corePk, {marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
+    if (!sdk.deriveResultsPda(batchId, matcherPk, {marketSeed, coreProgramId: corePk})[0].equals(resultsPk)) throw new Error('Settlement results outside selected market');
+  }
+  return true;
+}
+
 /** Decode the effective settlement fills of one committed core transaction. */
 async function decodeTransaction(
   params: SyncHistoryParams, txResp: VersionedTransactionResponse, slot: number, signature: string,
@@ -146,7 +167,14 @@ async function decodeTransaction(
     const batchPk = batchIdx === undefined ? undefined : staticKeys[batchIdx];
     if (!batchPk) throw new Error('Settlement missing batch address');
     const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
-    if (!batchInfo || !batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
+    if (!batchInfo) {
+      // CloseSettledBatch closes a settled Batch together with its Results.
+      // Only that pair counts as closed; the fills are no longer readable on
+      // chain (the receipt carries quantities only), so the settle is skipped.
+      if (!await closedSettlement(params, ix, staticKeys, batchPk)) throw new Error('Settlement batch unavailable');
+      continue;
+    }
+    if (!batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
     const batch = decodeAccount('Batch', batchInfo.data);
     if (params.marketSeed && !sdk.deriveBatchPda(batch.batchId, corePk, {marketSeed: params.marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
     if (batch.status !== 3) throw new Error('Settlement batch not settled');

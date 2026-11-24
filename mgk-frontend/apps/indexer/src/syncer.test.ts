@@ -232,6 +232,54 @@ describe('syncer - signature-driven history replay', () => {
   });
 });
 
+/** Drop the Batch and Results accounts of a settlement, as CloseSettledBatch does. */
+function closeAccountsOf(tx: LedgerTx, accounts: Map<string, unknown>, which: 'both' | 'batch' | 'results' = 'both') {
+  const keys = (tx.response as {transaction: {message: MessageV0}}).transaction.message.staticAccountKeys;
+  if (which !== 'results') accounts.delete(keys[0]!.toBase58());
+  if (which !== 'batch') accounts.delete(keys[3]!.toBase58());
+}
+
+describe('syncer - settlements whose accounts were closed (CloseSettledBatch)', () => {
+  it('replays past a settlement whose Batch and Results were both closed without stalling', async () => {
+    const accounts = new Map<string, unknown>();
+    const closed = settleTx('closed', 150, 1n, 5n, accounts);
+    const ledger = [closed, settleTx('live', 151, 2n, 7n, accounts)];
+    closeAccountsOf(closed, accounts);
+    const rpc = fakeRpc(ledger, {slot: 200, accounts});
+    const fills: Record<string, unknown>[] = [];
+    const {syncer, store} = syncerFor(rpc, createStore(':memory:'), {onFill: f => fills.push(f)});
+    await syncer.triggerSync();
+    expect(fills.map(f => f.batch_id)).toEqual([2]);
+    expect(store.getSyncState().processedThroughSlot).toBe(200);
+    store.close();
+  });
+
+  it('still holds the cursor when only one of the pair is missing', async () => {
+    for (const which of ['batch', 'results'] as const) {
+      const accounts = new Map<string, unknown>();
+      const tx = settleTx('half', 150, 1n, 5n, accounts);
+      closeAccountsOf(tx, accounts, which);
+      const rpc = fakeRpc([tx], {slot: 200, accounts});
+      const {syncer, store} = syncerFor(rpc);
+      await syncer.triggerSync();
+      expect(store.getSyncState().processedThroughSlot).toBeNull();
+      store.close();
+    }
+  });
+
+  it('still holds the cursor when a closed settlement carries no receipt for its batch', async () => {
+    const accounts = new Map<string, unknown>();
+    const tx = settleTx('noreceipt', 150, 1n, 5n, accounts);
+    closeAccountsOf(tx, accounts);
+    (tx.response as {meta: {logMessages: string[]}}).meta.logMessages = [`Program ${corePk} invoke [1]`, `Program ${corePk} success`];
+    const rpc = fakeRpc([tx], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+    store.close();
+  });
+});
+
 describe('syncer - gaps never look like replayed history', () => {
   it('keeps walking past short pages until it reaches the start slot', async () => {
     // The provider returns 400-signature pages although 1000 were asked for.
