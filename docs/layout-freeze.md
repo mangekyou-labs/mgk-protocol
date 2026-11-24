@@ -44,3 +44,5 @@ Instruction vectors in `mgk-frontend/packages/layout/instruction-fixtures.json` 
 #74 adds two instructions and changes no account layout, size, discriminator or version. Core disc 30 `CloseSettledBatch` carries `[30, batch_id u64 LE]` inside the market envelope. It is permissionless and closes a Settled batch and its spent Results once `batch_id + 3 < registry.batch_id_counter`. Matcher disc 11 `CloseResults` carries `[11, batch_id u64 LE]`. Only core reaches it, through a registry-signed CPI, and it returns the Results rent to the caller's recipient. Matcher disc 10 stays unassigned.
 
 Two behavior changes ship with these instructions. `CloseCommitting` now rejects a batch with no commitments using error 613 `BatchEmpty`. The first post into an idle batch sets `commit_deadline = slot + t_max_slots`. Error 614 `BatchNotClosable` covers a close attempted inside the window or before the Results are spent.
+
+The indexer does not reconstruct fills for a batch whose Results were closed before it read them. The settle receipt carries quantities only, so it records the settlement and skips the fills.
