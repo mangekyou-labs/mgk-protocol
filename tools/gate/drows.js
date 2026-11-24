@@ -590,8 +590,11 @@ function createDriver({
     for (;;) {
       const state = await readState([]);
       const { batch } = await readBatch(state.currentBatchId);
+      // An idle batch (no commitments) is no longer rolled; its first
+      // commitment restarts the commit window, so a stale deadline is fine.
+      const idle = batch?.totalCommitments === 0;
       if (batch && batch.status === BATCH.committing && !state.registry.unsettled &&
-          BigInt(state.slot) + 2n < batch.commitDeadlineSlot) {
+          (idle || BigInt(state.slot) + 2n < batch.commitDeadlineSlot)) {
         return { batchId: state.currentBatchId, batch, state };
       }
       if (now() > deadline) throw Error('no open batch within the settle timeout (is the hosted keeper running?)');
@@ -735,7 +738,14 @@ function createDriver({
       missing.forEach(u => tracked.add(u));
       if (batch?.status === BATCH.settled) {
         const next = decodeBatchInfo(nextInfo);
-        return { batchId: id, batch, results: own, pre, post: state, settledAt: now(), raced: next?.status === BATCH.settled };
+        // A missing next batch below the counter was settled and closed too.
+        const nextClosed = !nextInfo && id + 1n < state.currentBatchId;
+        return { batchId: id, batch, results: own, pre, post: state, settledAt: now(), raced: nextClosed || next?.status === BATCH.settled };
+      }
+      // Batch and results both gone for a past batch: settled, then closed
+      // (CloseSettledBatch) before this poll could observe it.
+      if (!batchInfo && !resultsInfo && id < state.currentBatchId) {
+        return { batchId: id, batch: null, results: null, pre, post: state, settledAt: now(), raced: false, closed: true };
       }
       if (!missing.length) pre = state;
       if (now() > deadline) throw Error(`batch ${id} not settled within ${settleTimeoutMs} ms (keeper down?)`);
@@ -792,6 +802,7 @@ function createDriver({
   async function verifyBatch(settled) {
     const failures = [];
     const { pre, post, results, batchId } = settled;
+    if (settled.closed) return { pass: false, failures: [`batch ${batchId}: closed before verification (batch and results accounts are gone); rerun`], fills: [], foreign: [] };
     if (!results) return { pass: false, failures: [`batch ${batchId}: results account unavailable`], fills: [], foreign: [] };
     if (!pre) return { pass: false, failures: [`batch ${batchId}: no pre-settlement snapshot (settled before the first poll)`], fills: [], foreign: [] };
     if (settled.raced) failures.push(`batch ${batchId}: batch ${batchId + 1n} settled before the post read; rerun`);
