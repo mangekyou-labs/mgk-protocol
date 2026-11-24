@@ -177,6 +177,38 @@ for (const identity of [null, Keypair.generate()]) test(
       ],
       [payer],
     );
+    const postOrder = (i, target) => {
+      const user = traders[i],
+        [portfolio] = portfolios[i];
+      return runtime.send(
+        `post trader ${i} into ${target}`,
+        [
+          ix(
+            "PostOrder",
+            {
+              side: i,
+              isMaker: i === 0,
+              price: 100000000n,
+              qty: 1n,
+              instrumentId: 0,
+              reduceOnly: false,
+            },
+            [
+              meta(portfolio),
+              meta(user.publicKey, true, true),
+              meta(target),
+              meta(registry, false),
+              meta(book),
+              meta(MATCHER, false),
+              meta(instrument, false),
+              meta(oracle, false),
+              meta(vault, false),
+            ],
+          ),
+        ],
+        [payer, user],
+      );
+    };
     for (let i = 0; i < 2; i++) {
       const user = traders[i],
         [portfolio, bump] = portfolios[i];
@@ -202,34 +234,7 @@ for (const identity of [null, Keypair.generate()]) test(
         ],
         [payer, user],
       );
-      await runtime.send(
-        "post trader " + i,
-        [
-          ix(
-            "PostOrder",
-            {
-              side: i,
-              isMaker: i === 0,
-              price: 100000000n,
-              qty: 1n,
-              instrumentId: 0,
-              reduceOnly: false,
-            },
-            [
-              meta(portfolio),
-              meta(user.publicKey, true, true),
-              meta(batch),
-              meta(registry, false),
-              meta(book),
-              meta(MATCHER, false),
-              meta(instrument, false),
-              meta(oracle, false),
-              meta(vault, false),
-            ],
-          ),
-        ],
-        [payer, user],
-      );
+      await postOrder(i, batch);
     }
     const manifest = {
       ...deployment,
@@ -406,6 +411,9 @@ for (const identity of [null, Keypair.generate()]) test(
       settlementSignature: settled.signature,
     };
     runtime.flushReport();
+    // The keeper leaves an empty open batch idle, so give the next batch an
+    // unmatched order for the starved keeper to carry through settlement.
+    await postOrder(0, next);
     await runtime.setAccount(payer.publicKey, {
       owner: SystemProgram.programId,
       lamports: 1,
