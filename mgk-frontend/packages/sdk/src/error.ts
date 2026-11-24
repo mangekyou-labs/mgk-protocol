@@ -51,6 +51,8 @@ export const PercolatorError = {
   RevealDeadlineExpired: 600,
   OperationPaused: 602,
   ReduceOnlyViolation: 606,
+  /** Issue 74: CloseCommitting refuses a batch with no commitments (keeper waits). */
+  BatchEmpty: 613,
 
   // Legacy range (100-199) — pre-strip router code that is still emitted
   // by the perps-core program for portfolio-level margin checks.
@@ -107,6 +109,8 @@ const HUMAN_MESSAGES: Record<PercolatorError, string> = {
     'Trading is temporarily paused. Try again in a few moments.',
   [PercolatorError.ReduceOnlyViolation]:
     'Reduce-only order violates position constraints. Check your position size and order direction.',
+  [PercolatorError.BatchEmpty]:
+    'The batch has no orders yet; it stays open until the first order arrives.',
 
   // Anti-toxicity (G12)
   [PercolatorError.InvalidCommitment]:

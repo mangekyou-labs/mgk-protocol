@@ -42,6 +42,11 @@ describe('PercolatorError enum mirror', () => {
     expect(PercolatorError.InvalidCommitment).toBe(503);
   });
 
+  it('issue 74 — perps-core 613 (BatchEmpty) is exported', () => {
+    expect(PercolatorError.BatchEmpty).toBe(613);
+    expect(humanizeError(613)).toMatch(/no orders|empty/i);
+  });
+
   it('G12 — perps-core 602 (OperationPaused) is exported', () => {
     expect(PercolatorError.OperationPaused).toBe(602);
   });
