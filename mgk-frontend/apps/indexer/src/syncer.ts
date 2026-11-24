@@ -132,27 +132,31 @@ async function mapBounded<T, R>(items: T[], limit: number, fn: (item: T) => Prom
 /**
  * Whether a settlement whose Batch account is gone was closed by CloseSettledBatch:
  * its Results account is gone too, its own receipt names the batch it settled and,
- * for a selected market, both addresses are that batch's PDAs.
+ * for a selected market, both addresses are that batch's PDAs. Returns that batch id,
+ * or null when the Results account still exists (not a closed pair).
  */
 async function closedSettlement(
   params: SyncHistoryParams, ix: {logs: string[]; accountKeyIndexes: number[]}, staticKeys: PublicKey[], batchPk: PublicKey,
-): Promise<boolean> {
+): Promise<bigint | null> {
   const { connection, corePk, matcherPk, marketSeed } = params;
   const resultsIdx = ix.accountKeyIndexes[3];
   const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
   if (!resultsPk) throw new Error('Settlement missing results address');
-  if (await connection.getAccountInfo(resultsPk, 'confirmed')) return false;
+  if (await connection.getAccountInfo(resultsPk, 'confirmed')) return null;
   const batchId = settledBatchId(ix.logs, corePk.toBase58());
   if (marketSeed) {
     if (!sdk.deriveBatchPda(batchId, corePk, {marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
     if (!sdk.deriveResultsPda(batchId, matcherPk, {marketSeed, coreProgramId: corePk})[0].equals(resultsPk)) throw new Error('Settlement results outside selected market');
   }
-  return true;
+  return batchId;
 }
 
-/** Decode the effective settlement fills of one committed core transaction. */
+/**
+ * Decode the effective settlement fills of one committed core transaction. The id of
+ * every batch it settled (closed or not) is appended to `settled`.
+ */
 async function decodeTransaction(
-  params: SyncHistoryParams, txResp: VersionedTransactionResponse, slot: number, signature: string,
+  params: SyncHistoryParams, txResp: VersionedTransactionResponse, slot: number, signature: string, settled: bigint[],
 ): Promise<DecodedFillItem[]> {
   const { connection, corePk, matcherPk } = params;
   if (!txResp.meta) throw new Error('Transaction metadata unavailable');
@@ -171,7 +175,9 @@ async function decodeTransaction(
       // CloseSettledBatch closes a settled Batch together with its Results.
       // Only that pair counts as closed; the fills are no longer readable on
       // chain (the receipt carries quantities only), so the settle is skipped.
-      if (!await closedSettlement(params, ix, staticKeys, batchPk)) throw new Error('Settlement batch unavailable');
+      const closedId = await closedSettlement(params, ix, staticKeys, batchPk);
+      if (closedId === null) throw new Error('Settlement batch unavailable');
+      settled.push(closedId);
       continue;
     }
     if (!batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
@@ -196,15 +202,17 @@ async function decodeTransaction(
     for (let i = 0; i < quantities.length; i++) view.setBigUint64(resultsLayout.headerSize + i * resultsLayout.fillSize + 40, quantities[i]!, true);
     if (txResp.blockTime == null) throw new Error('Settlement block time unavailable');
     decoded.push(...decodeDfbaFills(adjusted, slot, batch.batchId, 0, signature));
+    settled.push(batch.batchId);
   }
   return decoded;
 }
 
-/** Commit fills, candles and the cursor atomically; broadcast only newly inserted fills. */
+/** Commit fills, candles and both cursors atomically; broadcast only newly inserted fills. */
 function commitSegment(
   store: Store, fills: DecodedFillItem[], blockTimes: Map<number, number>, cursorSlot: number,
-  onFill?: (fill: Record<string, unknown>) => void,
+  onFill?: (fill: Record<string, unknown>) => void, settled: bigint[] = [],
 ): number {
+  const settledThrough = settled.reduce<bigint | undefined>((max, id) => max === undefined || id > max ? id : max, undefined);
   const newlyInsertedFills: DecodedFillItem[] = [];
   const now = Date.now();
   store.db.transaction(() => {
@@ -232,7 +240,7 @@ function commitSegment(
         }]);
       }
     }
-    store.updateSyncSuccess(cursorSlot, now);
+    store.updateSyncSuccess(cursorSlot, now, settledThrough);
   })();
 
   // Retries cannot duplicate broadcasts: only rows this commit inserted are sent.
@@ -287,6 +295,7 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
       }));
 
       const fills: DecodedFillItem[] = [];
+      const settled: bigint[] = [];
       const blockTimes = new Map<number, number>();
       for (let i = 0; i < committed.length; i++) {
         const entry = committed[i]!;
@@ -294,7 +303,7 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
         if (!tx) throw new Error(`Transaction ${entry.signature} unavailable; cursor held for retry`);
         if (tx.slot !== entry.slot) throw new Error(`Transaction ${entry.signature} slot mismatch`);
         if (tx.blockTime != null) blockTimes.set(entry.slot, tx.blockTime * 1000);
-        fills.push(...await decodeTransaction(params, tx, entry.slot, entry.signature));
+        fills.push(...await decodeTransaction(params, tx, entry.slot, entry.signature, settled));
       }
 
       // A slot may straddle segments; only commit through the last complete slot.
@@ -304,7 +313,7 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
         ? Math.max(confirmedSlot, last.slot)
         : following.slot === last.slot ? last.slot - 1 : last.slot;
       cursorSlot = Math.max(cursorSlot, throughSlot);
-      fillsInserted += commitSegment(store, fills, blockTimes, cursorSlot, onFill);
+      fillsInserted += commitSegment(store, fills, blockTimes, cursorSlot, onFill, settled);
       txsProcessed += committed.length;
       newestSignature = last.signature;
     }

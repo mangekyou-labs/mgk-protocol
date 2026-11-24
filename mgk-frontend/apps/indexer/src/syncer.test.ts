@@ -280,6 +280,42 @@ describe('syncer - settlements whose accounts were closed (CloseSettledBatch)', 
   });
 });
 
+describe('syncer - safe-to-close cursor', () => {
+  it('tracks the highest settled batch it has committed, closed or live', async () => {
+    const accounts = new Map<string, unknown>();
+    const closed = settleTx('closed', 150, 4n, 5n, accounts);
+    closeAccountsOf(closed, accounts);
+    const rpc = fakeRpc([closed, settleTx('live', 151, 5n, 7n, accounts)], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    expect(store.getSyncState().settledThroughBatchId).toBeNull();
+    await syncer.triggerSync();
+    expect(store.getSyncState().settledThroughBatchId).toBe(5n);
+    store.close();
+  });
+
+  it('counts a settlement whose accounts were closed', async () => {
+    const accounts = new Map<string, unknown>();
+    const closed = settleTx('closed', 150, 4n, 5n, accounts);
+    closeAccountsOf(closed, accounts);
+    const rpc = fakeRpc([closed], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().settledThroughBatchId).toBe(4n);
+    store.close();
+  });
+
+  it('does not advance past a settlement it could not commit', async () => {
+    const accounts = new Map<string, unknown>();
+    const tx = settleTx('half', 150, 4n, 5n, accounts);
+    closeAccountsOf(tx, accounts, 'batch');
+    const rpc = fakeRpc([tx], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().settledThroughBatchId).toBeNull();
+    store.close();
+  });
+});
+
 describe('syncer - gaps never look like replayed history', () => {
   it('keeps walking past short pages until it reaches the start slot', async () => {
     // The provider returns 400-signature pages although 1000 were asked for.
