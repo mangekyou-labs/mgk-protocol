@@ -5,7 +5,62 @@ const { resolve } = require("node:path");
 const { setTimeout: sleep } = require("node:timers/promises");
 const { Connection, Keypair } = require("@solana/web3.js");
 const { loadManifest } = require("../mgk-frontend/packages/layout/manifest");
-const { createKeeperWorker, INTERVAL_MS } = require("./keeper-worker");
+const {
+  createKeeperWorker,
+  INTERVAL_MS,
+  CLOSE_DEFAULT_PER_TICK,
+  CLOSE_MAX_PER_TICK,
+} = require("./keeper-worker");
+const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+// Rent reclamation knobs. Without KEEPER_INDEXER_URL the keeper closes nothing.
+function closeConfigFromEnv(env, cluster) {
+  const flag = env.KEEPER_CLOSE_ENABLED ?? "";
+  const closeEnabled = { "": true, true: true, 1: true, false: false, 0: false }[flag];
+  if (closeEnabled === undefined) throw Error("Invalid KEEPER_CLOSE_ENABLED");
+  const cap = env.KEEPER_CLOSE_MAX_PER_TICK ?? "";
+  const closeMaxPerTick = cap === "" ? CLOSE_DEFAULT_PER_TICK : Number(cap);
+  if (
+    !/^\d*$/.test(cap) ||
+    !Number.isInteger(closeMaxPerTick) ||
+    closeMaxPerTick < 1 ||
+    closeMaxPerTick > CLOSE_MAX_PER_TICK
+  )
+    throw Error("Invalid KEEPER_CLOSE_MAX_PER_TICK");
+  let indexerUrl = null;
+  if (env.KEEPER_INDEXER_URL) {
+    const url = new URL(env.KEEPER_INDEXER_URL);
+    if (cluster === "devnet" && url.protocol !== "https:")
+      throw Error("Devnet indexer requires HTTPS");
+    if (cluster === "localnet" && !LOOPBACK.includes(url.hostname))
+      throw Error("Localnet indexer requires loopback");
+    indexerUrl = url.toString().replace(/\/+$/, "");
+  }
+  return { closeEnabled, closeMaxPerTick, indexerUrl };
+}
+// The indexer's settled-through cursor. /api/status does chain reads, so it is
+// cached; anything other than a decimal string becomes null (close nothing).
+function createSettledThrough(
+  indexerUrl,
+  { fetchImpl = fetch, now = Date.now, cacheMs = 30_000, timeoutMs = 5_000 } = {},
+) {
+  let value = null,
+    fetchedAt = -Infinity;
+  return async () => {
+    if (now() - fetchedAt < cacheMs) return value;
+    fetchedAt = now();
+    value = null;
+    try {
+      const response = await fetchImpl(`${indexerUrl}/api/status`, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const cursor = response.ok
+        ? (await response.json())?.checks?.indexer?.settledThroughBatchId
+        : null;
+      if (typeof cursor === "string" && /^\d{1,20}$/.test(cursor)) value = BigInt(cursor);
+    } catch {}
+    return value;
+  };
+}
 const { createHealthState, markCycle, markError, startHealthServer } = require("./health-server");
 async function main() {
   if (process.argv.slice(2).some((arg) => !["--once", "--loop"].includes(arg)))
@@ -37,7 +92,7 @@ async function main() {
   if (!validated.ready) throw Error("Manifest pending");
   if (
     validated.cluster === "localnet" &&
-    !["localhost", "127.0.0.1", "[::1]"].includes(rpc.hostname)
+    !LOOPBACK.includes(rpc.hostname)
   )
     throw Error("Localnet requires loopback");
   if (validated.cluster === "devnet" && rpc.protocol !== "https:")
@@ -62,7 +117,11 @@ async function main() {
     monitoring.feePayers.keeper !== payer.publicKey.toBase58()
   )
     throw Error("Monitoring payer mismatch");
+  const close = closeConfigFromEnv(process.env, validated.cluster);
   const worker = await createKeeperWorker({
+    closeEnabled: close.closeEnabled,
+    closeMaxPerTick: close.closeMaxPerTick,
+    settledThrough: close.indexerUrl ? createSettledThrough(close.indexerUrl) : null,
     manifest,
     payer,
     connection: new Connection(process.env.RPC_URL, "confirmed"),
@@ -136,5 +195,5 @@ function fatal() {
   );
   process.exitCode = 1;
 }
-module.exports = { main, fatal };
+module.exports = { main, fatal, closeConfigFromEnv, createSettledThrough };
 if (require.main === module) main().catch(fatal);

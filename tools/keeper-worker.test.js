@@ -527,3 +527,64 @@ test("a full close batch in a scoped market fits one signed packet", async () =>
     /close cap/,
   );
 });
+test("close env knobs default sensibly and reject bad values", () => {
+  const { closeConfigFromEnv } = require("./keeper-worker-cli");
+  assert.deepEqual(closeConfigFromEnv({}, "devnet"), {
+    closeEnabled: true,
+    closeMaxPerTick: 4,
+    indexerUrl: null,
+  });
+  assert.deepEqual(
+    closeConfigFromEnv(
+      {
+        KEEPER_CLOSE_ENABLED: "false",
+        KEEPER_CLOSE_MAX_PER_TICK: "6",
+        KEEPER_INDEXER_URL: "https://indexer.example/",
+      },
+      "devnet",
+    ),
+    { closeEnabled: false, closeMaxPerTick: 6, indexerUrl: "https://indexer.example" },
+  );
+  for (const bad of ["0", "7", "2.5", "four"])
+    assert.throws(() => closeConfigFromEnv({ KEEPER_CLOSE_MAX_PER_TICK: bad }, "devnet"));
+  assert.throws(() => closeConfigFromEnv({ KEEPER_CLOSE_ENABLED: "maybe" }, "devnet"));
+  assert.throws(() =>
+    closeConfigFromEnv({ KEEPER_INDEXER_URL: "http://indexer.example" }, "devnet"),
+  );
+  assert.equal(
+    closeConfigFromEnv({ KEEPER_INDEXER_URL: "http://127.0.0.1:3001" }, "localnet").indexerUrl,
+    "http://127.0.0.1:3001",
+  );
+});
+test("indexer cursor is read from /api/status, cached, and null on any doubt", async () => {
+  const { createSettledThrough } = require("./keeper-worker-cli");
+  let time = 0, body = { checks: { indexer: { settledThroughBatchId: "41" } } };
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    if (body instanceof Error) throw body;
+    return { ok: true, json: async () => body };
+  };
+  const read = createSettledThrough("https://ix.example", {
+    fetchImpl,
+    now: () => time,
+    cacheMs: 30_000,
+  });
+  assert.equal(await read(), 41n);
+  body = { checks: { indexer: { settledThroughBatchId: "42" } } };
+  assert.equal(await read(), 41n);
+  assert.deepEqual(urls, ["https://ix.example/api/status"]);
+  time = 30_000;
+  assert.equal(await read(), 42n);
+  for (const next of [
+    { checks: { indexer: { settledThroughBatchId: null } } },
+    { checks: { indexer: { settledThroughBatchId: 42 } } },
+    { checks: { indexer: { settledThroughBatchId: "-1" } } },
+    {},
+    Error("down"),
+  ]) {
+    body = next;
+    time += 30_000;
+    assert.equal(await read(), null);
+  }
+});
