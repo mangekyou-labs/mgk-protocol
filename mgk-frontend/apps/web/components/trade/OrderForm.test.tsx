@@ -5,9 +5,12 @@ vi.mock('@/components/wallet/useAutoConnect', () => ({
 }));
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useOrderTicketStore } from '@/lib/stores/useOrderTicketStore';
 import { OrderForm, type OrderFormProps } from './OrderForm';
+
+beforeEach(() => { useOrderTicketStore.getState().reset(); });
 
 const SOL = 1_000_000_000n;
 
@@ -257,6 +260,44 @@ describe('<OrderForm />', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Buy / Long' }));
     rerender(<OrderForm {...props} sideOverride={{ side: 'sell', nonce: 2 }} />);
     expect(screen.getByRole('button', { name: 'Sell / Short' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  // The trade page unmounts the form whenever a poll briefly fails (ReadinessChecklist
+  // hides it on RPC errors), then mounts it again on the next good poll.
+  describe('across a remount from a data refresh', () => {
+    it('keeps the typed price, size, side and reduce-only', () => {
+      const { unmount, props } = setup();
+      fireEvent.click(screen.getByRole('button', { name: 'Sell / Short' }));
+      fill('151.5', '0.42');
+      fireEvent.click(screen.getByLabelText('Reduce only'));
+      unmount();
+      render(<OrderForm {...props} />);
+      expect(price()).toHaveValue('151.5');
+      expect(size()).toHaveValue('0.42');
+      expect(screen.getByRole('button', { name: 'Sell / Short' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByLabelText('Reduce only')).toBeChecked();
+    });
+
+    it('does not re-apply an old book click over a typed price', () => {
+      const { rerender, unmount, props } = setup();
+      const override = { price: 149_900_000n, nonce: 1 };
+      rerender(<OrderForm {...props} priceOverride={override} />);
+      expect(price()).toHaveValue('149.9');
+      fireEvent.change(price(), { target: { value: '151' } });
+      unmount();
+      render(<OrderForm {...props} priceOverride={override} />);
+      expect(price()).toHaveValue('151');
+    });
+
+    it('does not re-apply an old Buy/Sell bar pick over a side chosen since', () => {
+      const { rerender, unmount, props } = setup();
+      const override = { side: 'sell' as const, nonce: 1 };
+      rerender(<OrderForm {...props} sideOverride={override} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Buy / Long' }));
+      unmount();
+      render(<OrderForm {...props} sideOverride={override} />);
+      expect(screen.getByRole('button', { name: 'Buy / Long' })).toHaveAttribute('aria-pressed', 'true');
+    });
   });
 
   it('prepares a reduce-only close of an open short', () => {

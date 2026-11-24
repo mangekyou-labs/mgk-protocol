@@ -13,6 +13,19 @@ type Severity = 'ok' | 'warn' | 'critical';
 type Check = { severity: Severity; [key: string]: unknown };
 /** Every open trade tab polls status; share one chain read between them. */
 const STATUS_CACHE_MS = 10_000;
+
+/**
+ * Lag (confirmed tip minus processed-through slot) at or below which the
+ * indexer counts as caught up. The tip keeps moving and the syncer polls every
+ * 2 s, so a caught-up indexer still shows a lag of tens of slots. It is never 0.
+ */
+export const INDEXER_CAUGHT_UP_LAG_SLOTS = 150;
+
+export function indexerCheck(chainTip: number, lastIndexedSlot: number | null, startSlot: number): Check {
+  const lagSlots = chainTip - (lastIndexedSlot ?? startSlot - 1);
+  const syncing = lastIndexedSlot === null || lagSlots > INDEXER_CAUGHT_UP_LAG_SLOTS;
+  return {severity: syncing ? 'warn' : 'ok', lagSlots, syncing};
+}
 export async function statusRoutes(app: FastifyInstance, cfg: {
   connection: Connection; store: Store; manifest: DeploymentManifest; monitoring: MonitoringConfig;
   /** How long one chain read answers every poller. Each read costs ~10 RPC credits. */
@@ -152,8 +165,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
           }
         })(),
       ]);
-      const lagSlots = chainTip - (lastIndexedSlot ?? manifest.startSlot! - 1);
-      checks.indexer = {severity: lastIndexedSlot === null || lagSlots > 150 ? 'warn' : 'ok', lagSlots, syncing: lastIndexedSlot === null || lagSlots > 0, settledThroughBatchId: settledThrough};
+      checks.indexer = {...indexerCheck(chainTip, lastIndexedSlot, manifest.startSlot!), settledThroughBatchId: settledThrough};
     } catch {
       checks.rpc = {severity: 'critical', reachable: false};
       checks.indexer = {severity: 'warn', available: false, settledThroughBatchId: settledThrough};
