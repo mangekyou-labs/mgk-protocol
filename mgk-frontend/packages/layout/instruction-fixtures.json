@@ -1281,6 +1281,25 @@
   },
   {
     "bytes": [
+      30,
+      19,
+      56,
+      93,
+      130,
+      167,
+      204,
+      241,
+      22
+    ],
+    "enabled": true,
+    "name": "CloseSettledBatch",
+    "params": {
+      "batchId": "1653327558040434707"
+    },
+    "program": "core"
+  },
+  {
+    "bytes": [
       0
     ],
     "enabled": false,
@@ -1757,6 +1776,25 @@
         "7151181797557699936",
         "10044787611569139080"
       ]
+    },
+    "program": "matcher"
+  },
+  {
+    "bytes": [
+      11,
+      19,
+      56,
+      93,
+      130,
+      167,
+      204,
+      241,
+      22
+    ],
+    "enabled": true,
+    "name": "CloseResults",
+    "params": {
+      "batchId": "1653327558040434707"
     },
     "program": "matcher"
   },

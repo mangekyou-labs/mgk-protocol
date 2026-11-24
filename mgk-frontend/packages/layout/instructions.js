@@ -79,6 +79,7 @@ const instructions = {
     ["TopUp", 26, "amount:u64"],
     ["WithdrawInsuranceFund", 27, "amount:u64"],
     ["Unpause", 28, "resumeWithdrawals:bool resumeTrading:bool"],
+    ["CloseSettledBatch", 30, "batchId:u64"],
   ]),
   matcher: table([
     ["ComputeClearing", 0, "", false],
@@ -95,6 +96,7 @@ const instructions = {
     ["InitializeBook", 7, "instrumentId:u16 bump:u8"],
     ["ConsumeResults", 8, "batchId:u64"],
     ["CancelSettledOrders", 9, "orderIds:ids"],
+    ["CloseResults", 11, "batchId:u64"],
   ]),
   oracle: table([
     ["Initialize", 0, "initialPrice:i64 bump:u8"],
