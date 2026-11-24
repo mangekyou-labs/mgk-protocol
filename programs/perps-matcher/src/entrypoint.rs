@@ -20,6 +20,8 @@ enum MatcherInstruction {
     InitializeBook,
     ConsumeResults,
     CancelSettledOrders,
+    /// Close consumed Results and refund rent (disc 11, issue 74).
+    CloseResults,
 }
 
 pub fn process_instruction(
@@ -44,6 +46,7 @@ pub fn process_instruction(
         7 => MatcherInstruction::InitializeBook,
         8 => MatcherInstruction::ConsumeResults,
         9 => MatcherInstruction::CancelSettledOrders,
+        11 => MatcherInstruction::CloseResults,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(ProgramError::InvalidInstructionData);
@@ -99,6 +102,10 @@ pub fn process_instruction(
         }
         MatcherInstruction::ConsumeResults => {
             process_consume_results(context, accounts, &instruction_data[1..])
+        }
+        MatcherInstruction::CloseResults => {
+            msg!("Instruction: CloseResults");
+            process_close_results(context, accounts, &instruction_data[1..])
         }
         MatcherInstruction::CancelSettledOrders => {
             process_cancel_settled_orders(context, program_id, accounts, &instruction_data[1..])
@@ -167,6 +174,34 @@ fn process_consume_results(
     instructions::consume_results(&mut raw, batch_id)
 }
 
+/// CloseResults (disc 11): core closes consumed Results through a
+/// registry-signed CPI from CloseSettledBatch.
+///
+/// Accounts: 0. [signer] core registry (authority PDA), 1. [writable] Results
+/// PDA for `batch_id`, 2. [writable] rent recipient.
+/// Data: `batch_id: u64 LE` (8 bytes).
+fn process_close_results(
+    context: MarketContext,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let authority = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    mgk_common::matcher::validate_authority_in(context, authority)?;
+    let results = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let recipient = accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let batch_id = u64::from_le_bytes(
+        data.try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
+    mgk_common::matcher::validate_results_in(context, results, batch_id)?;
+    // Keep the documented InvalidAccountData code (interface.md).
+    mgk_common::validate_writable(recipient).map_err(|_| ProgramError::InvalidAccountData)?;
+    if recipient.key() == results.key() {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    instructions::close_results(results, recipient, batch_id)
+}
+
 #[cfg(test)]
 mod settlement_cancel_tests {
     use super::*;
@@ -204,6 +239,24 @@ mod settlement_cancel_tests {
         wire[33] = 8;
         assert_eq!(
             process_instruction(program, &[], &wire),
+            Err(ProgramError::NotEnoughAccountKeys)
+        );
+    }
+
+    #[test]
+    fn close_results_requires_the_core_authority_in_both_envelopes() {
+        let program = &mgk_common::program_ids::PERPS_MATCHER_ID;
+        let mut legacy = [0u8; 9];
+        legacy[0] = 11;
+        assert_eq!(
+            process_instruction(program, &[], &legacy),
+            Err(ProgramError::NotEnoughAccountKeys)
+        );
+        let mut scoped = [4u8; 42];
+        scoped[0] = 10;
+        scoped[33] = 11;
+        assert_eq!(
+            process_instruction(program, &[], &scoped),
             Err(ProgramError::NotEnoughAccountKeys)
         );
     }

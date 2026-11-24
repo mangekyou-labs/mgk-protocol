@@ -1,0 +1,293 @@
+== candidate
+== exit 0
+== indexer-build
+.                                        |  WARN  Unsupported engine: wanted: {"node":"22"} (current: {"node":"v24.10.0","pnpm":"8.15.9"})
+Scope: 2 of 5 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+.                                        |    +1278 ++++++++++++++++++++++++++++
+Progress: resolved 1278, reused 1273, downloaded 0, added 8
+Progress: resolved 1278, reused 1275, downloaded 0, added 545
+Progress: resolved 1278, reused 1275, downloaded 0, added 917
+Progress: resolved 1278, reused 1275, downloaded 0, added 1041
+Progress: resolved 1278, reused 1275, downloaded 0, added 1273
+Progress: resolved 1278, reused 1275, downloaded 0, added 1275
+Progress: resolved 1278, reused 1275, downloaded 0, added 1276
+Progress: resolved 1278, reused 1275, downloaded 0, added 1278, done
+Done in 8.3s
+.                                        |  WARN  Unsupported engine: wanted: {"node":"22"} (current: {"node":"v24.10.0","pnpm":"8.15.9"})
+
+> @mgk/sdk@0.0.1 build /private/tmp/lrows-c913b5f/mgk-frontend/packages/sdk
+> tsc
+
+.                                        |  WARN  Unsupported engine: wanted: {"node":"22"} (current: {"node":"v24.10.0","pnpm":"8.15.9"})
+
+> indexer@0.0.1 build /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer
+> tsc
+
+.                                        |  WARN  Unsupported engine: wanted: {"node":"22"} (current: {"node":"v24.10.0","pnpm":"8.15.9"})
+
+> indexer@0.0.1 test /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer
+> vitest run
+
+
+ RUN  v2.1.9 /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer
+
+ ✓ src/settlementReceipt.test.ts (3 tests) 6ms
+ ✓ src/healthTracker.test.ts (17 tests) 3ms
+ ✓ src/health.test.ts (16 tests) 6ms
+ ✓ src/store.test.ts (9 tests) 150ms
+ ✓ src/keeperSelection.test.ts (4 tests) 1ms
+ ✓ src/runtimeValidation.test.ts (3 tests) 2ms
+ ✓ src/keeperCommitments.test.ts (2 tests) 6ms
+ ✓ src/config.test.ts (3 tests) 12ms
+ ✓ src/decoder.test.ts (2 tests) 4ms
+ ✓ src/backfill.test.ts (1 test) 1ms
+ ✓ src/integration.test.ts (28 tests) 140ms
+ ✓ src/cpiReplay.test.ts (24 tests) 99ms
+stderr | src/syncer.test.ts > syncer - signature-driven history replay > holds the cursor and records a poll failure on a missing transaction
+History replay paused after slot 99 Error: Transaction sig-3 unavailable; cursor held for retry
+    at syncHistory (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:266:24)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at Object.triggerSync (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:482:24)
+    at /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:170:5
+    at file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runSuite (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+    at runFiles (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+    at startTests (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+
+stderr | src/syncer.test.ts > syncer - signature-driven history replay > holds the cursor and records a poll failure on a getTransaction 429
+History replay paused after slot 99 Error: 429 Too Many Requests
+    at Object.rpc.state.failTransaction (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:162:133)
+    at Object.getTransaction (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:85:52)
+    at /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:257:98
+    at worker (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:121:24)
+    at Array.from (<anonymous>)
+    at mapBounded (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:127:27)
+    at syncHistory (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:257:25)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at Object.triggerSync (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:482:24)
+    at /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:170:5
+
+stderr | src/syncer.test.ts > syncer - signature-driven history replay > holds the cursor and records a poll failure on a signature-page 429
+History replay paused after slot 99 Error: 429 Too Many Requests
+    at Object.rpc.state.failSignatures (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:163:110)
+    at Object.getSignaturesForAddress (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:75:13)
+    at listNewSignatures (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:91:35)
+    at syncHistory (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:246:41)
+    at Object.triggerSync (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:482:30)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:170:5
+    at file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+    at runTest (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+    at runSuite (file:///private/tmp/lrows-c913b5f/mgk-frontend/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+
+stderr | src/syncer.test.ts > syncer - signature-driven history replay > keeps committed progress when a later segment fails
+History replay paused after slot 1099 Error: 429 Too Many Requests
+    at Object.rpc.state.failTransaction (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:220:72)
+    at Object.getTransaction (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:85:52)
+    at /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:257:98
+    at worker (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:121:24)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Promise.all (index 0)
+    at mapBounded (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:127:3)
+    at syncHistory (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:257:19)
+    at Object.triggerSync (/private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.ts:482:24)
+    at /private/tmp/lrows-c913b5f/mgk-frontend/apps/indexer/src/syncer.test.ts:222:5
+
+stdout | src/syncer.test.ts > syncer - RPC budget > catch-up costs ceil(N/1000) + 1 + N history calls + 2 per settlement; an idle tick costs 2
+[rpc-budget] catch-up N=2500 (S=3 settlements): 2512 calls {
+  getSlot: 1,
+  getFirstAvailableBlock: 1,
+  getSignaturesForAddress: 4,
+  getTransaction: 2500,
+  getAccountInfo: 6
+}
+[rpc-budget] idle tick: 2 calls { getSlot: 1, getSignaturesForAddress: 1 }
+
+ ✓ src/syncer.test.ts (19 tests) 398ms
+
+ Test Files  13 passed (13)
+      Tests  131 passed (131)
+   Start at  10:51:59
+   Duration  1.22s (transform 2.21s, setup 0ms, collect 4.09s, tests 830ms, environment 2ms, prepare 752ms)
+
+== exit 0
+== tools-install
+npm warn deprecated uuid@8.3.2: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+
+added 54 packages in 2s
+== exit 0
+== lifecycle
+error: rustc 1.79.0-dev is not supported by the following packages:
+
+                 Note that this is the rustc version that ships with Solana tools and not your system's rustc version. Use `solana-install update` or head over to https://docs.solanalabs.com/cli/install to install a newer version.
+  deranged@0.5.4 requires rustc 1.81.0
+  icu_collections@2.0.0 requires rustc 1.82
+  icu_locale_core@2.0.0 requires rustc 1.82
+  icu_normalizer@2.0.0 requires rustc 1.82
+  icu_normalizer_data@2.0.0 requires rustc 1.82
+  icu_normalizer_data@2.0.0 requires rustc 1.82
+  icu_normalizer_data@2.0.0 requires rustc 1.82
+  icu_properties@2.0.1 requires rustc 1.82
+  icu_properties_data@2.0.1 requires rustc 1.82
+  icu_properties_data@2.0.1 requires rustc 1.82
+  icu_properties_data@2.0.1 requires rustc 1.82
+  icu_provider@2.0.0 requires rustc 1.82
+  idna_adapter@1.2.1 requires rustc 1.82
+  indexmap@2.12.0 requires rustc 1.82
+  litemap@0.8.0 requires rustc 1.82
+  potential_utf@0.1.3 requires rustc 1.82
+  rayon@1.11.0 requires rustc 1.80
+  rayon-core@1.13.0 requires rustc 1.80
+  rayon-core@1.13.0 requires rustc 1.80
+  rayon-core@1.13.0 requires rustc 1.80
+  solana-net-utils@2.3.13 requires rustc 1.83.0
+  time@0.3.44 requires rustc 1.81.0
+  time-core@0.1.6 requires rustc 1.81.0
+  time-macros@0.2.24 requires rustc 1.81.0
+  tinystr@0.8.1 requires rustc 1.81
+  writeable@0.6.1 requires rustc 1.81
+  yoke@0.8.0 requires rustc 1.81
+  zerofrom@0.1.6 requires rustc 1.81
+  zerotrie@0.2.2 requires rustc 1.82
+  zerovec@0.11.4 requires rustc 1.82
+Either upgrade rustc or select compatible dependency versions with
+`cargo update <name>@<current-ver> --precise <compatible-ver>`
+where `<compatible-ver>` is the latest version supporting rustc 1.79.0-dev
+
+== exit 101
+== contract
+✔ threshold constants match the gate latency contract (0.887583ms)
+✔ a full healthy run passes: 30 orders, 30+ min span, cold start, within latency budgets (1.389666ms)
+✔ nearest-rank percentiles: p50 and p95 come from ranked samples, not averages (0.246125ms)
+✔ signed-but-unsettled orders fail the verdict (0.29625ms)
+✔ verdict fails without a cold start, with too few orders, and with a short span (0.294375ms)
+✔ a cold-start order mid-run counts: it follows a real restart, not the first order (0.117292ms)
+✔ only taker orders count: a non-taker or unroled sign throws (0.489916ms)
+✔ verdict fails unless run against the maker ladder with monitoring green (0.780458ms)
+✔ slow accepted or settled latencies fail the verdict (0.623792ms)
+✔ declared-unhealthy samples are excluded from counts and verdict, carrying their proof (1.051542ms)
+✔ exclusion requires awaiting-settlement proof with no error and no fake fill (0.191ms)
+✔ exclusion after settlement throws, so a slow healthy fill can never be erased (0.065958ms)
+✔ duplicate, unknown and out-of-order timestamps throw (0.156333ms)
+✔ timestamps default to Date.now when omitted (0.291334ms)
+✔ GATE_ROWS holds all 35 P0 and 4 P1 rows with the required tiers from issue #11 (1.091709ms)
+✔ buildReport pins commit, cluster, program IDs and .so hashes; unsupplied rows are not run (1.696084ms)
+✔ a pass at the required tier is recorded; L rows can pass locally while D rows stay not run (0.419ms)
+✔ a pass or fail at any tier other than the required tier renders as not run (no tier substitution) (0.471625ms)
+✔ missing pin fields, unknown and duplicate row ids throw (1.521708ms)
+✔ fail rows render as fail and evidence fields are carried into the report (0.632333ms)
+✔ pre/post snapshots and expected vs observed render in Evidence as pre:/post:/expected:/observed: (0.123166ms)
+✔ checked-in TEMPLATE.md matches every GATE_ROWS id, title and tier, all not run (0.861917ms)
+✔ defaults are the 2 h gate soak with a 2 min stuck-Cleared budget (0.42225ms)
+✔ a clean soak passes, audits exactly once, and reports polls and batches seen (0.560625ms)
+✔ a batch id skipped between polls fails as a missing batch, audit still runs once (0.143417ms)
+✔ a batch stuck in Cleared beyond stuckClearedMs fails; clearing in time passes (0.295958ms)
+✔ audit violations fail the verdict; audit runs exactly once even when polling fails (0.211084ms)
+✔ an observe error is a failure and the end-of-run audit still runs once (0.128916ms)
+✔ drive hook runs on every poll; a drive error fails the verdict (0.29475ms)
+✔ verdict fails when fewer than minBatches batches are seen (0.166709ms)
+✔ CLI min-batches defaults to about one batch per 10 s of duration (0.294ms)
+✔ runSoak requires observe and audit and a positive duration (0.802834ms)
+✔ observeDeployment maps on-chain batch statuses (settled=3, cleared=4) for the soak (35.483417ms)
+✔ observeDeployment is light: two getMultipleAccounts per poll, never getProgramAccounts (11.737416ms)
+✔ observeDeployment omits a batch PDA that does not exist, so the soak reports it missing (3.905167ms)
+✔ a spent request budget stops polling at once, records the failure, and still audits (0.392208ms)
+✔ published confidence is actual dispersion, including source uncertainty (0.581083ms)
+✔ the audit CLI reports every invariant passing using only read RPC methods (137.911167ms)
+✔ the audit CLI exits nonzero and names the failing invariant (97.061ms)
+✔ the audit CLI reports unreachable RPC without a stack trace (60.809708ms)
+✔ scenario drivers can import the audit and fail a scenario by name (11.554834ms)
+✔ the audit CLI accepts a candidate manifest as the program source (0.1755ms)
+✔ audit program selection preserves the scoped manifest namespace (0.53975ms)
+✔ candidate artifact bytes must match the externally supplied SHA-256 (1.909709ms)
+✔ exact assertions reject rounded JavaScript numeric model outputs (1.409ms)
+✔ missing validator executable rejects and cleans up without hanging (122.369958ms)
+✔ twelve distinct filled portfolios settle within one legacy transaction packet (39.550458ms)
+ℹ worst-case settlement transaction: 942/1232 bytes
+✔ runtime state assertions decode versioned protocol accounts by field path (0.550584ms)
+✔ every harness transaction is followed by the invariant checker (10.359667ms)
+✔ an invariant violation names the invariant and the transaction (8.497666ms)
+✔ a harness transaction without protocol instructions may donate lamports to the vault (8.823708ms)
+✔ audits isolate markets sharing programs, users and batch numbers (40.597916ms)
+✔ a consistent market passes every evaluable invariant in a read-only audit (4.242417ms)
+✔ the reader refuses any method that could send a transaction (0.197959ms)
+✔ vault balance: one lamport of under-backing fails (9.207459ms)
+✔ vault balance: donated surplus lamports are tolerated (5.031625ms)
+✔ vault balance: recorded collateral must equal total portfolio equity (4.088375ms)
+✔ per-auction signed base quantity: unbalanced fills fail (4.388208ms)
+✔ fills never exceed eligible submitted size: oversized fill fails (4.678667ms)
+✔ fills never exceed eligible submitted size: fill without a live order fails (3.857083ms)
+✔ each receipt applied exactly once: a cleared batch with spent results fails (3.727583ms)
+✔ each receipt applied exactly once: spent results may never become unspent (6.372291ms)
+✔ a valid reduce never increases exposure: a reduce-only settlement that reduces passes (5.353875ms)
+✔ a valid reduce never increases exposure: a reduce-only fill that flips fails (7.598625ms)
+✔ no withdrawable balance is negative: a withdrawal leaving negative withdrawable fails (5.94075ms)
+✔ no withdrawable balance is negative: an adverse mark alone is liquidation territory, not a violation (6.479791ms)
+✔ no withdrawable balance is negative: a flat portfolio with negative withdrawable fails (4.575959ms)
+✔ zeroed storage and forged non-PDA protocol accounts are not counted as protocol state (4.528125ms)
+✔ malformed protocol accounts fail loudly and name the account (1.847542ms)
+✔ vault balance: a protocol transaction must move vault lamports by exactly its backing delta (5.915041ms)
+✔ vault balance: a transaction without a protocol instruction may only donate lamports (10.509958ms)
+✔ vault balance: an exactly backed deposit passes the per-transaction delta check (4.944583ms)
+✔ audit: fills are not evaluable when no cleared batch awaits settlement (4.788375ms)
+✔ audit: receipts are not evaluable when no batch has cleared (3.193209ms)
+✔ a valid reduce never increases exposure: a mixed user settling within the envelope passes (6.079666ms)
+✔ a valid reduce never increases exposure: the reduce-only portion of a mixed user may not flip (8.293417ms)
+✔ portfolio equity is never negative is its own named check (7.626ms)
+✔ vault balance: an uninitialized vault after initialize fails (5.53425ms)
+✔ vault balance: a missing vault after initialize fails (3.127667ms)
+✔ vault balance: before initialize an uninitialized vault is not yet protocol state (2.838792ms)
+✔ supplementary checks name themselves, not a gate invariant (11.956542ms)
+✔ the budget charges every request and refuses past the cap without sending (0.713292ms)
+✔ 429, 5xx and transport errors retry with backoff; each attempt is charged (0.387542ms)
+✔ a sustained outage fails once retries run out; RPC errors never retry (0.173417ms)
+✔ budgetedFetch charges the shared budget for web3.js Connection requests (0.136292ms)
+✔ keyed RPC URLs are refused unless allowed, and redacted in logs (0.287625ms)
+ℹ tests 86
+ℹ suites 0
+ℹ pass 86
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 525.7765
+== exit 0
+== model
+.....................................
+----------------------------------------------------------------------
+Ran 37 tests in 0.159s
+
+OK
+== exit 0
+== runtime
+✔ gate tooling end-to-end: market fill and settle, latency, shortened soak, pinned report (12377.905042ms)
+✔ core InitializeBook creates and grows the book PDA to full size without pre-allocation (1432.192959ms)
+✔ P0-11: cancel racing clear, another user's order, direct matcher call (11917.1395ms)
+✔ P0-17: liquidation rejects healthy and health=0, takeover in 25% steps (13035.514417ms)
+✔ P0-19 stress drift and P0-18 within-fund bad debt (29251.221542ms)
+✔ P0-26 capped batch, P1-2 DFBA paper vectors, P1-3 adversarial at cap (47325.578625ms)
+✔ P0-8: crossed taker/taker and maker/maker orders never fill (9816.418708ms)
+✔ P0-14: over-5x leverage order rejects at post (3818.031625ms)
+✔ P0-27: negative maker fee rejects at runtime (2511.826959ms)
+✔ read-only service reports chain status on empty disk (30654.581166ms)
+✔ keeper CLI: crash after filled clear, concurrent restart, fee starvation and missing batch (default) (43342.088333ms)
+✔ keeper CLI: crash after filled clear, concurrent restart, fee starvation and missing batch (scoped) (43287.005875ms)
+✔ maker CLI: GTC ladder, taker settlement, invalid-price cancellation recovery and last-resort takeover (default) (12640.259292ms)
+✔ maker CLI: GTC ladder, taker settlement, invalid-price cancellation recovery and last-resort takeover (scoped) (12547.346833ms)
+✔ same IDs isolate default and two scoped markets through funding, pause, matching and settlement (16372.095708ms)
+✔ insurance exhaustion and staged recovery are confined to their scoped market (13899.100292ms)
+✔ candidate runtime: oracle risk, order reservations, reduce-only clipping and rollback (95511.413625ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 117792.076333
+== exit 0
+done

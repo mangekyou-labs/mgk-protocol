@@ -10,7 +10,6 @@ import { portfolioRoutes } from './rest/portfolio.js';
 import { createSyncer } from './syncer.js';
 import { loadDeployment, loadMonitoring } from './config.js';
 import { statusRoutes } from './rest/status.js';
-import { createHistoryFetch } from './historyFetch.js';
 import { createWsServer, broadcastFill, broadcastBatch } from './ws.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -18,6 +17,9 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const RPC_URL = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
 const DB_PATH = process.env.DB_PATH ?? 'mgk-indexer.db';
+// Status response cache; runtime tests set 0 to read the chain on every request.
+const STATUS_CACHE_MS = process.env.STATUS_CACHE_MS === undefined ? undefined : Number(process.env.STATUS_CACHE_MS);
+if (STATUS_CACHE_MS !== undefined && !(Number.isInteger(STATUS_CACHE_MS) && STATUS_CACHE_MS >= 0)) throw new Error('STATUS_CACHE_MS must be a non-negative integer');
 
 async function main(): Promise<void> {
   const app = Fastify({
@@ -32,7 +34,7 @@ async function main(): Promise<void> {
   const monitoring = loadMonitoring();
   const CORE_PROGRAM_ID = manifest.programs.perps_core;
   const MATCHER_PROGRAM_ID = manifest.programs.perps_matcher;
-  const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: createHistoryFetch(CORE_PROGRAM_ID, (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)}))});
+  const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)})});
 
   let wss: WebSocketServer | undefined;
 
@@ -43,8 +45,8 @@ async function main(): Promise<void> {
     marketSeed: manifest.marketSeed,
     matcherProgramId: MATCHER_PROGRAM_ID,
     startSlot: manifest.startSlot!,
-    maxChunkSlots: 256,
-    pollIntervalMs: 2000,
+    // Log subscriptions trigger syncs; polling is only a fallback (each tick costs 2 RPC credits).
+    pollIntervalMs: 30_000,
     onFill: (fill) => {
       if (!wss) return;
       const f = fill as Record<string, unknown>;
@@ -62,7 +64,7 @@ async function main(): Promise<void> {
     getRuntimeHealth: () => syncer.getRuntimeHealth(),
     tracker: syncer.getHealthTracker(),
   });
-  await statusRoutes(app, {connection, store, manifest, monitoring});
+  await statusRoutes(app, {connection, store, manifest, monitoring, cacheMs: STATUS_CACHE_MS});
   await marketsRoutes(app, store);
   await candlesRoutes(app, store);
   await tradesRoutes(app, store);

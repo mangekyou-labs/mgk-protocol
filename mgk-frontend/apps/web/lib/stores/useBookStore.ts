@@ -7,6 +7,7 @@ import * as sdk from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 import { decodeOrNull } from '@/lib/decode';
 
 type BookHeader = sdk.state.BookHeader;
@@ -39,6 +40,7 @@ interface BookStore {
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: BookPollParams | null = null;
+let consecutiveFailures = 0;
 
 export const useBookStore = create<BookStore>((set, get) => ({
   data: null,
@@ -52,7 +54,8 @@ export const useBookStore = create<BookStore>((set, get) => ({
   startPolling: async (params) => {
     if (pollHandle) clearInterval(pollHandle);
     currentParams = params;
-    set({ isPolling: true, instrumentId: params.instrumentId });
+    consecutiveFailures = 0;
+    set({ isPolling: true, instrumentId: params.instrumentId, loading: get().lastFetchedAt === null });
     await get().refresh();
     pollHandle = setInterval(() => {
       void get().refresh();
@@ -70,13 +73,24 @@ export const useBookStore = create<BookStore>((set, get) => ({
 
   refresh: async () => {
     if (!currentParams) return;
-    set({ loading: true, error: null });
+    const { connection, programId, instrumentId, bookAddress } = currentParams;
+    const bookPk = bookAddress ?? sdk.deriveBookPda(instrumentId, programId, config.marketContext)[0];
+    let acc: Awaited<ReturnType<Connection['getMultipleAccountsInfo']>>[number];
     try {
-      const { connection, programId, instrumentId, bookAddress } = currentParams;
-
-      const bookPk = bookAddress ?? sdk.deriveBookPda(instrumentId, programId, config.marketContext)[0];
       const accounts = await connection.getMultipleAccountsInfo([bookPk]);
-      const acc = accounts[0] ?? null;
+      acc = accounts[0] ?? null;
+    } catch (e) {
+      // Keep the last book on transient RPC failures; report once they persist.
+      consecutiveFailures++;
+      if (consecutiveFailures < FAILURE_THRESHOLD) return;
+      set({
+        loading: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
+    consecutiveFailures = 0;
+    try {
       if (!acc) {
         set({
           data: null,

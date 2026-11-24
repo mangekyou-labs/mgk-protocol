@@ -312,9 +312,20 @@ fn begin_results(raw: &mut [u8], batch_id: u64) -> ProgramResult {
 }
 /// Mark a validated batch's unspent matcher output as consumed.
 pub fn consume_results(raw: &mut [u8], batch_id: u64) -> ProgramResult {
-    mgk_common::matcher::unspent_results(raw, batch_id)?;
+    mgk_common::matcher::results_with_spent(raw, batch_id, false)?;
     raw[mgk_common::layout::ACCOUNT_HEADER_LEN + 8] = 1;
     Ok(())
+}
+
+/// Close validated, already-consumed Results for `batch_id` and send its rent
+/// to `recipient` (CloseResults, disc 11, issue 74).
+pub fn close_results(
+    results: &AccountInfo,
+    recipient: &AccountInfo,
+    batch_id: u64,
+) -> ProgramResult {
+    mgk_common::matcher::results_with_spent(&results.try_borrow_data()?, batch_id, true)?;
+    mgk_common::matcher::close_account(results, recipient)
 }
 
 /// Stamp the `BATCH_RESULTS` account header (spec 13 / issue 16) and return the
@@ -539,6 +550,11 @@ pub fn process_dfba_clear_in(
         }
         let mut book_data = book_account.try_borrow_mut_data()?;
         let state = book_state_from_bytes_mut(&mut book_data)?;
+        // Drop fully filled orders left linked by earlier clears so they
+        // stop showing as book depth and holding level and order slots.
+        if book_account.is_writable() {
+            crate::state::prune_filled(state);
+        }
         let live = state.resting[..state.resting_count]
             .iter()
             .filter(|r| r.qty > r.filled_qty && r.order_id != u64::MAX)
@@ -546,8 +562,7 @@ pub fn process_dfba_clear_in(
         if live > MAX_SETTLEMENT_ORDERS {
             return Err(ProgramError::InvalidAccountData);
         }
-        for i in 0..state.resting_count {
-            let r = &state.resting[i];
+        for r in state.resting.iter().take(state.resting_count) {
             let rem = r.qty.saturating_sub(r.filled_qty);
             if rem == 0 || r.order_id == u64::MAX {
                 continue;
@@ -719,30 +734,17 @@ fn append_alloc_fills(
             Ok(())
         };
 
-    for i in 0..alloc.maker_fill_count {
-        let f = &alloc.maker_fills[i];
+    for f in alloc.maker_fills.iter().take(alloc.maker_fill_count) {
         write_one(&f.user, f.order_id, f.fill_qty, true)?;
     }
-    for i in 0..alloc.taker_fill_count {
-        let f = &alloc.taker_fills[i];
+    for f in alloc.taker_fills.iter().take(alloc.taker_fill_count) {
         write_one(&f.user, f.order_id, f.fill_qty, false)?;
     }
     Ok(w as u16)
 }
 
 fn apply_one_fill_to_book(state: &mut crate::state::BookState, order_id: u64, fill_qty: u64) {
-    if fill_qty == 0 {
-        return;
-    }
-    for i in 0..state.resting_count {
-        if state.resting[i].order_id == order_id {
-            let r = &mut state.resting[i];
-            let rem = r.qty.saturating_sub(r.filled_qty);
-            let f = fill_qty.min(rem);
-            r.filled_qty = r.filled_qty.saturating_add(f);
-            break;
-        }
-    }
+    crate::state::apply_fill(state, order_id, fill_qty);
 }
 
 #[allow(dead_code)]
@@ -751,33 +753,18 @@ fn apply_dfba_fills_to_book(
     dual: &crate::state::DualAuctionResult,
 ) {
     let apply = |state: &mut crate::state::BookState, order_id: u64, fill_qty: u64| {
-        if fill_qty == 0 {
-            return;
-        }
-        for i in 0..state.resting_count {
-            if state.resting[i].order_id == order_id {
-                let r = &mut state.resting[i];
-                let rem = r.qty.saturating_sub(r.filled_qty);
-                let f = fill_qty.min(rem);
-                r.filled_qty = r.filled_qty.saturating_add(f);
-                break;
-            }
-        }
+        crate::state::apply_fill(state, order_id, fill_qty);
     };
-    for i in 0..dual.bid_alloc.maker_fill_count {
-        let f = &dual.bid_alloc.maker_fills[i];
+    for f in dual.bid_alloc.maker_fills.iter().take(dual.bid_alloc.maker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
-    for i in 0..dual.bid_alloc.taker_fill_count {
-        let f = &dual.bid_alloc.taker_fills[i];
+    for f in dual.bid_alloc.taker_fills.iter().take(dual.bid_alloc.taker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
-    for i in 0..dual.ask_alloc.maker_fill_count {
-        let f = &dual.ask_alloc.maker_fills[i];
+    for f in dual.ask_alloc.maker_fills.iter().take(dual.ask_alloc.maker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
-    for i in 0..dual.ask_alloc.taker_fill_count {
-        let f = &dual.ask_alloc.taker_fills[i];
+    for f in dual.ask_alloc.taker_fills.iter().take(dual.ask_alloc.taker_fill_count) {
         apply(state, f.order_id, f.fill_qty);
     }
 }
@@ -823,30 +810,26 @@ fn write_dfba_results(
 
     let mut w = 0usize;
     let bp = dual.bid_alloc.clearing_price;
-    for i in 0..dual.bid_alloc.maker_fill_count {
-        let f = &dual.bid_alloc.maker_fills[i];
+    for f in dual.bid_alloc.maker_fills.iter().take(dual.bid_alloc.maker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, bp, true, 0);
             w += 1;
         }
     }
-    for i in 0..dual.bid_alloc.taker_fill_count {
-        let f = &dual.bid_alloc.taker_fills[i];
+    for f in dual.bid_alloc.taker_fills.iter().take(dual.bid_alloc.taker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, bp, false, 0);
             w += 1;
         }
     }
     let ap = dual.ask_alloc.clearing_price;
-    for i in 0..dual.ask_alloc.maker_fill_count {
-        let f = &dual.ask_alloc.maker_fills[i];
+    for f in dual.ask_alloc.maker_fills.iter().take(dual.ask_alloc.maker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, ap, true, 1);
             w += 1;
         }
     }
-    for i in 0..dual.ask_alloc.taker_fill_count {
-        let f = &dual.ask_alloc.taker_fills[i];
+    for f in dual.ask_alloc.taker_fills.iter().take(dual.ask_alloc.taker_fill_count) {
         if f.fill_qty > 0 {
             encode_dfba_fill(data, w, &f.user, f.order_id, f.fill_qty, ap, false, 1);
             w += 1;
@@ -1794,12 +1777,12 @@ mod results_header_tests {
         begin_results(&mut raw, 42).unwrap();
         let body = dfba_results_body(&mut raw).unwrap();
         encode_dfba_fill(body, 0, &[7; 32], 5, 11, 100, true, 1);
-        let payload = mgk_common::matcher::unspent_results(&raw, 42).unwrap();
+        let payload = mgk_common::matcher::results_with_spent(&raw, 42, false).unwrap();
         assert_eq!(
             &payload[DFBA_RESULT_HEADER_BYTES..DFBA_RESULT_HEADER_BYTES + 32],
             &[7; 32]
         );
-        assert!(mgk_common::matcher::unspent_results(&raw, 41).is_err());
+        assert!(mgk_common::matcher::results_with_spent(&raw, 41, false).is_err());
     }
 
     #[test]

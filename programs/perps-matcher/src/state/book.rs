@@ -428,6 +428,88 @@ pub fn cancel_all_for_user(state: &mut BookState, user: &Pubkey) -> usize {
     removed
 }
 
+/// Apply an auction fill to the live resting order `order_id`. The level's
+/// `total_qty` (remaining size) drops by the filled amount, and a fully
+/// filled order is removed from the book. Returns the qty applied, which is
+/// capped at the order's remaining size; an unknown id applies nothing.
+pub fn apply_fill(state: &mut BookState, order_id: u64, fill_qty: u64) -> u64 {
+    if fill_qty == 0 {
+        return 0;
+    }
+    let Some(i) = (0..state.resting_count)
+        .find(|&i| state.resting[i].qty > 0 && state.resting[i].order_id == order_id)
+    else {
+        return 0;
+    };
+    let r = &mut state.resting[i];
+    let f = fill_qty.min(r.qty.saturating_sub(r.filled_qty));
+    r.filled_qty = r.filled_qty.saturating_add(f);
+    let (side, price, done) = (r.side, r.price, r.filled_qty >= r.qty);
+    if let Some(level_idx) = find_level(&state.book, side, price) {
+        let lvl = match side {
+            Side::Buy => &mut state.book.bids[level_idx],
+            Side::Sell => &mut state.book.asks[level_idx],
+        };
+        lvl.total_qty = lvl.total_qty.saturating_sub(f);
+    }
+    if done {
+        // remove_at_offset subtracts the remaining qty, which is now 0.
+        let _ = remove_at_offset(state, i as u32);
+    }
+    f
+}
+
+/// Remove every fully filled resting order, then rebuild each live level's
+/// `order_count` and `total_qty` from its chain. Repairs books written before
+/// fills removed filled orders, where such orders stayed linked and level
+/// totals still counted filled size. Returns the number of orders removed.
+pub fn prune_filled(state: &mut BookState) -> usize {
+    let mut removed = 0usize;
+    for i in 0..state.resting_count {
+        let r = &state.resting[i];
+        if r.qty > 0 && r.filled_qty >= r.qty && remove_at_offset(state, i as u32).is_ok() {
+            removed += 1;
+        }
+    }
+    if removed == 0 {
+        return 0;
+    }
+    for side in [Side::Buy, Side::Sell] {
+        for level_idx in 0..MAX_LEVELS {
+            let lvl = match side {
+                Side::Buy => state.book.bids[level_idx],
+                Side::Sell => state.book.asks[level_idx],
+            };
+            if lvl.order_count == 0 {
+                continue;
+            }
+            let (mut count, mut total) = (0u16, 0u64);
+            let mut cursor = lvl.first_order_offset;
+            // Bounded walk: a chain can never be longer than the slot array.
+            while (cursor as usize) < state.resting_count && (count as usize) < state.resting_count {
+                let o = &state.resting[cursor as usize];
+                count += 1;
+                total = total.saturating_add(o.qty.saturating_sub(o.filled_qty));
+                cursor = o.next_order_offset;
+            }
+            let (lvl, side_count) = match side {
+                Side::Buy => (&mut state.book.bids[level_idx], &mut state.book.bid_count),
+                Side::Sell => (&mut state.book.asks[level_idx], &mut state.book.ask_count),
+            };
+            if count == 0 {
+                *lvl = BookLevel::default();
+                *side_count = side_count.saturating_sub(1);
+            } else {
+                lvl.order_count = count;
+                lvl.total_qty = total;
+            }
+        }
+    }
+    state.book.best_bid = best_price(&state.book.bids, Side::Buy);
+    state.book.best_ask = best_price(&state.book.asks, Side::Sell);
+    removed
+}
+
 /// Modify a single resting order's remaining `qty` by `order_id`, asserting
 /// the calling user owns it. `new_qty` is the new total order qty (not the
 /// delta). Returns the updated order on success.
@@ -1191,5 +1273,98 @@ mod tests {
         let updated = modify_resting_qty(&mut state, id, &user_pubkey(1), 5).unwrap();
         assert_eq!(updated.qty, 5);
         assert_eq!(state.book.bids[0].total_qty, 5);
+    }
+
+    #[test]
+    fn test_apply_fill_full_removes_order_and_level() {
+        let mut state = BookState::new();
+        place_resting(&mut state, &make_order(1, Side::Buy, 90, 5)).unwrap();
+        let ask = place_resting(&mut state, &make_order(2, Side::Sell, 100, 4)).unwrap();
+        place_resting(&mut state, &make_order(3, Side::Sell, 110, 6)).unwrap();
+        assert_eq!(state.book.best_ask, 100);
+
+        assert_eq!(apply_fill(&mut state, ask, 4), 4);
+        assert_eq!(state.resting[1].qty, 0, "slot freed");
+        assert_eq!(state.book.ask_count, 1);
+        assert_eq!(state.book.best_ask, 110);
+        assert_eq!(state.book.best_bid, 90);
+        assert!(find_level(&state.book, Side::Sell, 100).is_none());
+        // The freed slot is reused by the next placement.
+        place_resting(&mut state, &make_order(4, Side::Buy, 95, 1)).unwrap();
+        assert_eq!(state.resting_count, 3);
+    }
+
+    #[test]
+    fn test_apply_fill_partial_keeps_order_and_decrements_level() {
+        let mut state = BookState::new();
+        let a = place_resting(&mut state, &make_order(1, Side::Sell, 100, 10)).unwrap();
+        place_resting(&mut state, &make_order(2, Side::Sell, 100, 5)).unwrap();
+        assert_eq!(apply_fill(&mut state, a, 3), 3);
+        let lvl = state.book.asks[find_level(&state.book, Side::Sell, 100).unwrap()];
+        assert_eq!(lvl.total_qty, 12);
+        assert_eq!(lvl.order_count, 2);
+        assert_eq!(state.resting[0].filled_qty, 3);
+
+        // Filling the rest removes it; the level keeps the other order.
+        assert_eq!(apply_fill(&mut state, a, 7), 7);
+        let lvl = state.book.asks[find_level(&state.book, Side::Sell, 100).unwrap()];
+        assert_eq!((lvl.order_count, lvl.total_qty), (1, 5));
+        assert_eq!(state.book.best_ask, 100);
+    }
+
+    #[test]
+    fn test_apply_fill_partial_then_cancel_clears_level() {
+        let mut state = BookState::new();
+        let id = place_resting(&mut state, &make_order(1, Side::Buy, 100, 10)).unwrap();
+        apply_fill(&mut state, id, 4);
+        cancel_resting_by_id(&mut state, id, &user_pubkey(1)).unwrap();
+        assert_eq!(state.book.bid_count, 0);
+        assert_eq!(state.book.best_bid, 0);
+        assert!(find_level(&state.book, Side::Buy, 100).is_none());
+    }
+
+    #[test]
+    fn test_apply_fill_caps_overfill_and_ignores_unknown_id() {
+        let mut state = BookState::new();
+        let id = place_resting(&mut state, &make_order(1, Side::Sell, 100, 5)).unwrap();
+        assert_eq!(apply_fill(&mut state, 999, 5), 0);
+        assert_eq!(apply_fill(&mut state, id, 0), 0);
+        assert_eq!(state.book.asks[0].total_qty, 5);
+        assert_eq!(apply_fill(&mut state, id, 50), 5);
+        assert_eq!(state.book.ask_count, 0);
+        assert_eq!(apply_fill(&mut state, id, 1), 0, "already removed");
+    }
+
+    #[test]
+    fn test_prune_filled_repairs_legacy_ghost_book() {
+        // Books written by the old clear: filled orders stay linked and the
+        // level total still counts their size, so the book can be crossed.
+        let mut state = BookState::new();
+        place_resting(&mut state, &make_order(1, Side::Sell, 20, 2)).unwrap(); // ghost ask
+        place_resting(&mut state, &make_order(2, Side::Buy, 96, 3)).unwrap(); // live bid
+        place_resting(&mut state, &make_order(3, Side::Sell, 100, 4)).unwrap(); // ghost, shared level
+        place_resting(&mut state, &make_order(4, Side::Sell, 100, 6)).unwrap(); // live, shared level
+        place_resting(&mut state, &make_order(5, Side::Sell, 105, 8)).unwrap(); // partly filled
+        state.resting[0].filled_qty = 2;
+        state.resting[2].filled_qty = 4;
+        state.resting[4].filled_qty = 5;
+        assert_eq!(state.book.best_ask, 20);
+        assert!(state.book.best_ask < state.book.best_bid, "crossed before");
+
+        assert_eq!(prune_filled(&mut state), 2);
+        assert_eq!(state.book.best_ask, 100);
+        assert_eq!(state.book.best_bid, 96);
+        assert_eq!(state.book.ask_count, 2);
+        assert!(find_level(&state.book, Side::Sell, 20).is_none());
+        let shared = state.book.asks[find_level(&state.book, Side::Sell, 100).unwrap()];
+        assert_eq!((shared.order_count, shared.total_qty), (1, 6));
+        let partial = state.book.asks[find_level(&state.book, Side::Sell, 105).unwrap()];
+        assert_eq!((partial.order_count, partial.total_qty), (1, 3));
+        assert_eq!(state.resting[0].qty, 0);
+        assert_eq!(state.resting[2].qty, 0);
+
+        // Idempotent: nothing left to prune.
+        assert_eq!(prune_filled(&mut state), 0);
+        assert_eq!(state.book.ask_count, 2);
     }
 }

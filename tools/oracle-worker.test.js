@@ -43,6 +43,11 @@ function fixture(options = {}) {
       key.toBase58() === keys[5]
         ? { owner: new PublicKey(keys[2]), data: oracle }
         : { owner: new PublicKey(keys[0]), data: instrument },
+    async getMultipleAccountsInfoAndContext(list) {
+      const value = [];
+      for (const key of list) value.push(await connection.getAccountInfo(key));
+      return { context: { slot: 0 }, value };
+    },
   };
   const quotes = { pyth: "10000000000", coinbase: "100.20", kraken: "100.10" };
   const customFetch = async (url) => ({
@@ -161,7 +166,6 @@ test("worker sends only UpdatePrice signed by explicit oracle authority and requ
       blockhash: keys[7],
       lastValidBlockHeight: 100,
     }),
-    simulateTransaction: async () => ({ value: { err: null } }),
     getBlockHeight: async () => 1,
     sendRawTransaction: async (bytes) => {
       sent = Transaction.from(bytes);
@@ -296,19 +300,15 @@ test("stale, future, non-finite, wrong-feed and failed HTTP observations cannot 
   }
 });
 
-test("revalidates source age after a delayed simulation and never sends expired quotes", async () => {
+test("revalidates source age after a delayed blockhash fetch and never sends expired quotes", async () => {
   let now = NOW;
   const f = fixture({ now: () => now });
   delete f.options.publish;
   let sends = 0;
   Object.assign(f.connection, {
-    getLatestBlockhash: async () => ({
-      blockhash: keys[7],
-      lastValidBlockHeight: 100,
-    }),
-    simulateTransaction: async () => {
+    getLatestBlockhash: async () => {
       now += 31_000;
-      return { value: { err: null } };
+      return { blockhash: keys[7], lastValidBlockHeight: 100 };
     },
     sendRawTransaction: async () => {
       sends++;
@@ -376,4 +376,25 @@ test("devnet worker accepts the real genesis hash and rejects a foreign cluster"
     }),
     /RPC cluster differs/,
   );
+});
+
+test("a fresh on-chain quote within 5 bps is not republished until it ages 30 s", async () => {
+  let now = NOW;
+  const f = fixture({ now: () => now });
+  const o = layouts.PriceOracle.fields;
+  f.oracle.writeBigInt64LE(100_100_000n, o.price[0]);
+  f.oracle.writeBigInt64LE(300_000n, o.confidence[0]);
+  f.oracle.writeBigInt64LE(BigInt(NOW / 1000 - 29), o.timestamp[0]);
+  const worker = await createOracleWorker(f.options);
+  assert.equal((await worker.tick()).status, "unchanged");
+  // A 6 bps move, wider confidence or a 30 s old quote each publish.
+  f.oracle.writeBigInt64LE(100_040_000n, o.price[0]);
+  assert.equal((await worker.tick()).status, "published");
+  f.oracle.writeBigInt64LE(100_100_000n, o.price[0]);
+  f.oracle.writeBigInt64LE(299_999n, o.confidence[0]);
+  assert.equal((await worker.tick()).status, "published");
+  f.oracle.writeBigInt64LE(300_000n, o.confidence[0]);
+  f.oracle.writeBigInt64LE(BigInt(NOW / 1000 - 30), o.timestamp[0]);
+  assert.equal((await worker.tick()).status, "published");
+  assert.equal(f.published.length, 3);
 });

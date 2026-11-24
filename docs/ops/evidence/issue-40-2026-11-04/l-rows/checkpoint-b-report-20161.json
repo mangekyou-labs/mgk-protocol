@@ -1,0 +1,97 @@
+{
+  "cluster": "localnet",
+  "rpcUrl": "http://127.0.0.1:20161",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "dump/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "programDataAddress": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "dump/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "programDataAddress": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "dump/mgk_perps_matcher.so",
+      "sha256": "f3e1829749fbb467504dce8a59b53e5a266f15c5d66e3050097b43d1a485553b",
+      "programDataAddress": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH"
+    }
+  ],
+  "transactions": [
+    {
+      "label": "initialize",
+      "signature": "2M7DJKBMHknfrjFmGVs1BUzdtVYYBAJAhLmDJGZZu7fEzzvPS4f6CxiXjoUxSSeTz5BhbUGeaZYSuqLBjFupX6jr",
+      "slot": 31,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "initialize book",
+      "signature": "2LtCewShEjQq1u69ygA722TGEN6VEJ8HQgi6bEKY3m253RqdKXXmAvfJx7XQyoVuTxq81b3Bfyw8q51HJycV62Nt",
+      "slot": 32,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "create batch",
+      "signature": "2KJjzY7PEdWS8gVtjhCNN7LNziup2siQFPLrzPXiWk4VVwocAjjz5Z4n2v9VaNKdazgE2XybYxtdAyv4JCyNAsEV",
+      "slot": 33,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "top up insurance fund",
+      "signature": "4f8XH9iVxTGUVW7LR8YskV5qoUrXHPhWzuA5he9h9o2BaG3eJ9cksz3vToMbKGPh1xLpzPgwpB7bLhuX5SN3JZZT",
+      "slot": 34,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "P0-27 valid demo fees accepted",
+      "signature": "3cWNfeKvLkoy9oArnT4PBfvEWrYTfEj8MUikF9kebDYvH38mVThgu31PJdosbq47LpkKKxaLpcp17dP6CMbQsApU",
+      "slot": 36,
+      "err": null,
+      "invariants": "pass"
+    }
+  ],
+  "controls": [
+    {
+      "type": "oracle",
+      "address": "FHfKkGHLaSPy92Bar9y87zsNf6hgjzrEyM3HEgUJs3wM",
+      "price": "100000000",
+      "publishTime": "1793756842",
+      "confidence": "12",
+      "active": true
+    }
+  ],
+  "marketSeeds": [
+    null
+  ],
+  "candidateCommit": "fabcd5a9ab5f4c5ca84da2348c0730c1121d0284",
+  "checkpointB": {
+    "rejections": [
+      {
+        "label": "P0-27 maker_fee_bps < 0 rejected",
+        "signature": "2pUsLtRMyujuxmVRKLYF2w9ErnoNm9acWyHkR8SSYxEEAnPCg6TsrcXkMRjyNYAJ5T2yFXUkg7b6HMuyFX64p5nZ",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 402
+            }
+          ]
+        }
+      }
+    ],
+    "p0_27": {
+      "negativeMaker": "2pUsLtRMyujuxmVRKLYF2w9ErnoNm9acWyHkR8SSYxEEAnPCg6TsrcXkMRjyNYAJ5T2yFXUkg7b6HMuyFX64p5nZ"
+    }
+  }
+}

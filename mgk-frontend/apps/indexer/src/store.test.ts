@@ -63,6 +63,7 @@ describe('store - multiple fills per transaction', () => {
       processedThroughSlot: null,
       lastSuccessfulSyncAt: null,
       lastSyncErrorAt: null,
+      settledThroughBatchId: null,
     });
 
     // Advance cursor
@@ -92,6 +93,20 @@ describe('store - multiple fills per transaction', () => {
     const store = createStore(':memory:');
     store.setSyncCursor(5000);
     expect(store.getSyncState().processedThroughSlot).toBe(5000);
+  });
+
+  it('ratchets the settled-through batch id alongside the slot cursor', () => {
+    const store = createStore(':memory:');
+    store.updateSyncSuccess(100, 1000);
+    expect(store.getSyncState().settledThroughBatchId).toBeNull();
+    store.updateSyncSuccess(110, 1001, 7n);
+    expect(store.getSyncState().settledThroughBatchId).toBe(7n);
+    store.updateSyncSuccess(120, 1002, 5n);
+    expect(store.getSyncState().settledThroughBatchId).toBe(7n);
+    store.updateSyncSuccess(130, 1003);
+    expect(store.getSyncState().settledThroughBatchId).toBe(7n);
+    store.updateSyncSuccess(140, 1004, 9n);
+    expect(store.getSyncState()).toMatchObject({processedThroughSlot: 140, settledThroughBatchId: 9n});
   });
 
   it('checks SQLite writability correctly', () => {
@@ -152,5 +167,23 @@ it('binds a fresh history disk and permits reopening only for the same deploymen
     const reopened = createStore(path, 'scoped-market-A');
     expect(reopened.getSyncState().processedThroughSlot).toBe(100); reopened.close();
     expect(() => createStore(path, 'scoped-market-B')).toThrow('different deployment');
+  } finally {rmSync(directory, {recursive:true, force:true});}
+});
+
+it('adds the settled-through batch id to an existing sync_state without losing the slot cursor', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mgk-store-'));
+  const path = join(directory, 'history.db');
+  try {
+    const first = createStore(path);
+    first.updateSyncSuccess(100, 1000);
+    first.close();
+    const legacy = new Database(path);
+    legacy.exec('ALTER TABLE sync_state DROP COLUMN settled_through_batch_id');
+    legacy.close();
+    const store = createStore(path);
+    expect(store.getSyncState()).toMatchObject({processedThroughSlot: 100, settledThroughBatchId: null});
+    store.updateSyncSuccess(110, 1001, 3n);
+    expect(store.getSyncState().settledThroughBatchId).toBe(3n);
+    store.close();
   } finally {rmSync(directory, {recursive:true, force:true});}
 });

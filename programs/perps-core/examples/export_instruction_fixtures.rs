@@ -82,11 +82,11 @@ macro_rules! read {
 fn main() -> Result<(), ProgramError> {
     check_dispatch_count(
         include_str!("../../../programs/perps-core/src/entrypoint.rs"),
-        29,
+        30,
     );
     check_dispatch_count(
         include_str!("../../../programs/perps-matcher/src/entrypoint.rs"),
-        10,
+        11,
     );
     check_dispatch_count(
         include_str!("../../../programs/oracle/src/entrypoint.rs"),
@@ -736,6 +736,23 @@ fn main() -> Result<(), ProgramError> {
             fixtures.push(json!({"program":"core","name":"Unpause","enabled":true,"bytes": ([&[28u8][..], data].concat()),"params":{"resumeWithdrawals": data[0] != 0,"resumeTrading": data[1] != 0}}));
         }
     }
+    // core::CloseSettledBatch
+    {
+        let dispatch = include_str!("../../../programs/perps-core/src/entrypoint.rs");
+        check_dispatch(dispatch, 30, "CoreInstruction::CloseSettledBatch");
+        check(dispatch, "CoreInstruction::CloseSettledBatch => {\n            msg!(\"Instruction: CloseSettledBatch\");\n            process_close_settled_batch_inner(context, program_id, accounts, &instruction_data[1..])");
+        let source = handler(
+            include_str!("../../../programs/perps-core/src/entrypoint.rs"),
+            "process_close_settled_batch_inner",
+        );
+        let _ = source;
+        {
+            let data: &[u8] = &[19, 56, 93, 130, 167, 204, 241, 22];
+            check(source, "let batch_id = u64::from_le_bytes(\n        data.try_into()\n            .map_err(|_| ProgramError::InvalidInstructionData)?,\n    );");
+            let batch_id = u64::from_le_bytes(data.try_into().unwrap());
+            fixtures.push(json!({"program":"core","name":"CloseSettledBatch","enabled":true,"bytes": ([&[30u8][..], data].concat()),"params":{"batchId": batch_id.to_string()}}));
+        }
+    }
     // matcher::ComputeClearing
     {
         let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
@@ -974,6 +991,23 @@ fn main() -> Result<(), ProgramError> {
                 "*id = u64::from_le_bytes(data[start..start + 8].try_into().unwrap());",
             );
             fixtures.push(json!({"program":"matcher","name":"CancelSettledOrders","enabled":true,"bytes": ([&[9u8][..], data].concat()),"params":{"orderIds": (0..3).map(|index| {let start = 1 + index * 8; u64::from_le_bytes(data[start..start+8].try_into().unwrap()).to_string()}).collect::<Vec<_>>()}}));
+        }
+    }
+    // matcher::CloseResults
+    {
+        let dispatch = include_str!("../../../programs/perps-matcher/src/entrypoint.rs");
+        check_dispatch(dispatch, 11, "MatcherInstruction::CloseResults");
+        check(dispatch, "MatcherInstruction::CloseResults => {\n            msg!(\"Instruction: CloseResults\");\n            process_close_results(context, accounts, &instruction_data[1..])");
+        let source = handler(
+            include_str!("../../../programs/perps-matcher/src/entrypoint.rs"),
+            "process_close_results",
+        );
+        let _ = source;
+        {
+            let data: &[u8] = &[19, 56, 93, 130, 167, 204, 241, 22];
+            check(source, "let batch_id = u64::from_le_bytes(\n        data.try_into()\n            .map_err(|_| ProgramError::InvalidInstructionData)?,\n    );");
+            let batch_id = u64::from_le_bytes(data.try_into().unwrap());
+            fixtures.push(json!({"program":"matcher","name":"CloseResults","enabled":true,"bytes": ([&[11u8][..], data].concat()),"params":{"batchId": batch_id.to_string()}}));
         }
     }
     // oracle::Initialize

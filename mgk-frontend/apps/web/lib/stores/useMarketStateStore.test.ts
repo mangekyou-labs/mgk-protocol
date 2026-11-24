@@ -61,20 +61,20 @@ describe('useMarketStateStore', () => {
       expect(state.lastFetchedAt).toBeGreaterThan(0);
     });
 
-    it('records an error string on HTTP failure but does not throw', async () => {
+    it('stays quiet after one failed fetch, then records the error once failures persist', async () => {
       globalThis.fetch = mockFetchError(404);
-      await startMarketStatePolling(0, 60_000);
-      const state = useMarketStateStore.getState();
-      expect(state.data).toBeNull();
-      expect(state.error).toMatch(/404/);
+      await startMarketStatePolling(0, 10);
+      expect(useMarketStateStore.getState().error).toBeNull();
+      await vi.waitFor(() => expect(useMarketStateStore.getState().error).toMatch(/404/));
+      expect(useMarketStateStore.getState().data).toBeNull();
+      expect(useMarketStateStore.getState().loading).toBe(false);
     });
 
-    it('records an error string on network failure', async () => {
+    it('records an error string on persistent network failure', async () => {
       globalThis.fetch = mockFetchNetworkError('connection refused');
-      await startMarketStatePolling(0, 60_000);
-      const state = useMarketStateStore.getState();
-      expect(state.data).toBeNull();
-      expect(state.error).toMatch(/connection refused/);
+      await startMarketStatePolling(0, 10);
+      await vi.waitFor(() => expect(useMarketStateStore.getState().error).toMatch(/connection refused/));
+      expect(useMarketStateStore.getState().data).toBeNull();
     });
 
     it('restarts the interval when called twice with different params', async () => {

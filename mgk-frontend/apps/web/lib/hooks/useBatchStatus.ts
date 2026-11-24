@@ -6,11 +6,12 @@ import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
 import { decodeOrNull } from '@/lib/decode';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 
 /**
  * Polls one batch account and returns its own status. null while unknown:
- * no batch id, account missing, undecodable, or the read failed.
+ * no batch id, account missing, undecodable, or reads keep failing.
  */
 export function useBatchStatus(
   batchId: bigint | null,
@@ -22,14 +23,17 @@ export function useBatchStatus(
   useEffect(() => {
     if (batchId == null) return;
     let cancelled = false;
+    let failures = 0;
     const address = sdk.deriveBatchPda(batchId, config.coreProgramId, config.marketContext)[0];
     const tick = async () => {
       try {
         const acc = await connection.getAccountInfo(address);
         if (cancelled) return;
+        failures = 0;
         setReading({ batchId, status: decodeOrNull(acc, sdk.state.decodeBatch)?.status ?? null });
       } catch {
-        if (!cancelled) setReading({ batchId, status: null });
+        // Keep the last status through transient misses; drop it once they persist.
+        if (!cancelled && ++failures >= FAILURE_THRESHOLD) setReading({ batchId, status: null });
       }
     };
     void tick();

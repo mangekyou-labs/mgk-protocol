@@ -1,0 +1,1395 @@
+{
+  "cluster": "localnet",
+  "rpcUrl": "http://127.0.0.1:20131",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "dump/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "programDataAddress": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "dump/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "programDataAddress": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "dump/mgk_perps_matcher.so",
+      "sha256": "f3e1829749fbb467504dce8a59b53e5a266f15c5d66e3050097b43d1a485553b",
+      "programDataAddress": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH"
+    }
+  ],
+  "transactions": [
+    {
+      "label": "initialize",
+      "signature": "2RjXXSGdAzSSNh2bT7Er8FvB7wNsTRy2Nekbj9LXSJBQESX5gms4h2R4YmGu2CrhMUQsQpsRsfN2uSRUXJ6cFhtZ",
+      "slot": 31,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "initialize book",
+      "signature": "2LzH9SJRLtBJgrPpZBgzt4kgKXYkUuiaJwAW7TinQGMRYajeBPqsrJzQyxwp5GBTwBks39AePx7qFuTNUPnyHRt2",
+      "slot": 32,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "create batch",
+      "signature": "3yBrAEx5htyxi3u2JepMvkCfFm34zMTnVYtC8PjdqUVuwvcR3fXW9vEgLP35ssqtboKK7aQxcxcWmydtznvKTYCS",
+      "slot": 33,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "top up insurance fund",
+      "signature": "o9QXR1sKXKvdXr2CwE3LQEhry4Wh3KzhEPG9Euqgt8bAqzTfmS3Bu57CjZr77TFY2SxnxLBmMEnf7MDHyZCMdr9",
+      "slot": 34,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "4MYFBMEmdTfSjfWhTLYhXRtjxSFWm4mGEB2p5MVB4UGzYNTQiYx556VNBQSoheUCpkfNfX7bLyQ2jFASGpMKxUbD",
+      "slot": 35,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "5zetFEiKpDw6BdPJmtKS7szCVW2mvFE68SRdETcxhReY7vANU8kCn8rvDHxqaD8Rcjz2KYkN2y9nb633CEwujfsL",
+      "slot": 36,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "3ivFqQFBtgVt2VbQKdTYWYYiG55EGDVb4tsyT4iFtVqUUUqwnCmbJDHtDMdm94NHNRL8LHpeXJZpgvBooVY8iAaE",
+      "slot": 37,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "vprcngmcaF4Tz4M84Csy2RT8ezbfMbbNkGiCLkHevrLWik8ehpqoJRF3hMeiS5Etj9P99wcQJw47UgX5xjG1peU",
+      "slot": 38,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "234MiCPBAfnz3KgvreqkWoUehFbiuzZV5FLLjjwqAN6jEALpfUkx9EjwxQQjt2aZpGRDbzEUPw7NUJe4BZUV9nyf",
+      "slot": 39,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "4TWrJ6eL4KjLE7AabDEp5s7FxxYySdrL8Ra2nNChEx5S7BVV8VYgEYqTrmsuXVhnpZyEdcjGkm5xwKLEUdxW1Bz7",
+      "slot": 40,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 0",
+      "signature": "4tfjGsYazSDzTNBnQ5uPTp743NxJjY5VZNb9r5fHeqXAsQaprKzj5fpwAD8EqGSR6Vi1Zk8qChAcVdiMdx3JyEnr",
+      "slot": 41,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 1",
+      "signature": "6pAqtY6tDLy63GruoA5c5Ryb2LKsZAaL1nUA66pWyqn8z5ofoXsS8uGzX2cW9QPiH22A6f9RkJtAeEwHdy7wE2o",
+      "slot": 42,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 2",
+      "signature": "5EuMeN4k9MgqmYq1yaMEYdDGPRnkbReznqeUQvixpk7C3KxAQA3tpGBxR1oq4apiffGHBEgEofn8DPUmDM1wq9TX",
+      "slot": 43,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "close collecting",
+      "signature": "HueLNK7ZvtVjUZpMPAy7NZtWZNc4nfknmZBmQKMoFFdbPHYpVMkG1iyWJ3WrojewQGEkQ32K1fPGawCbWhBE57o",
+      "slot": 84,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "clear",
+      "signature": "5BgqpkBW8LfZELFEGNSzmzoe15KtrFTcEFHW2m3GLSJubEykppdqX5gVKPAbdQ3LnZrmKKiXYkfGXJXveGdHXMSP",
+      "slot": 85,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "settle",
+      "signature": "2DoBkvhjkbj6mRsnM8TjNE2FVokXAtiTEEhxG4HxgejW7fhJ3mH1Tgwoe54QJ5xVN356k4t81RkpcxhtwKtn3zGU",
+      "slot": 86,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 0",
+      "signature": "4G1ckiqPxZKRACAWj9WLfftQPkw4beq341CqaAEfYL9uNgN3xb5mKGKB767A2HQ16txLLyPArHbdjD4SSiesuhB9",
+      "slot": 87,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 1",
+      "signature": "22k2Mi3JFXro2yT34hhTyLafdtbdKNe7ztyNk8W2suwQ1Mp7xJJBE8WScWg8Vpdn8mVxyYqUujozPYdgsCVvQ1pu",
+      "slot": 88,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "2D8r2qHBnweqPR1HTB5qnsAVBxEGJgdBMCywAiJDTw1DaRvsCFq2x6AG2p6u1KEVFpQN578n8CPNRjLmhrfVp7zm",
+      "slot": 89,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "e21nBYwPEWfHwphSZuKiGaGm4Kz87efQ6SC21fayn9dJZSix5ME4UAVc7TxA4pAhoj3C8iyevvSSDVfUCzhWxFq",
+      "slot": 90,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "2M7zQndJ5dVrvnfUHJcSen1Tv18GozbTHkcba3iifMjXeLsWjD9bFtc8XCXh6VFPh5GuUaQGfnpk3YQAZBiFyobU",
+      "slot": 91,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "2Ri6Wh73SywCnPLkv2DM6BzH6wTHfDXbSW7MfwsQ1coxfneBJ9eqBejrTjoAHffaZMQp6a8WM4zXNx3PoeA6YPbp",
+      "slot": 92,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "NWYeN6VSH4UD7w7fPXLgvUzVVCpwfrMFQGG46HfLhNT74Gae9ncRBroZgSUZPpZmw34CDGJefwfuP4fLYoAW5Qp",
+      "slot": 93,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "5amB6orN14KrHNX1jcfGgLGdPADvVp6x5i9BpBMdyy1BHHYW5dgG3jAtY8p8aLmRB7V4s2hnYWTXdL7mzBumrgWK",
+      "slot": 94,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "4us21aELbUSs8995noVEV62hJBdjZ2jQQ7dhKALY2uLQNEcNK1h2uXvMctmpQfPLrB8aZvvPF84XH1NcPZRSADVA",
+      "slot": 95,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "CAS4oMrbdmH3188KUzpUHKEVi5d8cteTYxqGA3tU8ktHWGNaFUXSUMFoZW4rkJqZM2f2KG35xbfqi8ZUeGUDnmH",
+      "slot": 96,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 3",
+      "signature": "4Csnxk6HNRN6jibpUkNwuKQz3TYSD1pzCEX2f4tL5GE6pyhSEGUzMtS4pEKvntVGUUdGbqRJq4q3d5yRenBNTdxV",
+      "slot": 97,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 4",
+      "signature": "62rkFhc7FvcEfad43fFBu47LwU3zyjToPtPtWr1CbBEaX8EXRqhmTFrjNHGPgnXcA3Qwtk9JZqvGnRBcG8wLJZS5",
+      "slot": 98,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 5",
+      "signature": "3E6HCfgrXPPDMmScfgdnfAyPKv3dN9fUtPdgiB16c79h62bpH9zbFteYRLmpAwCasavLXJRxbQyryD1xs9ez5vKv",
+      "slot": 99,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 6",
+      "signature": "2KV2tYbWadexKjd5rk9jqjQ4SZ2AcytHnec4NaafR2GWFzNqg7jvBSqmaTjTjEJ8N2NySMTjaw9FkD6c2DdE1x7S",
+      "slot": 100,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "close collecting",
+      "signature": "3SyWkWvhiAocdqgHn2EXvztE1G1THC9KQLAwbSk7AD7B57bGsa8NaeiscDQYwb9EQvaNqF4M5fNrXsZSq2K9rQrD",
+      "slot": 141,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "clear",
+      "signature": "5q6JeVshmfJeegERpYk3Yaqh69TsBazLugyesWWhFJDiGbrBuUBKEoZ4VUQzaozj17uEqMJNEFcQZMNGiozfBGs1",
+      "slot": 142,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "settle",
+      "signature": "3WD9RtyyV5byHveThGp8TKUtxZGpQCv4SYFwpERtS2qpSj67EvEUBu2aMQ66oK8ihmg7jGuriQzx3yUfG7m7insR",
+      "slot": 143,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 3",
+      "signature": "5arwsrn8qmRi1Yh2qoB9HoMvH3AWNjg9Yd9FyUWHe3VfZfwu7ADz5pyWzjUdNacykeGrVgeTT5dx6RVwGswYw6Ag",
+      "slot": 144,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 4",
+      "signature": "3KzTBvzMNKzP1nSmZr6njKNXqGy8Vg7MzhumaEEwNwZe5oy2AwhmRsu8neEmKhyWqDAPUC5JTheVmMqs9YcxR4DG",
+      "slot": 145,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 5",
+      "signature": "2QGcLm1ccLnn9yD2KDCLbF5Qf7qRthm3WfQvGmLW8hX3uGoEWWWHmrZwKcTkQoSEq1aDx7f3JQ2d5qhGKdXDD7kE",
+      "slot": 146,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 6",
+      "signature": "3EcrYuZvdByohhw9WL3yCCtpUhYvtG7oTyJrF74Wfna8Gog1x75NzWBFZTQ6G4hG9FDyFkgskG2Y2mjufH1KJ2PY",
+      "slot": 147,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "RHCvXc4GYaQygTxfmE34XVWEZKAvZ7hxoEYoJXs4ffc87Uq5cA6RuMFAPZAk8sx7nzki3JrJmP2pbzJ9Tniqv9K",
+      "slot": 148,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "7hWCpu9LMyhov6RwsCLEL8wFNXPoP3dQ81GwLBqVtfCMhU7NpHncwhq6GR35raAhvZwjJCvMPAEeujXmgwuPygf",
+      "slot": 149,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "3SMsHkDYQYgUVmopiRb2z6KtZQd7ee5HZBhWfF2b4RXTpZiTvwE1NeNoFDQh3TkzCAXiuDXf1wk5gKp7UfB7QwdK",
+      "slot": 150,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "56vmp5ut4YMvfoQQ2bt249rG9NNuVhDeD9aF7Yj1HEcygPQKVo28BXvZL8sGroLFyKj4NPeFkc97cQcUmNVibBzF",
+      "slot": 151,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "2zZuCvjH6PwQowSA9yYkgm9L42J4uddUfYrH2VdQgtcLhFrHsRKJEmKAMQGh25rMa4ccafbCztsuHgQ63MrXmbXR",
+      "slot": 152,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "pUCoHxqv1Mg2QVcKTp5TVBFwkaLdx3rbBXi4auMQSnmeJxizhrtFf8HC1XgqoKGPx7NFPCD18siZws9QFazqknX",
+      "slot": 153,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 7",
+      "signature": "5NJ5RwWyBsrq1vk3H97Spvn4gxj5uELFxKg9mywh9HENevmzAuvs42zvbXLBLVQ2phbwoJzATW4bU2G3hDy6SfsW",
+      "slot": 154,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 8",
+      "signature": "2uxxa9Rm6dCTWJb2v2LbidgZ2L7Tn9d98hABxjPxCHqZ2H73TwUuhs6EYfL28BhcoKduHREg5YHC8RT1LzgnSq7H",
+      "slot": 155,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 9",
+      "signature": "5vTjDmn6numiw5hG8MiACni1c1QmoiZwZsyhS4pipisRN5rsZ2jvfjxFENLExHHU6AfjDVDG7qTPaBWdY99LzhyS",
+      "slot": 156,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "close collecting",
+      "signature": "5fQ6fnetFgpuXH9dyqT4AcxcCgWVNiAtHvcYBpCCcyucPJtJB3zmqCBQKehWNitJ9L3h5xCTYLVWtoPx8Je9uw54",
+      "slot": 197,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "clear",
+      "signature": "4uqzYYjRFQ92uLDs7zFDoR9d4jeF9urPQ5AzujRoHAJNqEpYmnTNJW7NvXuRCKgWiHV5jCc3tMfdyhf1xjbSMeuR",
+      "slot": 198,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "settle",
+      "signature": "54Zqqh6o8WMNfTZZxxVSfpT63S2WZmcziBKr7NVw33EC1n3WiApcteB4gyygzWB5a9tUe6ZGuSoXZYKHgX6zSyxQ",
+      "slot": 199,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 7",
+      "signature": "5edrHpTdbDBziPeXLHnPgYnDYbTqVYsJ7QpRLDPUFPPiNsRRDbwXj6Q1ykLEvm2U85CS4ux7Azbwykinpzd6eRUr",
+      "slot": 200,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 8",
+      "signature": "4EmNFa5FHVQTq8kvg8vrSXouVRdhPM9TRCTuntz68CjFXbLpCDAc5C1dLKXX1L3YKLGB7iyFRFdyP1hFg7uYQYRp",
+      "slot": 201,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "5ya5JxFJXwZwxx4nzk2KeVbnZdwL92sFhz8aQuxyvicPdvLg4hpmdLD5hXauYzBQcQ8CpzQGV1VegvxCKdbXzd9Y",
+      "slot": 202,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "3VFJ3jiUK9QYh5G75czF4TRCzoK7jf6AHBZJ57zmiPhKPjp2hTLcEbXqbwTW573gDY5Axckn6PWfMdGinHrt4ZWv",
+      "slot": 203,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "5gFoXgweEXiy5N6GFz7ZZqgfePbLHWQZRUgpcQhXcTpwZoxCa1pySJoZtJTgHC1uYLZkqMtZAuiEbZygGQ3zB2QG",
+      "slot": 204,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "3xqPXWFQ7ijybh9RPrTceGRse82PjCn1dHpHeD3WSi3Vk7Q9qTHpV5QBewiTj1bnkJCjbSRUTEZ9eSfrbMBWd1Qb",
+      "slot": 205,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "8CSVM4kGdS47gWHL8cCNmd1Va9HjLLyrvLqHmfaCe3r2NKeAoCVhKgMmFzkLtPVh8Baq9Sj7fCTaMP3BYFduB8c",
+      "slot": 206,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "3wDAsRv39KNVEsRkJ78FS3GBreDPww9pXjCiTbWimLXbJRz26urix5yrndxLna1BgwYJnL1AhuSd79wdX1TEVTz1",
+      "slot": 207,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "Fcj5YwQzrknPyZpBBsqAha5pq3ojxQNUQ7GZN2WvehNmvjNoBtFd3pWbjbBH5ETZgTsSMfYcXd7vbvLENdCVVDQ",
+      "slot": 208,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "3TeZYi2Y6craMV5XwjipNzBsU4uyAU5XLo3FGbToDfmXKRyforDmNfV1ggtehjXTWta7mCeHueVBJVCtAZPnsXkn",
+      "slot": 209,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "4WT2GQgdH8txEu3pzxFrGPhrZWtPeXwiALg4ByxoJpLQxs57oqfTL5dj8bsKMs9CLNYWSbxn8ZEYfSWG9miHf6bN",
+      "slot": 210,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "qQ8dP8pNVME6vryBrB1Wepq84VP39oo6qW35jQMXUWKgbYE8AqjrFbouUUygRk7Fv4s9Ks9uGNpRL3R3Bzgrw6K",
+      "slot": 211,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "56vnWaKmH1WsyDRVnVBfY4MEaT1YdKjc25kmrBzHL4w7HzkK8GWjAa5zcrtdVXE5TZ6vSKGrLt787Vt9wdWmMEKS",
+      "slot": 212,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "nAVYBtL3g1mkE1Mk4bRmA4tEsqwgudi7fKxqX9LaUjfyzE62gdAiwDN5hpTsXihCSU7hA6wCPHzChD6Uh4ZPcB5",
+      "slot": 213,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "26N2BiS8zqonyov4jxH9XZVpBL6wy5QDVw324RguyC4jb7nEV1tuFGSH14RHz7GiR8hijqNa8NHaY92AJhQtDSGt",
+      "slot": 214,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "5oGYT1MyPJ5AxpKXdNpXoRJk1s7RmyAtmh1ASMkfzdCsvgxmNWznXCJtPkU8PECcDnCP4CpXd9ChAdL9HEcLndxn",
+      "slot": 215,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "4Bj3khYU2a4j9zwh6D1om2YVx9tBCAFBxuWxgr5MivsVcQ4QuL9o7Y9x9j8xtpbNb6ZBnmCw4RxRFuPnLRD1jWdx",
+      "slot": 216,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "A5747VH3hJ44CmvFqa2NoUxqn6pijkG6RSnbUVGScFtjf24grnxe624rPCFHdTgzCKqRdzZ6y3iQdLXWsbxpFJm",
+      "slot": 217,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "pdRctjyLp23HWisY9TJSBEaPsvaXt1bH2QG8CeSZFpQ1TDt4ZrnLPsFksxBG7AevMyHQuwUCC8oxJMkwmfaotNV",
+      "slot": 218,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "2gXqcNwdfCgmxK9RynXMQbaXzC2f1G3ms6AjHaNYtFikqV5tYsAWyHWXmrjABpQ5zNXfd6EJCAA4D4enGWcQpZzv",
+      "slot": 219,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "3tGdSMwwCichtv6HhVq9VwFE7kWGUqYvxsU7n2GBpWXzuT9HZ9AQwtwH6zfGZ5nuBwmFrzg4858CPyU1H3aFBJ5n",
+      "slot": 220,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "4ESAdo2JsekZwaNdZnK1ep3bGU6TVmsmS1dzznfPa1K8hj4DKYxm3gvtNN2wyHDgM7QMpu1X3vDT5qJB1jq1p2ca",
+      "slot": 221,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "5LWidjAZtfR3WPhXeM8mc51REdd7VoykFE5EZUwJakCFJqRLRk7gScs11pn8pZmeZuNxmsA7W2LHQWwERBJULNB6",
+      "slot": 222,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "7Q1Webi6hCq9kGzARXdJwTLWGEREu9vJ1FjMwsh69MMyRr9NCUfF5a8NTKfLasdTVx5DhLkirPLoRmQM8GrmNm5",
+      "slot": 223,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "3Tzs5md9KbDLvs9uqytfgRiNCS72RQvp3r2tN7tbqXoNpwKfB1d5QWiFopB5ni3GpTkTmmBxd2mg7gEscJEaSxGH",
+      "slot": 224,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "3jnzuwygG5QGbmv27hRhkrrk12ya7RXeFQQ58aFAq7S3RtMZ2QZRW9AoFophm2b5J7vPeGf5BzRuvSWoamKbt2Jx",
+      "slot": 225,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 10",
+      "signature": "65HRrhZkxdNQc5HQSFPzjHtctnKreabrDLgF1fZA1SkJRa5QMhDYyMZ5f87GgvU2XFbn4C5WZcgo79gPF8YdS9WJ",
+      "slot": 226,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 11",
+      "signature": "2THXVf9hKV4KiXEuRFZdhKmXsFn547hws82ECWAkN93aMo3o1cHhxVCZbu7FnFaoMmYDA32MSbSZsBVhNyGhsyED",
+      "slot": 227,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 12",
+      "signature": "4otgNUtASuQaGeFA3roiF2i6SsuCGHaPzvSYvw6xxAHfecedsqUUogH727ZvDJqVEepkcwfNZX19Qh9a6cT622Dn",
+      "slot": 228,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 13",
+      "signature": "35pcTDmf5bRcje3jQBoTeQyMJWXuoNrKh2HE71GLoGu6GkjDHwYTkqPg4qGabHDUdVciyvot6LCEUkyMv6YxTg9U",
+      "slot": 229,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 14",
+      "signature": "36qFtwqG7Cb8JFtSjUEG5PnNF81iYjjd2TP3MoKZkBa5SPY2VDebC6Cg3rHzz4yMzLkpj6atWPhjvEZ61nM8vA6k",
+      "slot": 230,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 15",
+      "signature": "37BenPsRAwj2GMvc7GmiiyH8tNpfFAcXDCFgwVNgp89tG5VneRVWJLQznGQYK9Y71RZCrA9yTidxj5FgBjJVWbyd",
+      "slot": 231,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 16",
+      "signature": "5sbVX8wkMm4BbVgSdnpxHkEUiM3hmtuE8C8FpztYmWVRf4f4NV61ii1xW4NZVzTFg2uFdAHShNRf9eF47T32cKnA",
+      "slot": 232,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 17",
+      "signature": "5pXA4xbTfnEiHEGpXgawAMgmBNMywjhfWiEEYBf7LKjPUbdm87kZkhzs4z9CFDe3z1seSWtdR5rrn9qBmUdccRWg",
+      "slot": 233,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 18",
+      "signature": "56TQw1NTZS5kuexP4qfzXgKCQKv6ABucdw5gSvhPZWWwWSyUrZ2BuRHaH8RwcAs9Xy5X4bAXsTvnjEegAhKQugUd",
+      "slot": 234,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 19",
+      "signature": "5MDVpvwwvu3DQPTiyuYaCxTcdEowQxyDCfH9KZtPHEoqABbd8MVQnEeVzSTxVbBiNWFtoFsjCe9eo9gcbPxZCkFt",
+      "slot": 235,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 20",
+      "signature": "2xeRcCcfMjkkgdSwwSkr4J2Kxf4X5H5C5eEwSt27drujkWG7f83FbAKqcys7AZzEzrMhdbYf18aonVgy7s59NLCP",
+      "slot": 236,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 21",
+      "signature": "3cmnFgN9gsVRdRJtC9pesbZT3NV9sCEqrrApM95s1Qqkzr6b7oeBLg9k7gaYVy3iKX1yFiicDJ8VRDwbkDfV4V3o",
+      "slot": 237,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "close collecting",
+      "signature": "33zEb8oiMdGGRLX72XZoGEL9ffp4txFeD6wTDrdsnv3cuPzMUS6CmcTZXU4U2XstYZkwLoEQiMiHXD9Fn5peCjdD",
+      "slot": 278,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "clear",
+      "signature": "5CZCuNagTrsAzd1ibEbUNiQ7ynGbth6XPXYsSV3UvZNLaJ2C1nq83T9Eyu3gNfPNebccdhbvcMbQ8FSkiUdAwUVY",
+      "slot": 279,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "settle",
+      "signature": "EL74djt5MikPTKC5m7CaTw2D5DdEi9qXF6xYmRBdjL963aEm2j6LU9uc8WSuvPog7b9yFtYuZKj1EvEx2gMRi1j",
+      "slot": 280,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init portfolio",
+      "signature": "4BU2VKNdayvwsDKHdVAjMifMqEmEpRJeoBuqZSsaUw7LBmqugQagYv6CM7MVq3bctqb99xENRDL3yqidTq2du6L2",
+      "slot": 281,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit",
+      "signature": "hZjvPi34jET6dtQWDNt69vj8LeewtqwAoknmKiw4zdf1bfuR8sdViKmfRHjMWepAojoYRxezpLR6g9Kpueqx93v",
+      "slot": 282,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "2YsG9yQqjCQApUHoiPXJwhtQG5qup4PCQMtPX9zWYDrwKBfct3c4HNNXhNKsFbh6VvTz8wULW7tReQCrPjGA6M9x",
+      "slot": 283,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "4E3zhuVVFy3TQmWGPAKAB33P9ehULSWn45NuhEDx2h9PYvXMKhXLekykqrvVjgaY9Rf5wbJPvfisgK4Mgt7yutUd",
+      "slot": 284,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "1uGswhL8eshNjWzFRoEfejiQxvDWVmT3Qnd2MCp3y9waKGEE84sPQ2F1Vtr9LjcttsRa61Rqw9JCbwN58t5g2c6",
+      "slot": 285,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "3Hg4dYsJaJubNjmQxGR6YEJX5LPqLXgEpFDMPwTdnSP6Bf1vdLQzvr5RLBPprzYohtkNR7raJw6ZYRBoKxtFU4bh",
+      "slot": 286,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "66wC1bZUswKtCqMkrjEvZaPJqKASte2HL1shiVd8Hvk6r9F2Dae8va3H1WXFMLd5ArqzDJ4hYe6Wyzo8JoU93swP",
+      "slot": 287,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "2HUPDY51ijTvWqQoR4KZDxtRYuAavNtrdZpZSrZ31oseCaRxchHcufetvVWD32n1qyjuJtWk1eRD87SrLFqEs5yn",
+      "slot": 288,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "3JWj37dDLrian8NSVpAes1r1wSGEYfqB3hqDrWpct29taWY5d5ac2GLoqB77EWGMseFaVjZH2zY8rUjVMpnCY51C",
+      "slot": 289,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "VDhDr1mHLaezcKXKkxSfcB97zirWAFazki3NedcnvnMUtAFyoWFTT8nEj8hW1s3W2VJStHLwgTxkiakUqPR9uy7",
+      "slot": 290,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "3LbnswmEY9eDh2fRbWDxba1nRna2Ks8oxJgav5iqeeYpZFybFq2ZuxhyPPDBPKYBRXC1zZAiX1qA8a3uvLAP9eQd",
+      "slot": 291,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "5Xvar345cm3UJ2Q4X6drTUYQ3V1zrf83eurkWeH59EXLzkdmv9SmycjWtEDS1bHEW2CqdgGgDqUzBmrXAUjKA8mC",
+      "slot": 292,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "FfJRBNpsKTm1oEMbi1XnQ461yWV82AfBUdrnKD2yZw7NtWK5WjJorjmKV99wUkShghqrALjXxxFhQe7a4vBjtnZ",
+      "slot": 293,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "tQqSg3YPNeHpxkRNEyAky5mhcxf5V43tJfJXAQZmMXHMooHSW26JheifwZZrMqkkgbKPGSxW7S2TZjbuycaBaq7",
+      "slot": 294,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "cancel trader 22",
+      "signature": "4Q3ofS4oYfMfkad4riTXW1gEHBC3hjL5Zzhw5FAFfvye6G6RZUU7i6DSGJxnSh6twF3XVe8qneG3xFbA7v3pvuEM",
+      "slot": 302,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 22",
+      "signature": "5xw2toAxGih6vL6JnzUaWBeR4ubFjo3P2mixqMxSiHSSxpEgg1JeJLRDD4S6HMgkVMoG2dicbZinfRN9CPs8h3DP",
+      "slot": 303,
+      "err": null,
+      "invariants": "pass"
+    }
+  ],
+  "controls": [
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756781",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756785",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 43,
+      "to": 83
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756803",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756807",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 100,
+      "to": 140
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756825",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756829",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 156,
+      "to": 196
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756847",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756858",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 237,
+      "to": 277
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756879",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "oracle",
+      "address": "4fQQCnpQkX9c2SBeudQADBvw8jVQr49UMMfZz4cJP4SL",
+      "price": "100000000",
+      "publishTime": "1793756880",
+      "confidence": "12",
+      "active": true
+    }
+  ],
+  "marketSeeds": [
+    null
+  ],
+  "candidateCommit": "fabcd5a9ab5f4c5ca84da2348c0730c1121d0284",
+  "checkpointB": {
+    "rejections": [
+      {
+        "label": "P1-3 thirteenth live order",
+        "signature": "2PsmYAPQGL2xGjcEUorqGuePeu7zChhfi7k68kPSKG56k8E1AMdX2otany9iz1Kq582n9CD3vQjA3d3hkS82yGuu",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 212
+            }
+          ]
+        }
+      },
+      {
+        "label": "P1-3 zero quantity",
+        "signature": "4itWCuaWsycRGEUiFdFMbUQ3Hk8PPWBsvnAhoc5NsPfTKrgtDKYmsrRdADnMACJrv4A6CNNAng8eAfk3fYxvEGVS",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 211
+            }
+          ]
+        }
+      },
+      {
+        "label": "P1-3 zero price",
+        "signature": "5pPLCL7sN488RJVq2ZZB6cyhHPsLsLJ3Ux5ud3XJFbhj4d4osJvyhi46Rb24xjZkynms1Rfo5RsQkStHapmt2ZeE",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 210
+            }
+          ]
+        }
+      },
+      {
+        "label": "P1-3 negative price",
+        "signature": "4P5XDkQMio96CAiCjpTKS8RGLSk5EqF1d2ga7LKy9VYu76HWuzYLRNsdXw6PsEchfRN364WcdUuCi8QtxqNiheiN",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 210
+            }
+          ]
+        }
+      },
+      {
+        "label": "P1-3 invalid side",
+        "signature": "2XeXFFaFUdyAZ5VPhWZCez1JCcLoEPNsB8mXVjtwRGYRfG8J5rM8wH3ttVXnDLn3sJrHCzd3V38TtE9Sj6tJeE23",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 300
+            }
+          ]
+        }
+      },
+      {
+        "label": "P1-3 quantity above i64 max",
+        "signature": "653XJAbgvxR7By6xsomtuRv8jsXsBUuZKUqzswL7JNu7wPHMLkVCn7Tt45qhimdPhXhYdiHS8ArDvxGVYr5jCkFt",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 608
+            }
+          ]
+        }
+      },
+      {
+        "label": "P1-3 price at i64 max",
+        "signature": "4vWNMeyCVJ9KC6xUbQF6oEGwvQkq2UsiaYtQSBFMLEq6W4gNfoG7GnK5Yv5EnNpzg1GwcBRTsbFGXNutDJBu8CtS",
+        "error": {
+          "InstructionError": [
+            2,
+            {
+              "Custom": 4
+            }
+          ]
+        }
+      }
+    ],
+    "models": [
+      {
+        "label": "P1-2 equal pro-rata settled",
+        "model": {
+          "collateral": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "1000000000",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "1000000000",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "999950000"
+          },
+          "fund": "20000050000",
+          "debt": "0",
+          "reserve": "40000000",
+          "open_interest": [
+            "100",
+            "100"
+          ],
+          "flags": 0,
+          "liability": "23000000000",
+          "above_rent": "23000000000",
+          "positions": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": {
+              "qty": "100",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            }
+          },
+          "realized_usd": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "0",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "0",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "0"
+          },
+          "realized_lamports": {},
+          "fees": {
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "50000"
+          }
+        }
+      },
+      {
+        "label": "P1-2 dust settled",
+        "model": {
+          "collateral": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "1000000000",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "1000000000",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "999950000",
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": "1000000000",
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": "1000000000",
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": "1000000000",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "999995500"
+          },
+          "fund": "20000054500",
+          "debt": "0",
+          "reserve": "43600000",
+          "open_interest": [
+            "109",
+            "109"
+          ],
+          "flags": 0,
+          "liability": "27000000000",
+          "above_rent": "27000000000",
+          "positions": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": {
+              "qty": "100",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": {
+              "qty": "9",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            }
+          },
+          "realized_usd": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "0",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "0",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "0",
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": "0",
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": "0",
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": "0",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "0"
+          },
+          "realized_lamports": {},
+          "fees": {
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "50000",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "4500"
+          }
+        }
+      },
+      {
+        "label": "P1-2 unequal pro-rata settled",
+        "model": {
+          "collateral": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "1000000000",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "1000000000",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "999950000",
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": "1000000000",
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": "1000000000",
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": "1000000000",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "999995500",
+            "9726YMaeASuSXt5382YbqFfP4SpXv7K4nLJwHS7zX7iz": "1000000000",
+            "Dp3Ptpr7jj1HFyxfx8y4QFxteuepGgLnbB7Rc8PGHXEH": "1000000000",
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": "999950000"
+          },
+          "fund": "20000104500",
+          "debt": "0",
+          "reserve": "83600000",
+          "open_interest": [
+            "209",
+            "209"
+          ],
+          "flags": 0,
+          "liability": "30000000000",
+          "above_rent": "30000000000",
+          "positions": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": {
+              "qty": "100",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": {
+              "qty": "9",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "9726YMaeASuSXt5382YbqFfP4SpXv7K4nLJwHS7zX7iz": {
+              "qty": "-25",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "Dp3Ptpr7jj1HFyxfx8y4QFxteuepGgLnbB7Rc8PGHXEH": {
+              "qty": "-75",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": {
+              "qty": "100",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            }
+          },
+          "realized_usd": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "0",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "0",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "0",
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": "0",
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": "0",
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": "0",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "0",
+            "9726YMaeASuSXt5382YbqFfP4SpXv7K4nLJwHS7zX7iz": "0",
+            "Dp3Ptpr7jj1HFyxfx8y4QFxteuepGgLnbB7Rc8PGHXEH": "0",
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": "0"
+          },
+          "realized_lamports": {},
+          "fees": {
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "50000",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "4500",
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": "50000"
+          }
+        }
+      },
+      {
+        "label": "P0-26 capped batch settled in one transaction",
+        "model": {
+          "collateral": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "1000000000",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "1000000000",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "999950000",
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": "1000000000",
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": "1000000000",
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": "1000000000",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "999995500",
+            "9726YMaeASuSXt5382YbqFfP4SpXv7K4nLJwHS7zX7iz": "1000000000",
+            "Dp3Ptpr7jj1HFyxfx8y4QFxteuepGgLnbB7Rc8PGHXEH": "1000000000",
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": "999950000",
+            "4i9sqXt3gDBoEdFEQsuXFHc7VKN9X3VQgx63oAftVuj7": "1000000000",
+            "2fL42rzZnsMxC6D1jg6mFuj6fHZGiK4m6iUEYjr1AQ4X": "1000000000",
+            "D3gf5jZaw4Lz7VDdFgJYEQdqAQWxBo12pwjkm6tWJRGq": "1000000000",
+            "CdJUC9LnsgmpdTaE1eyUojrzqLNDqsEFvC7qkHEnaRgM": "1000000000",
+            "7ZaMPz5eXShLXY9jLTKPHrVhFTZwBnwq2T5geoNfkEq8": "1000000000",
+            "2fCsxHp6r8RzZvbLnonxFmSZPU1Xb8Qfnixuvm8mbqqm": "1000000000",
+            "dxeXECrMbyi9CUhcFBfbQrRHHkEPHedy17r8HsjZKki": "999995000",
+            "8LHSezNrsc5ehZD6UnaNXj2LPxTCWw1HfxZjdjFBbhnj": "999995000",
+            "Ekshv3A5jKC4yadnjd5ra8WEML7xspGwgXReGiFXgymA": "999995000",
+            "G88ypPqM7PU5WWDAz3PNgW3JGsPPheHxem5vJdmCNWAC": "999995000",
+            "3k3vuykhnEAQMDWRbdUd8CR3WLSdsFtaooQ8j8zQPCy6": "999995000",
+            "8vbzqUdTFx3RE7qej3yw4FzUpSnGbDXpm4gtW1qpGmi5": "999995000"
+          },
+          "fund": "20000134500",
+          "debt": "0",
+          "reserve": "107600000",
+          "open_interest": [
+            "269",
+            "269"
+          ],
+          "flags": 0,
+          "liability": "42000000000",
+          "above_rent": "42000000000",
+          "positions": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": {
+              "qty": "-50",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": {
+              "qty": "100",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": {
+              "qty": "-3",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": {
+              "qty": "9",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "9726YMaeASuSXt5382YbqFfP4SpXv7K4nLJwHS7zX7iz": {
+              "qty": "-25",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "Dp3Ptpr7jj1HFyxfx8y4QFxteuepGgLnbB7Rc8PGHXEH": {
+              "qty": "-75",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": {
+              "qty": "100",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "4i9sqXt3gDBoEdFEQsuXFHc7VKN9X3VQgx63oAftVuj7": {
+              "qty": "10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "2fL42rzZnsMxC6D1jg6mFuj6fHZGiK4m6iUEYjr1AQ4X": {
+              "qty": "10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "D3gf5jZaw4Lz7VDdFgJYEQdqAQWxBo12pwjkm6tWJRGq": {
+              "qty": "10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "CdJUC9LnsgmpdTaE1eyUojrzqLNDqsEFvC7qkHEnaRgM": {
+              "qty": "10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "7ZaMPz5eXShLXY9jLTKPHrVhFTZwBnwq2T5geoNfkEq8": {
+              "qty": "10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "2fCsxHp6r8RzZvbLnonxFmSZPU1Xb8Qfnixuvm8mbqqm": {
+              "qty": "10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "dxeXECrMbyi9CUhcFBfbQrRHHkEPHedy17r8HsjZKki": {
+              "qty": "-10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "8LHSezNrsc5ehZD6UnaNXj2LPxTCWw1HfxZjdjFBbhnj": {
+              "qty": "-10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "Ekshv3A5jKC4yadnjd5ra8WEML7xspGwgXReGiFXgymA": {
+              "qty": "-10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "G88ypPqM7PU5WWDAz3PNgW3JGsPPheHxem5vJdmCNWAC": {
+              "qty": "-10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "3k3vuykhnEAQMDWRbdUd8CR3WLSdsFtaooQ8j8zQPCy6": {
+              "qty": "-10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            },
+            "8vbzqUdTFx3RE7qej3yw4FzUpSnGbDXpm4gtW1qpGmi5": {
+              "qty": "-10",
+              "entry_numerator": "100000000",
+              "entry_denominator": "1"
+            }
+          },
+          "realized_usd": {
+            "BQRrpnFjzepDKjcW5KKiiLEsQQPp1yQyg1D6Ytt8rtxx": "0",
+            "6aQzsviERimHDEwoDdXLamZHbnNtPfHBiCW8xqz6BPGJ": "0",
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "0",
+            "HcewcS8DjXWeDVXdHafP9TNSSgoYZtXGEQdgr8uM2xLg": "0",
+            "A6PNWvgfMjktqeFC6CGdAGBxpH3VpHNNrPpYifkgTHHm": "0",
+            "37boPgVaBn84YPqYQsMQo6FWn7PGnV3quzj7X6BfNFCt": "0",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "0",
+            "9726YMaeASuSXt5382YbqFfP4SpXv7K4nLJwHS7zX7iz": "0",
+            "Dp3Ptpr7jj1HFyxfx8y4QFxteuepGgLnbB7Rc8PGHXEH": "0",
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": "0",
+            "4i9sqXt3gDBoEdFEQsuXFHc7VKN9X3VQgx63oAftVuj7": "0",
+            "2fL42rzZnsMxC6D1jg6mFuj6fHZGiK4m6iUEYjr1AQ4X": "0",
+            "D3gf5jZaw4Lz7VDdFgJYEQdqAQWxBo12pwjkm6tWJRGq": "0",
+            "CdJUC9LnsgmpdTaE1eyUojrzqLNDqsEFvC7qkHEnaRgM": "0",
+            "7ZaMPz5eXShLXY9jLTKPHrVhFTZwBnwq2T5geoNfkEq8": "0",
+            "2fCsxHp6r8RzZvbLnonxFmSZPU1Xb8Qfnixuvm8mbqqm": "0",
+            "dxeXECrMbyi9CUhcFBfbQrRHHkEPHedy17r8HsjZKki": "0",
+            "8LHSezNrsc5ehZD6UnaNXj2LPxTCWw1HfxZjdjFBbhnj": "0",
+            "Ekshv3A5jKC4yadnjd5ra8WEML7xspGwgXReGiFXgymA": "0",
+            "G88ypPqM7PU5WWDAz3PNgW3JGsPPheHxem5vJdmCNWAC": "0",
+            "3k3vuykhnEAQMDWRbdUd8CR3WLSdsFtaooQ8j8zQPCy6": "0",
+            "8vbzqUdTFx3RE7qej3yw4FzUpSnGbDXpm4gtW1qpGmi5": "0"
+          },
+          "realized_lamports": {},
+          "fees": {
+            "2CT91vFrKSLFMv72TPVhT5oHdCcPnhJshWN9rnoJZm77": "50000",
+            "AcYkUsAHySWe5CYiW8NFdeQ1TjeQSfVBGZG872jFV8eU": "4500",
+            "CZ4pnNXvjtuJVTVLGzQNNQHmWm6PYVSo56sRvXDcS2gt": "50000",
+            "dxeXECrMbyi9CUhcFBfbQrRHHkEPHedy17r8HsjZKki": "5000",
+            "8LHSezNrsc5ehZD6UnaNXj2LPxTCWw1HfxZjdjFBbhnj": "5000",
+            "Ekshv3A5jKC4yadnjd5ra8WEML7xspGwgXReGiFXgymA": "5000",
+            "G88ypPqM7PU5WWDAz3PNgW3JGsPPheHxem5vJdmCNWAC": "5000",
+            "3k3vuykhnEAQMDWRbdUd8CR3WLSdsFtaooQ8j8zQPCy6": "5000",
+            "8vbzqUdTFx3RE7qej3yw4FzUpSnGbDXpm4gtW1qpGmi5": "5000"
+          }
+        }
+      }
+    ],
+    "p0_26": {
+      "settle": "EL74djt5MikPTKC5m7CaTw2D5DdEi9qXF6xYmRBdjL963aEm2j6LU9uc8WSuvPog7b9yFtYuZKj1EvEx2gMRi1j"
+    },
+    "p1_2": {
+      "equalProRata": {
+        "settle": "2DoBkvhjkbj6mRsnM8TjNE2FVokXAtiTEEhxG4HxgejW7fhJ3mH1Tgwoe54QJ5xVN356k4t81RkpcxhtwKtn3zGU"
+      },
+      "dust": {
+        "settle": "3WD9RtyyV5byHveThGp8TKUtxZGpQCv4SYFwpERtS2qpSj67EvEUBu2aMQ66oK8ihmg7jGuriQzx3yUfG7m7insR"
+      },
+      "unequalProRata": {
+        "settle": "54Zqqh6o8WMNfTZZxxVSfpT63S2WZmcziBKr7NVw33EC1n3WiApcteB4gyygzWB5a9tUe6ZGuSoXZYKHgX6zSyxQ"
+      }
+    },
+    "p1_3": {
+      "thirteenth": "2PsmYAPQGL2xGjcEUorqGuePeu7zChhfi7k68kPSKG56k8E1AMdX2otany9iz1Kq582n9CD3vQjA3d3hkS82yGuu",
+      "zeroQty": "4itWCuaWsycRGEUiFdFMbUQ3Hk8PPWBsvnAhoc5NsPfTKrgtDKYmsrRdADnMACJrv4A6CNNAng8eAfk3fYxvEGVS",
+      "zeroPrice": "5pPLCL7sN488RJVq2ZZB6cyhHPsLsLJ3Ux5ud3XJFbhj4d4osJvyhi46Rb24xjZkynms1Rfo5RsQkStHapmt2ZeE",
+      "negativePrice": "4P5XDkQMio96CAiCjpTKS8RGLSk5EqF1d2ga7LKy9VYu76HWuzYLRNsdXw6PsEchfRN364WcdUuCi8QtxqNiheiN",
+      "badSide": "2XeXFFaFUdyAZ5VPhWZCez1JCcLoEPNsB8mXVjtwRGYRfG8J5rM8wH3ttVXnDLn3sJrHCzd3V38TtE9Sj6tJeE23",
+      "hugeQty": "653XJAbgvxR7By6xsomtuRv8jsXsBUuZKUqzswL7JNu7wPHMLkVCn7Tt45qhimdPhXhYdiHS8ArDvxGVYr5jCkFt",
+      "hugePrice": "4vWNMeyCVJ9KC6xUbQF6oEGwvQkq2UsiaYtQSBFMLEq6W4gNfoG7GnK5Yv5EnNpzg1GwcBRTsbFGXNutDJBu8CtS"
+    }
+  }
+}

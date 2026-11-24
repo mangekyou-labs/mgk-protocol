@@ -44,6 +44,8 @@ export const CORE_INSTRUCTION = {
   SetFundingParams: instructions.core.SetFundingParams.disc,
   /** Authenticated matcher book initialization. */
   InitializeBook: instructions.core.InitializeBook.disc,
+  /** Permissionless: close a settled, consumed, out-of-window Batch + Results pair. */
+  CloseSettledBatch: instructions.core.CloseSettledBatch.disc,
 } as const;
 
 /** Matcher program discriminators (perps-matcher entrypoint). */
@@ -57,6 +59,8 @@ export const MATCHER_INSTRUCTION = {
   PlaceResting: instructions.matcher.PlaceResting.disc,
   InitializeBook: instructions.matcher.InitializeBook.disc,
   ConsumeResults: instructions.matcher.ConsumeResults.disc,
+  /** Registry-signed; only reached through core CloseSettledBatch CPI. */
+  CloseResults: instructions.matcher.CloseResults.disc,
 } as const;
 export type CoreInstruction =
   (typeof CORE_INSTRUCTION)[keyof typeof CORE_INSTRUCTION];
@@ -376,4 +380,43 @@ export function encodeSetFundingParams(
 /** InitializeBook — disc(1) + instrument_id(u16 LE). */
 export function encodeInitializeBook(instrumentId: number, marketSeed?: MarketSeed): Uint8Array {
   return encodeInstruction('core','InitializeBook',{instrumentId},marketSeed);
+}
+
+/**
+ * CloseSettledBatch (disc 30, issue 74) — disc(1) + batch_id(u64 LE) = 9.
+ * Closes a settled Batch whose Results are consumed and whose id is at least
+ * the on-chain close window behind the current batch; core CPIs matcher
+ * CloseResults (disc 11) so the pair closes together. Rent goes to `recipient`.
+ */
+export function encodeCloseSettledBatch(batchId: bigint, marketSeed?: MarketSeed): Uint8Array {
+  return encodeInstruction('core','CloseSettledBatch',{batchId},marketSeed);
+}
+
+export interface CloseSettledBatchAccounts {
+  batch: PublicKey;
+  results: PublicKey;
+  registry: PublicKey;
+  /** Signer that receives the reclaimed rent of both accounts. */
+  recipient: PublicKey;
+  matcher: PublicKey;
+}
+
+/** Account order: batch(w), results(w), registry, recipient(w, signer), matcher program. */
+export function buildCloseSettledBatch(
+  programId: PublicKey,
+  batchId: bigint,
+  accounts: CloseSettledBatchAccounts,
+  marketSeed?: MarketSeed,
+): TransactionInstruction {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: accounts.batch, isWritable: true, isSigner: false },
+      { pubkey: accounts.results, isWritable: true, isSigner: false },
+      { pubkey: accounts.registry, isWritable: false, isSigner: false },
+      { pubkey: accounts.recipient, isWritable: true, isSigner: true },
+      { pubkey: accounts.matcher, isWritable: false, isSigner: false },
+    ],
+    data: Buffer.from(encodeCloseSettledBatch(batchId, marketSeed)),
+  });
 }

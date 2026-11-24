@@ -202,6 +202,8 @@ test('runSoak requires observe and audit and a positive duration', async () => {
 test('observeDeployment maps on-chain batch statuses (settled=3, cleared=4) for the soak', async () => {
   const { market } = require('../runtime/invariant-fixtures');
   const m = market();
+  m.state.registry = { batchIdCounter: 3n };
+  m.store();
   const seen = await observeDeployment({
     rpc: (method, params) => m.chain.rpc(method, params),
     programs: m.programs,
@@ -212,4 +214,61 @@ test('observeDeployment maps on-chain batch statuses (settled=3, cleared=4) for 
     { id: 2, status: 'other' },
   ]);
   assert.equal(seen.currentBatchId, 2);
+});
+
+test('observeDeployment is light: two getMultipleAccounts per poll, never getProgramAccounts', async () => {
+  const { market } = require('../runtime/invariant-fixtures');
+  const m = market();
+  m.state.batches = Object.fromEntries(Array.from({ length: 40 }, (_, id) => [id, { status: 3 }]));
+  m.state.registry = { batchIdCounter: 40n };
+  m.store();
+  const calls = [];
+  const seen = await observeDeployment({
+    rpc: (method, params) => { calls.push({ method, count: params[0].length }); return m.chain.rpc(method, params); },
+    programs: m.programs,
+    window: 10,
+  });
+  assert.deepEqual(calls, [
+    { method: 'getMultipleAccounts', count: 1 },
+    { method: 'getMultipleAccounts', count: 10 },
+  ]);
+  assert.deepEqual(seen.batches.map(b => b.id), [30, 31, 32, 33, 34, 35, 36, 37, 38, 39]);
+  assert.equal(seen.currentBatchId, 39);
+});
+
+test('observeDeployment omits a batch PDA that does not exist, so the soak reports it missing', async () => {
+  const { market } = require('../runtime/invariant-fixtures');
+  const m = market();
+  m.state.batches = { 0: { status: 3 }, 2: { status: 3 }, 3: { status: 0 } };
+  m.state.registry = { batchIdCounter: 4n };
+  m.store();
+  const rpc = (method, params) => m.chain.rpc(method, params);
+  const seen = await observeDeployment({ rpc, programs: m.programs });
+  assert.deepEqual(seen.batches.map(b => b.id), [0, 2, 3]);
+  const clock = fakeClock();
+  const verdict = await runSoak({
+    durationMs: 1000, pollMs: 500, now: clock.now, sleep: clock.sleep,
+    observe: observeFrom([{ currentBatchId: 0, batches: [{ id: 0, status: 'settled' }] }, seen]),
+    audit: async () => ({ violations: [] }),
+  });
+  assert.ok(verdict.failures.includes('missing batch 1'), JSON.stringify(verdict.failures));
+});
+
+test('a spent request budget stops polling at once, records the failure, and still audits', async () => {
+  const { createRequestBudget, jsonRpc } = require('../runtime/rpc');
+  const budget = createRequestBudget({ max: 3 });
+  const rpc = jsonRpc('http://rpc.invalid', { budget,
+    fetchImpl: async () => ({ ok: true, json: async () => ({ result: { value: [] } }) }) });
+  const clock = fakeClock();
+  let audits = 0;
+  const verdict = await runSoak({
+    durationMs: 60 * 60 * 1000, pollMs: 5000, now: clock.now, sleep: clock.sleep,
+    observe: async () => { await rpc('getSlot'); return CLEAN; },
+    audit: async () => { audits++; return { violations: [] }; },
+  });
+  assert.equal(verdict.pass, false);
+  assert.equal(verdict.polls, 4);
+  assert.equal(budget.used, 3);
+  assert.equal(audits, 1);
+  assert.ok(verdict.failures.some(f => /budget exhausted/.test(f)), JSON.stringify(verdict.failures));
 });

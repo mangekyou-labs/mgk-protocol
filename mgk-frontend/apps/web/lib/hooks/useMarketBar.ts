@@ -6,12 +6,11 @@ import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
 import { decodeOrNull } from '@/lib/decode';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 import {
-  batchGate,
   lastClearOf,
   marketExposure,
   readOracle,
-  type BatchGate,
   type ClearPrice,
   type MarketExposure,
   type OracleReading,
@@ -32,11 +31,6 @@ export interface MarketBarState {
   currentBatch: { id: bigint; status: sdk.state.BatchStatus } | null;
   /** true/false from the registry pause flags; null when unknown. */
   newExposurePaused: boolean | null;
-  /**
-   * Set while the current batch is clearing or cleared but not settled.
-   * Undefined state is reported as unknown via `currentBatch === null`.
-   */
-  batchGate: BatchGate | null;
   /** Vault open interest and insurance fund; null when unknown. */
   market: MarketExposure | null;
 }
@@ -76,6 +70,7 @@ export function useMarketBar(
   useEffect(() => {
     let cancelled = false;
     let active = false;
+    let failures = 0;
     const oracleAddress = config.oracleAddress;
     const tick = async () => {
       if (active) return;
@@ -100,6 +95,7 @@ export function useMarketBar(
           'confirmed',
         );
         if (cancelled) return;
+        failures = 0;
         let i = 0;
         const vault = decodeOrNull(accounts[i++], (data) =>
           sdk.state.decodeAccount('Vault', data),
@@ -137,7 +133,8 @@ export function useMarketBar(
           setPrevious(null);
         }
       } catch {
-        if (!cancelled) {
+        // Keep the last reading through transient misses; clear once they persist.
+        if (!cancelled && ++failures >= FAILURE_THRESHOLD) {
           setRawOracle(null);
           setPrevious(null);
           setMarket(null);
@@ -183,9 +180,6 @@ export function useMarketBar(
     currentBatch,
     newExposurePaused: known
       ? (registry.pauseFlags & NEW_EXPOSURE_PAUSE_MASK) !== 0
-      : null,
-    batchGate: currentBatch
-      ? batchGate(currentBatch.status, currentBatch.id)
       : null,
     market: fresh ? market : null,
   };

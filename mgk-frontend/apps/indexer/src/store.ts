@@ -5,6 +5,12 @@ export interface SyncState {
   processedThroughSlot: number | null;
   lastSuccessfulSyncAt: number | null;
   lastSyncErrorAt: number | null;
+  /**
+   * Highest batch id whose settlement the indexer has committed (null until one is
+   * seen). Safe-to-close cursor: a batch at or below it can be closed without the
+   * indexer losing its fills.
+   */
+  settledThroughBatchId: bigint | null;
 }
 
 export interface Store {
@@ -18,7 +24,7 @@ export interface Store {
   insertPortfolio: ReturnType<DB['prepare']>;
   getPortfolio: ReturnType<DB['prepare']>;
   getSyncState: () => SyncState;
-  updateSyncSuccess: (slot: number, timestampMs: number) => void;
+  updateSyncSuccess: (slot: number, timestampMs: number, settledBatchId?: bigint) => void;
   updateSyncError: (timestampMs: number) => void;
   setSyncCursor: (slot: number) => void;
   isWritable: () => boolean;
@@ -109,7 +115,8 @@ CREATE TABLE IF NOT EXISTS sync_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   processed_through_slot INTEGER,
   last_successful_sync_at INTEGER,
-  last_sync_error_at INTEGER
+  last_sync_error_at INTEGER,
+  settled_through_batch_id INTEGER
 );
 
 PRAGMA journal_mode = WAL;
@@ -149,6 +156,12 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
       db.exec('DROP TABLE fills; DELETE FROM candles_1m; DELETE FROM candles_5m; DELETE FROM candles_1h; DELETE FROM batch_events; DELETE FROM sync_state;');
       db.exec(SCHEMA.replace('PRAGMA journal_mode = WAL;', ''));
     })();
+  }
+
+  // Stores created before CloseSettledBatch lack the safe-to-close cursor.
+  const syncColumns = db.prepare('PRAGMA table_info(sync_state)').all() as {name: string}[];
+  if (!syncColumns.some(column => column.name === 'settled_through_batch_id')) {
+    db.exec('ALTER TABLE sync_state ADD COLUMN settled_through_batch_id INTEGER');
   }
 
   // Keep the configured SOL market queryable before the first fill. The
@@ -225,7 +238,7 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
   `);
 
   const selectSyncState = db.prepare(`
-    SELECT processed_through_slot, last_successful_sync_at, last_sync_error_at
+    SELECT processed_through_slot, last_successful_sync_at, last_sync_error_at, settled_through_batch_id
     FROM sync_state WHERE id = 1
   `);
 
@@ -236,7 +249,12 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
           WHEN ? > processed_through_slot THEN ?
           ELSE processed_through_slot
         END,
-        last_successful_sync_at = ?
+        last_successful_sync_at = ?,
+        settled_through_batch_id = CASE
+          WHEN ? IS NULL THEN settled_through_batch_id
+          WHEN settled_through_batch_id IS NULL OR ? > settled_through_batch_id THEN ?
+          ELSE settled_through_batch_id
+        END
     WHERE id = 1
   `);
 
@@ -267,15 +285,18 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
         processed_through_slot: number | null;
         last_successful_sync_at: number | null;
         last_sync_error_at: number | null;
+        settled_through_batch_id: number | null;
       } | undefined;
       return {
         processedThroughSlot: row?.processed_through_slot ?? null,
         lastSuccessfulSyncAt: row?.last_successful_sync_at ?? null,
         lastSyncErrorAt: row?.last_sync_error_at ?? null,
+        settledThroughBatchId: row?.settled_through_batch_id == null ? null : BigInt(row.settled_through_batch_id),
       };
     },
-    updateSyncSuccess: (slot: number, timestampMs: number) => {
-      updateSuccessStmt.run(slot, slot, slot, timestampMs);
+    updateSyncSuccess: (slot: number, timestampMs: number, settledBatchId?: bigint) => {
+      const settled = settledBatchId ?? null;
+      updateSuccessStmt.run(slot, slot, slot, timestampMs, settled, settled, settled);
     },
     updateSyncError: (timestampMs: number) => {
       updateErrorStmt.run(timestampMs);

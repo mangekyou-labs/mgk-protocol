@@ -74,13 +74,42 @@ describe('startPythPolling', () => {
     stop();
   });
 
-  it('writes an error to the store when fetch fails', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error('boom')) as unknown as typeof fetch;
-    const stop = startPythPolling({ feedIds: ['aaaa'], intervalMs: 1_000_000 });
-    await new Promise((r) => setTimeout(r, 10));
-    const state = usePythPriceStore.getState().feeds['aaaa'];
-    expect(state?.error).toMatch(/boom/);
+  it('keeps the last price through transient failures and reports an error once they persist', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      calls++;
+      if (calls === 1) return { ok: true, status: 200, statusText: 'OK', json: async () => sampleBody1 };
+      throw new Error('boom');
+    }) as unknown as typeof fetch;
+    const stop = startPythPolling({ feedIds: ['aaaa'], intervalMs: 50 });
+    await vi.waitFor(() => expect(calls).toBe(2), { interval: 2 });
+    await new Promise((r) => setTimeout(r, 1));
+    let state = usePythPriceStore.getState().feeds['aaaa'];
+    expect(state?.data?.price).toBe(1_000_000n);
+    expect(state?.loading).toBe(false);
+    expect(state?.error).toBeNull();
+
+    await vi.waitFor(() => expect(usePythPriceStore.getState().feeds['aaaa']?.error).toMatch(/boom/));
+    expect(calls).toBeGreaterThanOrEqual(4);
+    state = usePythPriceStore.getState().feeds['aaaa'];
     expect(state?.data).toBeNull();
+    stop();
+  });
+
+  it('does not reset a known price to loading on later ticks', async () => {
+    let release!: () => void;
+    let calls = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      calls++;
+      if (calls > 1) await new Promise<void>((r) => { release = r; });
+      return { ok: true, status: 200, statusText: 'OK', json: async () => (calls > 1 ? sampleBody2 : sampleBody1) };
+    }) as unknown as typeof fetch;
+    const stop = startPythPolling({ feedIds: ['aaaa'], intervalMs: 50 });
+    await vi.waitFor(() => expect(calls).toBe(2), { interval: 2 });
+    const state = usePythPriceStore.getState().feeds['aaaa'];
+    expect(state?.loading).toBe(false);
+    expect(state?.data?.price).toBe(1_000_000n);
+    release();
     stop();
   });
 

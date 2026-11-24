@@ -5,6 +5,8 @@ import { useConnection } from '@solana/wallet-adapter-react';
 import type { Connection } from '@solana/web3.js';
 import { create } from 'zustand';
 
+import { FAILURE_THRESHOLD } from '@/lib/polling';
+
 export interface SlotPollParams {
   connection: Connection;
   intervalMs: number;
@@ -27,6 +29,7 @@ interface SlotStore {
 // established by usePortfolioStore (T2.2) and useBatchStore (T2.4).
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: SlotPollParams | null = null;
+let consecutiveFailures = 0;
 
 export const useSlotStore = create<SlotStore>((set, get) => ({
   slot: null,
@@ -38,7 +41,8 @@ export const useSlotStore = create<SlotStore>((set, get) => ({
   startPolling: async (params) => {
     if (pollHandle) clearInterval(pollHandle);
     currentParams = params;
-    set({ isPolling: true });
+    consecutiveFailures = 0;
+    set({ isPolling: true, loading: get().lastFetchedAt === null });
     await get().refresh();
     pollHandle = setInterval(() => {
       void get().refresh();
@@ -56,9 +60,9 @@ export const useSlotStore = create<SlotStore>((set, get) => ({
 
   refresh: async () => {
     if (!currentParams) return;
-    set({ loading: true, error: null });
     try {
       const slot = await currentParams.connection.getSlot();
+      consecutiveFailures = 0;
       set({
         slot,
         loading: false,
@@ -66,6 +70,9 @@ export const useSlotStore = create<SlotStore>((set, get) => ({
         lastFetchedAt: Date.now(),
       });
     } catch (e) {
+      // Keep the last slot through transient misses.
+      consecutiveFailures++;
+      if (consecutiveFailures < FAILURE_THRESHOLD) return;
       set({
         loading: false,
         error: e instanceof Error ? e.message : String(e),

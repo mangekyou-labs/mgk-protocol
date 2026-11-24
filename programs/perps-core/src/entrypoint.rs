@@ -5,10 +5,10 @@ use pinocchio::{
 
 use crate::instructions::{
     process_add_instrument, process_cancel_all_resting_orders, process_cancel_resting_order,
-    process_clear_batch, process_close_committing, process_commit_order, process_create_batch,
-    process_create_portfolio, process_deposit, process_init_portfolio,
-    process_init_portfolio_for_user, process_init_vault, process_initialize,
-    process_modify_resting_order, process_post_order, process_reveal_order,
+    process_clear_batch, process_close_committing, process_close_settled_batch,
+    process_commit_order, process_create_batch, process_create_portfolio, process_deposit,
+    process_init_portfolio, process_init_portfolio_for_user, process_init_vault,
+    process_initialize, process_modify_resting_order, process_post_order, process_reveal_order,
     process_set_batch_counter, process_set_batch_params, process_set_funding_params,
     process_set_instrument_fees, process_set_instrument_oracle, process_set_pause_flags,
     process_settle_batch, process_top_up, process_unpause, process_withdraw,
@@ -16,7 +16,7 @@ use crate::instructions::{
 };
 use crate::state::{Portfolio, Registry, Vault};
 use crate::matcher_cpi::{validate_registry, validate_vault};
-use mgk_common::{validate_owner, validate_writable, MgkError};
+use mgk_common::{validate_owner, validate_signer, validate_writable, MgkError};
 
 #[cfg(all(target_os = "solana", not(test)))]
 pinocchio::entrypoint!(process_instruction);
@@ -64,6 +64,8 @@ pub fn process_instruction(
         26 => CoreInstruction::TopUp,
         27 => CoreInstruction::WithdrawInsuranceFund,
         28 => CoreInstruction::Unpause,
+        // 29 is the market envelope byte (see `market::decode`).
+        30 => CoreInstruction::CloseSettledBatch,
         _ => {
             msg!("Error: Unknown instruction");
             return Err(MgkError::InvalidInstruction.into());
@@ -211,7 +213,70 @@ pub fn process_instruction(
             msg!("Instruction: Unpause");
             process_unpause_inner(context, program_id, accounts, &instruction_data[1..])
         }
+        CoreInstruction::CloseSettledBatch => {
+            msg!("Instruction: CloseSettledBatch");
+            process_close_settled_batch_inner(context, program_id, accounts, &instruction_data[1..])
+        }
     }
+}
+
+/// CloseSettledBatch (disc 30) - permissionless rent reclaim for an old batch.
+///
+/// Accounts:
+///   0. [writable]         Batch PDA (`batch_id`)
+///   1. [writable]         Results PDA (matcher-owned, consumed)
+///   2. []                 Registry
+///   3. [signer, writable] Recipient (receives both rents)
+///   4. []                 Matcher program
+///
+/// Data: batch_id(8, LE)
+fn process_close_settled_batch_inner(
+    context: mgk_common::market::MarketContext,
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
+) -> ProgramResult {
+    let [batch_account, results_account, registry_account, recipient, matcher_program, ..] =
+        accounts
+    else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    let batch_id = u64::from_le_bytes(
+        data.try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?,
+    );
+    validate_owner(batch_account, program_id)?;
+    validate_writable(batch_account)?;
+    validate_writable(results_account)?;
+    validate_owner(registry_account, program_id)?;
+    validate_registry(context, registry_account)?;
+    // Keep the documented MissingRequiredSignature code (interface.md).
+    validate_signer(recipient).map_err(|_| ProgramError::MissingRequiredSignature)?;
+    validate_writable(recipient)?;
+    if recipient.key() == batch_account.key() || recipient.key() == results_account.key() {
+        return Err(ProgramError::InvalidArgument);
+    }
+    crate::matcher_cpi::validate_batch(context, program_id, batch_account, batch_id)?;
+    {
+        let batch = unsafe { load_account::<crate::state::Batch>(batch_account)? };
+        if batch.batch_id != batch_id {
+            return Err(ProgramError::InvalidSeeds);
+        }
+        let counter = unsafe { load_account::<Registry>(registry_account)? }.batch_id_counter;
+        let spent = results_account.owner() == &mgk_common::program_ids::PERPS_MATCHER_ID
+            && mgk_common::matcher::results_with_spent(&results_account.try_borrow_data()?, batch_id, true)
+                .is_ok();
+        crate::instructions::close_settled_gate(batch, counter, spent)?;
+    }
+    process_close_settled_batch(
+        context,
+        batch_account,
+        results_account,
+        registry_account,
+        recipient,
+        matcher_program,
+        batch_id,
+    )
 }
 
 /// TopUp (disc 26) - permissionless insurance fund top-up.

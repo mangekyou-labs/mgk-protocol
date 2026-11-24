@@ -1,0 +1,1 @@
+2026-11-22T11:19:28Z preview=https://mgk-frontend-qxuh5kg9r-gadillacers-projects.vercel.app commit=aac36b5 spec=d181960 (test-only fixes from #82) 4/4 pass 50.2s

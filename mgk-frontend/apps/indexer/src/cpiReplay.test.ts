@@ -10,7 +10,7 @@ import * as sdk from '@mgk/sdk';
 import {statusRoutes} from './rest/status.js';
 import type {DeploymentManifest} from '../../../packages/layout/manifest.js';
 import {createStore} from './store.js';
-import {syncChunk} from './syncer.js';
+import {syncHistory} from './syncer.js';
 import {layouts} from '../../../packages/layout/index.js';
 import {instructions} from '../../../packages/layout/instructions.js';
 
@@ -52,14 +52,35 @@ function rollbackAncestor(tx: ReturnType<typeof nestedTransaction>) {
     `Program ${core} success`, `Program ${wrapper} failed: custom program error: 0x1`, `Program ${outer} success`];
 }
 
-async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:'), marketSeed?: string) { const fills: Record<string, unknown>[] = [];
+/** Signature-history fake: core signatures newest first, transactions served by signature. */
+function historyConnection(blocks: Array<[number, unknown]>, getAccountInfo: (pk: PublicKey) => unknown): Connection {
+  const ledger = blocks.map(([slot, tx], i) => ({signature: `sig-${slot}-${i}`, slot, tx,
+    err: (tx as {meta?: {err?: unknown}}).meta?.err ?? null}));
+  return {
+    getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string; until?: string}) => {
+      const newestFirst = [...ledger].reverse();
+      let page = newestFirst;
+      if (options.until) page = page.slice(0, page.findIndex(e => e.signature === options.until));
+      if (options.before) page = page.slice(page.findIndex(e => e.signature === options.before) + 1);
+      return page.map(({signature, slot, err}) => ({signature, slot, err}));
+    },
+    getTransaction: async (signature: string) => {
+      const entry = ledger.find(e => e.signature === signature);
+      return entry ? {...(entry.tx as object), slot: entry.slot, blockTime: 1700000000} : null;
+    },
+    getAccountInfo: async (pk: PublicKey) => getAccountInfo(pk),
+  } as unknown as Connection;
+}
+function settledAccountInfo() {
   const {batchData, resultsData} = accounts();
-  const connection = {getBlocks: async () => [100], getBlock: async () => ({blockTime: 1700000000, transactions: [tx]}),
-    getAccountInfo: async (pk: PublicKey) => getInfo ? getInfo(pk) : ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
-  const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100, marketSeed, onFill: fill => fills.push(fill)});
+  return (pk: PublicKey) => ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData});
+}
+async function replay(tx: unknown = nestedTransaction(), getInfo?: (pk: PublicKey) => unknown, store = createStore(':memory:'), marketSeed?: string) { const fills: Record<string, unknown>[] = [];
+  const connection = historyConnection([[100, tx]], getInfo ?? settledAccountInfo());
+  const result = await syncHistory({connection, store, corePk: core, matcherPk: matcher, cursorSlot: 99, confirmedSlot: 100, marketSeed, onFill: fill => fills.push(fill)});
   return {result, fills, store, connection};
 }
-describe('CPI settlement history through syncChunk', () => {
+describe('CPI settlement history through syncHistory', () => {
   it('indexes only the selected namespace for the same program IDs', async () => {
     const marketSeed = Keypair.generate().publicKey.toBase58();
     const otherSeed = Keypair.generate().publicKey.toBase58();
@@ -108,11 +129,9 @@ describe('CPI settlement history through syncChunk', () => {
     malformed.data = bs58.encode([29]);
     const valid = nestedTransaction();
     const store = createStore(':memory:');
-    const {batchData, resultsData} = accounts();
-    const connection = {getBlocks: async () => [100, 101], getBlock: async (slot: number) => ({blockTime: 1700000000, transactions: slot === 100 ? [tx] : [valid]}),
-      getAccountInfo: async (pk: PublicKey) => ({owner: pk.equals(batch) ? core : matcher, data: pk.equals(batch) ? batchData : resultsData})} as unknown as Connection;
+    const connection = historyConnection([[100, tx], [101, valid]], settledAccountInfo());
     try {
-      const result = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 101});
+      const result = await syncHistory({connection, store, corePk: core, matcherPk: matcher, cursorSlot: 99, confirmedSlot: 101});
       expect(result.success).toBe(true);
       expect(result.fillsInserted).toBe(1);
       expect(store.getSyncState().processedThroughSlot).toBe(101);
@@ -166,7 +185,7 @@ describe('CPI settlement history through syncChunk', () => {
     }), migrated);
     try {
       expect(result.success).toBe(true); expect(result.fillsInserted).toBe(2); expect(fills.map(f => f.qty)).toEqual([3, 7]);
-      const retry = await syncChunk({connection, store, corePk: core, matcherPk: matcher, startSlot: 100, endSlot: 100});
+      const retry = await syncHistory({connection, store, corePk: core, matcherPk: matcher, cursorSlot: 99, confirmedSlot: 100});
       expect(retry.success).toBe(true); expect(retry.fillsInserted).toBe(0);
     } finally {store.close(); rmSync(directory, {recursive: true, force: true});}
   });
@@ -194,13 +213,19 @@ describe('CPI settlement history through syncChunk', () => {
 
 
 describe('nested ClearBatch history through HTTP status', () => {
-  async function status(fault = '', polls = 1) {
+  async function status(fault = '', polls = 1, cache: {cacheMs?: number; clock?: () => number; advanceMs?: number; openBatch?: {commitments: number}; seed?: (store: ReturnType<typeof createStore>) => void} = {}) {
     const store = createStore(':memory:'), app = Fastify();
+    cache.seed?.(store);
     const registry = Keypair.generate().publicKey;
     const batchPk = sdk.deriveBatchPda(0n, core)[0];
     const regData = Buffer.alloc(layouts.Registry.size); regData[0] = layouts.Registry.discriminator!; regData[1] = 1;
     regData.writeBigUInt64LE(1n, layouts.Registry.fields.batchIdCounter![0]);
     const batchData = accounts(0n).batchData; batchData[16] = 4;
+    if (cache.openBatch) {
+      batchData[layouts.Batch.fields.status![0]] = 0;
+      batchData.writeBigUInt64LE(50n, layouts.Batch.fields.commitDeadlineSlot![0]);
+      batchData.writeUInt32LE(cache.openBatch.commitments, layouts.Batch.fields.totalCommitments![0]);
+    }
     const tx = nestedTransaction();
     tx.meta.loadedAddresses.writable[0] = batchPk;
     tx.meta.innerInstructions[0]!.instructions[0]!.data = bs58.encode([instructions.core.ClearBatch.disc]);
@@ -209,8 +234,9 @@ describe('nested ClearBatch history through HTTP status', () => {
     if (fault === 'ancestor rollback') rollbackAncestor(tx);
     if (fault === 'missing logs') tx.meta.logMessages = [];
     const now = Math.floor(Date.now()/1000);
-    let historyReads = 0;
-    const connection = {getSlot: async () => 100,
+    let historyReads = 0, slotReads = 0, clockMs = 0;
+    const connection = {getSlot: async () => { slotReads++; return 100; },
+      getBlocks: async (start: number) => [start], getBlockTime: async () => now - 60,
       getAccountInfo: async (pk: PublicKey) => pk.equals(registry) ? {owner: core, data: regData} : pk.equals(batchPk) ? {owner: core, data: batchData} : null,
       getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string}) => options.before ? [] : [{signature: 'nested-clear', slot: 100, err: null}],
       getTransaction: async () => {
@@ -222,15 +248,17 @@ describe('nested ClearBatch history through HTTP status', () => {
     const manifest: DeploymentManifest = {marketSeed:null,name: 'cpi', cluster: 'localnet', ready: true, startSlot: 100,
       programs: {perps_core: String(core), perps_matcher: String(matcher), oracle: String(core)},
       accounts: {registry: String(registry), instrument: null, oracle: null, insurance: null, maker: null}};
-    await statusRoutes(app, {connection, store, manifest, monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'}});
+    await statusRoutes(app, {connection, store, manifest, monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'},
+      cacheMs: cache.cacheMs ?? 0, now: () => clockMs});
     try {
       const observations = [];
       for (let i = 0; i < polls; i++) {
         const response = await app.inject({method: 'GET', url: '/api/status'});
         expect(response.statusCode).toBe(200);
         observations.push(response.json());
+        clockMs += cache.advanceMs ?? 0;
       }
-      return {...observations.at(-1), historyReads, observations};
+      return {...observations.at(-1), historyReads, slotReads, observations};
     }
     finally {await app.close(); store.close();}
   }
@@ -248,12 +276,33 @@ describe('nested ClearBatch history through HTTP status', () => {
     }
     expect(observed.historyReads).toBe(1);
   });
+  it('serves status polls inside the cache window from one chain read', async () => {
+    const observed = await status('', 3, {cacheMs: 10_000, advanceMs: 4_000});
+    expect(observed.observations).toHaveLength(3);
+    expect(observed.observations[1]).toEqual(observed.observations[0]);
+    // Polls at t=0 and t=4s share one read; t=8s is still inside the 10s window.
+    expect(observed.slotReads).toBe(1);
+  });
+  it('rereads the chain once the status cache window has passed', async () => {
+    const observed = await status('', 3, {cacheMs: 10_000, advanceMs: 10_000});
+    expect(observed.slotReads).toBe(3);
+  });
   it('retries unavailable clear history on the next status poll', async () => {
     const observed = await status('transient', 2);
     expect(observed.observations[0].checks.batch.available).toBe(false);
     expect(observed.checks.batch.severity).toBe('critical');
     expect(observed.checks.batch.ageSeconds).toBeGreaterThanOrEqual(121);
     expect(observed.historyReads).toBe(2);
+  });
+  it('exposes the safe-to-close cursor with the indexer check', async () => {
+    expect((await status()).checks.indexer.settledThroughBatchId).toBeNull();
+    const observed = await status('', 1, {seed: store => store.updateSyncSuccess(100, 1, 7n)});
+    expect(observed.checks.indexer.settledThroughBatchId).toBe('7');
+  });
+  it('does not warn on an idle open batch past its commit deadline', async () => {
+    expect((await status('', 1, {openBatch: {commitments: 1}})).checks.batch.severity).toBe('warn');
+    const idle = await status('', 1, {openBatch: {commitments: 0}});
+    expect(idle.checks.batch).toMatchObject({severity: 'ok', phase: 0, idle: true});
   });
   it.each(['caught failure', 'ancestor rollback', 'missing logs'])('fails closed for %s', async fault => {
     const observed = await status(fault);

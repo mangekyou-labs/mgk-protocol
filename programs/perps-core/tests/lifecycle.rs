@@ -5103,3 +5103,258 @@ async fn test_e2e_takeover_rejects_invalid_accounts_oracle_and_admission_atomica
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Issue #74: CloseSettledBatch (disc 30) reclaims settled batch + results rent
+// ---------------------------------------------------------------------------
+
+const B_TOTAL_COMMITMENTS: Range<usize> = rng(offset_of!(Batch, total_commitments), 4);
+const CLOSE_RENT: u64 = 1_000_000;
+
+struct CloseKeys {
+    batch: Pubkey,
+    results: Pubkey,
+    recipient: Keypair,
+}
+
+/// Seed a registry at counter `counter`, batch `id` in `status`, and its
+/// results account with the given spent byte.
+fn seed_closable(pt: &mut ProgramTest, pdas: &TestPdas, id: u64, counter: u64, status: u8, spent: u8) -> CloseKeys {
+    seed_governed_registry(pt, pdas, &Pubkey::new_unique(), 0, counter - 1);
+    let batch = Pubkey::find_program_address(&[BATCH_SEED, &id.to_le_bytes()], &CORE_ID).0;
+    let results = Pubkey::find_program_address(&[b"results", &id.to_le_bytes()], &MATCHER_ID).0;
+
+    let mut batch_acct = Account::new(CLOSE_RENT, BATCH_SIZE, &CORE_ID);
+    stamp_header(&mut batch_acct.data, discriminator::BATCH);
+    batch_acct.data[B_ID].copy_from_slice(&id.to_le_bytes());
+    batch_acct.data[B_STATUS] = status;
+    pt.add_account(batch, batch_acct);
+
+    let mut res = Account::new(CLOSE_RENT, RES + 34, &MATCHER_ID);
+    stamp_header(&mut res.data, discriminator::BATCH_RESULTS);
+    res.data[ACCOUNT_HEADER_LEN..ACCOUNT_HEADER_LEN + 8].copy_from_slice(&id.to_le_bytes());
+    res.data[ACCOUNT_HEADER_LEN + 8] = spent;
+    pt.add_account(results, res);
+
+    let recipient = Keypair::new();
+    pt.add_account(recipient.pubkey(), Account::new(USER_FUNDING_LAMPORTS, 0, &system_program::id()));
+    CloseKeys { batch, results, recipient }
+}
+
+fn close_settled_ix(pdas: &TestPdas, keys: &CloseKeys, id: u64) -> Instruction {
+    Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(keys.batch, false),
+            AccountMeta::new(keys.results, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new(keys.recipient.pubkey(), true),
+            AccountMeta::new_readonly(MATCHER_ID, false),
+        ],
+        data: with_disc(30, id.to_le_bytes().to_vec()),
+    }
+}
+
+fn bpf_enabled(name: &str) -> bool {
+    let on = std::env::var("BPF_OUT_DIR").is_ok() || std::env::var("SBF_OUT_DIR").is_ok();
+    if !on {
+        eprintln!("skipping {name}: set BPF_OUT_DIR=target/deploy to enable");
+    }
+    on
+}
+
+#[tokio::test]
+async fn close_settled_batch_returns_both_rents_to_recipient() {
+    if !bpf_enabled("close_settled_batch_returns_both_rents_to_recipient") {
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let keys = seed_closable(&mut pt, &pdas, 4, 8, 3, 1);
+    let mut ctx = pt.start_with_context().await;
+    let before = get_account(&mut ctx, &keys.recipient.pubkey()).await.lamports;
+
+    // The recipient also pays the fee as a co-signer; fee payer is ctx.payer.
+    submit(&mut ctx, close_settled_ix(&pdas, &keys, 4), &[&keys.recipient])
+        .await
+        .unwrap();
+
+    let after = get_account(&mut ctx, &keys.recipient.pubkey()).await.lamports;
+    assert_eq!(after - before, 2 * CLOSE_RENT);
+    for key in [keys.batch, keys.results] {
+        assert!(
+            ctx.banks_client.get_account(key).await.unwrap().is_none(),
+            "{key} must be closed"
+        );
+    }
+}
+
+#[tokio::test]
+async fn close_settled_batch_rejects_batch_inside_close_window() {
+    if !bpf_enabled("close_settled_batch_rejects_batch_inside_close_window") {
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    // 5 + CLOSE_WINDOW (3) == 8: not yet strictly behind the counter.
+    let keys = seed_closable(&mut pt, &pdas, 5, 8, 3, 1);
+    let mut ctx = pt.start_with_context().await;
+    let result = submit(&mut ctx, close_settled_ix(&pdas, &keys, 5), &[&keys.recipient]).await;
+    assert_custom(result, mgk_common::MgkError::BatchNotClosable);
+}
+
+#[tokio::test]
+async fn close_settled_batch_rejects_unspent_results() {
+    if !bpf_enabled("close_settled_batch_rejects_unspent_results") {
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let keys = seed_closable(&mut pt, &pdas, 4, 8, 3, 0);
+    let mut ctx = pt.start_with_context().await;
+    let result = submit(&mut ctx, close_settled_ix(&pdas, &keys, 4), &[&keys.recipient]).await;
+    assert_custom(result, mgk_common::MgkError::BatchNotClosable);
+}
+
+#[tokio::test]
+async fn close_settled_batch_rejects_unsettled_batch() {
+    if !bpf_enabled("close_settled_batch_rejects_unsettled_batch") {
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let keys = seed_closable(&mut pt, &pdas, 4, 8, 4, 1); // Cleared
+    let mut ctx = pt.start_with_context().await;
+    let result = submit(&mut ctx, close_settled_ix(&pdas, &keys, 4), &[&keys.recipient]).await;
+    assert_custom(result, mgk_common::MgkError::BatchNotSettled);
+}
+
+#[tokio::test]
+async fn close_settled_batch_cannot_close_twice() {
+    if !bpf_enabled("close_settled_batch_cannot_close_twice") {
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    let keys = seed_closable(&mut pt, &pdas, 4, 8, 3, 1);
+    let mut ctx = pt.start_with_context().await;
+    submit(&mut ctx, close_settled_ix(&pdas, &keys, 4), &[&keys.recipient])
+        .await
+        .unwrap();
+    // A fresh recipient makes the retry a distinct transaction, so the failure
+    // comes from the program, not from duplicate-signature dedup.
+    let retry = CloseKeys { batch: keys.batch, results: keys.results, recipient: Keypair::new() };
+    let result = submit(&mut ctx, close_settled_ix(&pdas, &retry, 4), &[&retry.recipient]).await;
+    assert!(
+        !format!("{result:?}").contains("AlreadyProcessed"),
+        "retry must reach the program: {result:?}"
+    );
+    assert!(result.is_err(), "second close must fail");
+}
+
+#[tokio::test]
+async fn close_committing_rejects_empty_batch() {
+    if !bpf_enabled("close_committing_rejects_empty_batch") {
+        return;
+    }
+    let (mut pt, pdas) = program_test_with_pdas();
+    // Current batch 7 (counter 8), Committing, no posts, deadline long past.
+    let keys = seed_closable(&mut pt, &pdas, 7, 8, 0, 0);
+    let mut ctx = pt.start_with_context().await;
+    let mut batch = get_account(&mut ctx, &keys.batch).await;
+    batch.data[B_COMMIT_DEADLINE].copy_from_slice(&0u64.to_le_bytes());
+    batch.data[B_TOTAL_COMMITMENTS].copy_from_slice(&0u32.to_le_bytes());
+    ctx.set_account(&keys.batch, &batch.into());
+    let ix = Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(keys.batch, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+        ],
+        data: with_disc(6, build_close_committing_data()),
+    };
+    let result = submit(&mut ctx, ix, &[]).await;
+    assert_custom(result, mgk_common::MgkError::BatchEmpty);
+}
+
+#[tokio::test]
+async fn first_post_into_idle_expired_batch_restarts_commit_deadline() {
+    if !bpf_enabled("first_post_into_idle_expired_batch_restarts_commit_deadline") {
+        return;
+    }
+    const T_MAX: u64 = 150;
+    let (mut pt, pdas) = program_test_with_pdas();
+    let user = Keypair::new();
+    let up = derive_user_pdas(&user.pubkey(), 0, 0);
+    let oracle = Pubkey::new_unique();
+    seed_valid_oracle(&mut pt, oracle, pdas.instrument);
+    pt.add_account(user.pubkey(), Account::new(1_000_000_000, 0, &system_program::id()));
+    let mut registry = Account::new(1_000_000, REGISTRY_SIZE, &CORE_ID);
+    stamp_header(&mut registry.data, discriminator::REGISTRY);
+    registry.data[R_INSTRUMENT_COUNT].copy_from_slice(&1u16.to_le_bytes());
+    registry.data[offset_of!(Registry, max_orders_per_batch)] = 12;
+    registry.data[offset_of!(Registry, bump)] =
+        Pubkey::find_program_address(&[REGISTRY_SEED], &CORE_ID).1;
+    registry.data[R_BATCH_ID_COUNTER].copy_from_slice(&1u64.to_le_bytes());
+    registry.data[R_T_MAX].copy_from_slice(&T_MAX.to_le_bytes());
+    pt.add_account(pdas.registry, registry);
+    let mut instrument = Account::new(1_000_000, INSTRUMENT_SIZE, &CORE_ID);
+    stamp_header(&mut instrument.data, discriminator::INSTRUMENT);
+    instrument.data[offset_of!(Instrument, oracle_addr)..][..32].copy_from_slice(oracle.as_ref());
+    instrument.data[I_TAKER_FEE].copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, imr_bps)..][..2].copy_from_slice(&2000u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, mmr_bps)..][..2].copy_from_slice(&1000u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, max_leverage)..][..2]
+        .copy_from_slice(&5u16.to_le_bytes());
+    instrument.data[offset_of!(Instrument, is_active)] = 1;
+    pt.add_account(pdas.instrument, instrument);
+    let mut portfolio = Account::new(30_000_000, PORTFOLIO_SIZE, &CORE_ID);
+    stamp_header(&mut portfolio.data, discriminator::PORTFOLIO);
+    portfolio.data[P_USER].copy_from_slice(user.pubkey().as_ref());
+    portfolio.data[P_EQUITY].copy_from_slice(&100_000_000i128.to_le_bytes());
+    portfolio.data[P_PRINCIPAL].copy_from_slice(&100_000_000i128.to_le_bytes());
+    portfolio.data[offset_of!(Portfolio, free_collateral)..][..16]
+        .copy_from_slice(&100_000_000i128.to_le_bytes());
+    portfolio.data[offset_of!(Portfolio, bump)] = up.portfolio_bump;
+    pt.add_account(up.portfolio, portfolio);
+    pt.add_account(pdas.vault, vault_account(100_000_000, 100_000_000, 0));
+    // Idle open batch whose original deadline (slot 5) is long past.
+    let mut batch = Account::new(1_000_000, BATCH_SIZE, &CORE_ID);
+    stamp_header(&mut batch.data, discriminator::BATCH);
+    batch.data[offset_of!(Batch, bump)] = up.batch_bump;
+    batch.data[B_COMMIT_DEADLINE].copy_from_slice(&5u64.to_le_bytes());
+    pt.add_account(up.batch, batch);
+    let mut ctx = pt.start_with_context().await;
+    ctx.warp_to_slot(1_000).unwrap();
+    let post = |qty| Instruction {
+        program_id: CORE_ID,
+        accounts: vec![
+            AccountMeta::new(up.portfolio, false),
+            AccountMeta::new(user.pubkey(), true),
+            AccountMeta::new(up.batch, false),
+            AccountMeta::new_readonly(pdas.registry, false),
+            AccountMeta::new(pdas.book, false),
+            AccountMeta::new_readonly(MATCHER_ID, false),
+            AccountMeta::new_readonly(pdas.instrument, false),
+            AccountMeta::new_readonly(oracle, false),
+            AccountMeta::new_readonly(pdas.vault, false),
+        ],
+        data: with_disc(20, build_post_order_data(0, false, 100_000_000, qty, 0, false)),
+    };
+    let deadline = |acct: &Account| u64::from_le_bytes(acct.data[B_COMMIT_DEADLINE].try_into().unwrap());
+
+    submit(&mut ctx, post(100), &[&user]).await.unwrap();
+    let slot = ctx
+        .banks_client
+        .get_sysvar::<solana_sdk::clock::Clock>()
+        .await
+        .unwrap()
+        .slot;
+    let first = get_account(&mut ctx, &up.batch).await;
+    assert_eq!(deadline(&first), slot + T_MAX, "first post restarts the commit window");
+    assert_eq!(
+        u32::from_le_bytes(first.data[B_TOTAL_COMMITMENTS].try_into().unwrap()),
+        1
+    );
+
+    // A later post leaves the restarted deadline alone.
+    ctx.warp_to_slot(slot + 10).unwrap();
+    submit(&mut ctx, post(101), &[&user]).await.unwrap();
+    let second = get_account(&mut ctx, &up.batch).await;
+    assert_eq!(deadline(&second), slot + T_MAX);
+}

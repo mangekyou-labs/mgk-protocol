@@ -1,0 +1,155 @@
+{
+  "cluster": "localnet",
+  "rpcUrl": "http://127.0.0.1:20319",
+  "programs": [
+    {
+      "name": "mgk_oracle",
+      "programId": "GLAu9n48oqnVRKHNoqfpek3kZyGUJTJRPQKo7mF3qWmm",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_oracle.so",
+      "sha256": "022f61b9e4c456eaac5f90efd93e5bc54d817f75e11f37cb8fde7f2e2b93486a",
+      "programDataAddress": "AWGHtu7ZX5ttufSeyi9pPNLEdm6zsQX1KxKcT3FNzLzQ"
+    },
+    {
+      "name": "mgk_perps_core",
+      "programId": "9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_perps_core.so",
+      "sha256": "efa553577be98d385174a4bad64768f6e56a99cb53748c97ef2b9b6403dc588d",
+      "programDataAddress": "p412a3ubFJHn8ySAgdfDFWXezJ9k2BoMZXw1So4pSGU"
+    },
+    {
+      "name": "mgk_perps_matcher",
+      "programId": "68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK",
+      "path": "~/.cache/mgk-issue-40/aac36b5/deploy/mgk_perps_matcher.so",
+      "sha256": "40a08570dc79186f7572dfc5448ab5286939dca29f999ced566beaf54d23ab32",
+      "programDataAddress": "E7KhRLZj8p8CVhH1eqXvGwHJ7RJobTFanWqJnBt5DmuH"
+    }
+  ],
+  "transactions": [
+    {
+      "label": "initialize keeper market",
+      "signature": "Fu7jGsFg14pRuSMn8YMguRtrUvfap5ZyciXsbSTR626PVSiQGesWsRm6RhmJZyBQqvyqyh6Co6RLWHJH9wnmNou",
+      "slot": 31,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "initialize keeper book",
+      "signature": "2yBb27WYNn3eLD5uYXa42uWbUikyPLebWXYQGeG2GSMnNX1zZW3oNprf76iTjn11j6XX3vV339JCX33RZ6PetcNB",
+      "slot": 32,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "create initial batch",
+      "signature": "kAzexLpaqgzE8JBT4jS1Ahwi5jJzeKn6ymFHrDo4Rw3AU8hfrK8ChfWTLDa1VtsXtKzwv9gbMRbjZnL1zdoXUuY",
+      "slot": 33,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "fund insurance",
+      "signature": "5neMpR76xou5tdtop76i76gsCXCR171VTs4CvsPw6ekavBdvgqb51Hy1oRqW47s9iD37daamnEQB2Binc9FWL7KE",
+      "slot": 34,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init trader 0",
+      "signature": "4moKL5YzDznHJf1Lk8WN3F1aSZ8UFJUTt6pUaVAustBQKEEEABXmadDchAuAJgmtyZHuYR6bCQn69F7DzMxFodv5",
+      "slot": 35,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit trader 0",
+      "signature": "4C7V2yfxFhpNrwqD6tM2F6yqP8PbNjKKjMZnq8gYdoJPrra216HoakCJ322K5AnvwSyFhA1VUqQZNPhuLWRE9xeX",
+      "slot": 36,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 0",
+      "signature": "5C12jEnNx7ynuG5jQJaDz1ykFMyuuhFsG6jyLajHEJaTcGsr3Afsknhx4CvuWRAn2jzJTUdMv17qboZugZ9enwCM",
+      "slot": 37,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "init trader 1",
+      "signature": "3kkUDVVVU9Pommo5ug1Zy6CrrHnsxigCj7xq74f3nQAdeHzvayb2gqkVX7Q4FDGSydo5nsUo4r71pxrMZvqtJx6G",
+      "slot": 38,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "deposit trader 1",
+      "signature": "JhCjU9m9XVLPopmxPtzSVQyRwdrMcY7xmLAUShanA8QpqVhNyhRHHSKTrCkH8hdhQ9PT1wtH9dHusqVVmJY2pb5",
+      "slot": 39,
+      "err": null,
+      "invariants": "pass"
+    },
+    {
+      "label": "post trader 1",
+      "signature": "63ceEUHmKo2iS6Rnvh7wzWYYAPYHKaPU83AwrQDv2ykuhChcinXDnuGcX6freSrhASB9AqkDxbEXpidVxrss32wx",
+      "slot": 40,
+      "err": null,
+      "invariants": "pass"
+    }
+  ],
+  "controls": [
+    {
+      "type": "oracle",
+      "address": "EC3RsgTQX7Fcg4AjnqQFuGxBnPCEUwvDLrhrVb1D4VR2",
+      "price": "100000000",
+      "publishTime": "1795405968",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 40,
+      "to": 70
+    },
+    {
+      "type": "oracle",
+      "address": "EC3RsgTQX7Fcg4AjnqQFuGxBnPCEUwvDLrhrVb1D4VR2",
+      "price": "100000000",
+      "publishTime": "1795405983",
+      "confidence": "12",
+      "active": true
+    },
+    {
+      "type": "slots",
+      "from": 80,
+      "to": 110
+    },
+    {
+      "type": "oracle",
+      "address": "EC3RsgTQX7Fcg4AjnqQFuGxBnPCEUwvDLrhrVb1D4VR2",
+      "price": "100000000",
+      "publishTime": "1795405999",
+      "confidence": "12",
+      "active": true
+    }
+  ],
+  "marketSeeds": [
+    "HjdRvn5WKntnywpwsiNWmjyMxWmn6K88ynw7jFCubq9Z"
+  ],
+  "candidateCommit": "c913b5f31a2df46c484c3bfff660e0012391f2f2",
+  "keeper": {
+    "crashRecovered": true,
+    "concurrent": true,
+    "concurrentOutcomes": [
+      [
+        "settled"
+      ],
+      [
+        "advanced"
+      ]
+    ],
+    "invariants": "pass",
+    "settlementSignature": "4GHv8TGYw1L8pSWvdtjiPhakvfqUycXo5temhd2WSrBGTUs1gdb9t9iRmYcagi3DuV1mM8tGnBPPgtkYPg88ei9R",
+    "feeStarvationRecovered": true,
+    "missingBatchHalted": true
+  }
+}

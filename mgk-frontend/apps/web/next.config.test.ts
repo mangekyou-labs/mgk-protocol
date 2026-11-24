@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-const SOLANA_RPC = 'https://api.devnet.solana.com';
-const HELIUS_RPC = 'https://*.helius-rpc.com';
 const PYTH_HERMES = 'https://hermes.pyth.network';
 const TRADINGVIEW_SCRIPT = 'https://s3.tradingview.com';
 const TRADINGVIEW_WIDGET = 'https://www.tradingview.com';
@@ -13,8 +11,6 @@ const INDEXER_LOCAL = ['http://localhost:4000', 'ws://localhost:4000'];
 function buildCsp(isProd: boolean): string {
   const connectSrc = [
     "'self'",
-    SOLANA_RPC,
-    HELIUS_RPC,
     PYTH_HERMES,
     ...TRADINGVIEW_ORIGINS,
     ...INDEXER_LOCAL,
@@ -58,14 +54,9 @@ describe('G7 — CSP builder (production mode)', () => {
     expect(buildCsp(true)).toMatch(/default-src 'self'/);
   });
 
-  it('includes the Solana devnet RPC in connect-src', () => {
-    expect(buildCsp(true)).toMatch(
-      /connect-src[^;]*https:\/\/api\.devnet\.solana\.com/,
-    );
-  });
-
-  it('includes Helius RPC wildcard in connect-src', () => {
-    expect(buildCsp(true)).toMatch(/connect-src[^;]*https:\/\/\*\.helius-rpc\.com/);
+  it('reaches Solana RPC only through the same-origin proxy', () => {
+    expect(buildCsp(true)).toMatch(/connect-src 'self'/);
+    expect(buildCsp(true)).not.toMatch(/helius-rpc|api\.devnet\.solana\.com/);
   });
 
   it('includes Pyth Hermes in connect-src', () => {
@@ -121,9 +112,7 @@ describe('G7 — CSP builder (development mode)', () => {
   });
 
   it('still pins connect-src to the same allowlist as production', () => {
-    expect(buildCsp(false)).toMatch(
-      /connect-src[^;]*https:\/\/api\.devnet\.solana\.com/,
-    );
+    expect(buildCsp(false)).toMatch(/connect-src 'self'/);
     expect(buildCsp(false)).toMatch(/connect-src[^;]*https:\/\/hermes\.pyth\.network/);
   });
 

@@ -1,0 +1,26 @@
+{
+  "action": "cancel-maker",
+  "observedAt": "2026-11-23T11:07:20.167Z",
+  "signer": "DPs1NM3TeR9f9WQBgqrT27dmf8F4DoJJVyBpqT5NGr4o",
+  "portfolio": "2t2Baf6TwxrVrgtQVgvqPq1j97ofvyqK4gWAC4jXyMcP",
+  "book": "2oHNZE83cyVgyuTXesdDH3xguHj91zbJhruoDDGR7VQY",
+  "simulation": {
+    "slot": 525410457,
+    "err": null,
+    "logs": [
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT invoke [1]",
+      "Program log: Instruction: CancelAllRestingOrders",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK invoke [2]",
+      "Program log: Instruction: CancelAll",
+      "Program log: CancelAll: removed orders",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK consumed 12550 of 171240 compute units",
+      "Program 68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK success",
+      "Program log: CancelAllRestingOrders: CPI to matcher complete",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT consumed 46626 of 200000 compute units",
+      "Program 9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT success"
+    ]
+  },
+  "signature": "w15AgEHLgWxYgqLz71VYhMBhHwRAjN7m1xbFrdtBpGWpmsHqHbGKPH1ydMJyvTY7vgdYT1jSzRn4PQR2qC7A7mN",
+  "confirmErr": null,
+  "confirmedSlot": 525410463
+}

@@ -144,6 +144,18 @@ unsafe impl AccountLayout for Commitment {
 }
 
 impl Batch {
+    /// Count one post into the open batch (reuses `total_commitments`).
+    ///
+    /// Issue 74: the first post into an idle batch restarts the commit
+    /// deadline at `slot + t_max_slots`, so a batch that sat empty past its
+    /// original deadline still gives the first trader a full window.
+    pub fn record_post(&mut self, slot: u64, t_max_slots: u64) {
+        if self.total_commitments == 0 {
+            self.commit_deadline_slot = slot.saturating_add(t_max_slots);
+        }
+        self.total_commitments = self.total_commitments.saturating_add(1);
+    }
+
     pub fn initialize_in_place(&mut self, batch_id: u64, commit_deadline_slot: u64, reveal_deadline_slot: u64, bump: u8) {
         self.header = AccountHeader::of::<Self>();
         self.batch_id = batch_id;
@@ -283,6 +295,32 @@ impl RevealedOrder {
 mod tests {
     use super::*;
     use pinocchio::pubkey::Pubkey;
+
+    #[test]
+    fn first_post_into_idle_batch_restarts_commit_deadline() {
+        let mut b = Batch::new(4);
+        b.commit_deadline_slot = 100;
+        b.record_post(5_000, 150);
+        assert_eq!(b.total_commitments, 1);
+        assert_eq!(b.commit_deadline_slot, 5_150);
+    }
+
+    #[test]
+    fn later_posts_keep_the_commit_deadline() {
+        let mut b = Batch::new(4);
+        b.commit_deadline_slot = 100;
+        b.record_post(5_000, 150);
+        b.record_post(6_000, 150);
+        assert_eq!(b.total_commitments, 2);
+        assert_eq!(b.commit_deadline_slot, 5_150);
+    }
+
+    #[test]
+    fn deadline_restart_saturates_at_slot_max() {
+        let mut b = Batch::new(4);
+        b.record_post(u64::MAX - 1, 150);
+        assert_eq!(b.commit_deadline_slot, u64::MAX);
+    }
 
     /// Copy a `T` into a 16-aligned byte buffer so `load` sees a realistic,
     /// aligned account body (Batch holds u128s).

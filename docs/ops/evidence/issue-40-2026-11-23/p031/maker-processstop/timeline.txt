@@ -1,0 +1,16 @@
+20261123T110212Z baseline ok oracle ok 4 maker ok {"bid":true,"ask":true} batch ok 9383 0 5 indexer ok 40 true
+2026-11-23T11:02:12Z suspend maker -> 202 (attempt 1)
+20261123T110233Z down ok oracle ok 28 maker ok {"bid":true,"ask":true} batch ok 9385 0 null indexer ok 14 true
+20261123T110254Z down ok oracle ok 11 maker ok {"bid":true,"ask":true} batch ok 9386 4 1 indexer ok 6 true
+20261123T110315Z down ok oracle ok 4 maker ok {"bid":true,"ask":true} batch ok 9387 2 null indexer ok 43 true
+20261123T110336Z down ok oracle ok 28 maker ok {"bid":true,"ask":true} batch ok 9389 0 null indexer ok 23 true
+20261123T110356Z down ok oracle ok 2 maker ok {"bid":true,"ask":true} batch ok 9391 0 null indexer ok 2 true
+20261123T110417Z down ok oracle ok 24 maker ok {"bid":true,"ask":true} batch ok 9392 0 3 indexer ok 37 true
+20261123T110438Z down ok oracle ok 15 maker ok {"bid":true,"ask":true} batch ok 9394 0 null indexer ok 5 true
+20261123T110459Z down warn oracle warn 36 maker ok {"bid":true,"ask":true} batch ok 9395 0 3 indexer ok 32 true
+20261123T110520Z down ok oracle ok 18 maker ok {"bid":true,"ask":true} batch ok 9397 0 null indexer ok 4 true
+2026-11-23T11:05:21Z resume maker -> 202 (attempt 1)
+20261123T110542Z recover warn oracle warn 31 maker ok {"bid":true,"ask":true} batch ok 9397 4 2 indexer ok 2 true
+20261123T110602Z recover ok oracle ok 29 maker ok {"bid":true,"ask":true} batch ok 9399 2 null indexer ok 14 true
+20261123T110623Z recover ok oracle ok 11 maker ok {"bid":true,"ask":true} batch ok 9401 0 null indexer ok 20 true
+2026-11-23T11:06:48Z recovery snapshots stopped early by operator; process-stop alone leaves resting depth ok (same as 11-03); proceeding to cancellation drill in maker-cancel/

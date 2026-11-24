@@ -222,8 +222,7 @@ mod tests {
         let mut total_im: u128 = 0;
         let mut total_mm: u128 = 0;
         let count = portfolio.positions_len as usize;
-        for i in 0..count.min(MAX_POSITIONS) {
-            let p = &portfolio.positions[i];
+        for p in portfolio.positions.iter().take(count) {
             if p.qty == 0 {
                 continue;
             }

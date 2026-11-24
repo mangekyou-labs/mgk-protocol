@@ -44,11 +44,12 @@ describe('OrderBook', () => {
     expect(within(screen.getByTestId('orderbook-asks')).getByRole('button')).toHaveTextContent('0.007');
   });
 
-  it('states that levels are not fills', () => {
+  it('states that levels are not fills in an info tooltip on the book header', () => {
     render(<OrderBook status="ok" bids={[level(usd(99), 1n)]} asks={[]} />);
-    expect(screen.getByTestId('orderbook-note')).toHaveTextContent(
-      'Batch clears at one price. Levels are not fills.',
-    );
+    const note = screen.getByTestId('orderbook-note');
+    expect(note).toHaveAttribute('title', 'Batch clears at one price. Levels are not fills.');
+    expect(note).toHaveAccessibleName('Batch clears at one price. Levels are not fills.');
+    expect(screen.getByText('ⓘ')).toBeInTheDocument();
   });
 
   it('shows the last clear price labelled with its batch', () => {

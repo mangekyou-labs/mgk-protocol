@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {settlementQuantities} from './settlementReceipt.js';
+import {settledBatchId, settlementQuantities} from './settlementReceipt.js';
 const receipt = (quantities: bigint[], batch = 5n) => {
   const payload = Buffer.alloc(10 + quantities.length * 8);
   payload.writeBigUInt64LE(batch); payload.writeUInt16LE(quantities.length, 8);
@@ -20,5 +20,12 @@ describe('effective settlement receipts', () => {
   it('rejects duplicate vectors and incomplete vectors', () => {
     expect(() => settlementQuantities(['Program core invoke [1]', receipt([3n]), receipt([3n]), 'Program core success'], 'core', 5n, [8n])).toThrow();
     expect(() => settlementQuantities(logs(receipt([3n])), 'core', 5n, [8n, 2n])).toThrow();
+  });
+  it('names the one batch a core invocation settled, ignoring CPI-spoofed receipts', () => {
+    expect(settledBatchId(logs(receipt([3n], 9n)), 'core')).toBe(9n);
+    const spoof = ['Program core invoke [1]', 'Program attacker invoke [2]', receipt([3n], 4n), 'Program attacker success', 'Program core success'];
+    for (const entries of [spoof, null, logs('Program log: nothing'), ['Program core invoke [1]', receipt([3n], 1n), receipt([3n], 2n), 'Program core success']]) {
+      expect(() => settledBatchId(entries, 'core')).toThrow();
+    }
   });
 });

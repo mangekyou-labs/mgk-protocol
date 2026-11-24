@@ -76,7 +76,8 @@ pub enum MgkError {
     RoundtripDetected = 505,
 
     // Perps-core errors (600-699). Sub-ranges: 600-602 core (M7), 603-606
-    // DFBA (M9), 607-612 reserve and insurance (issue 23 / ADR 0003).
+    // DFBA (M9), 607-612 reserve and insurance (issue 23 / ADR 0003),
+    // 613-614 batch hygiene (issue 74).
     RevealDeadlineExpired = 600,
     InstrumentMissingForLiquidation = 601,
     OperationPaused = 602,
@@ -105,6 +106,14 @@ pub enum MgkError {
     /// Unpause needs `uncovered_bad_debt == 0` and the fund at the reserve,
     /// and trading may only be unpaused with withdrawals.
     RecoveryConditionsNotMet = 612,
+    // Batch hygiene errors (613-614) - issue 74.
+    /// CloseCommitting on a batch with zero commitments; the batch stays open
+    /// and its deadline restarts on the first post.
+    BatchEmpty = 613,
+    /// CloseSettledBatch on a batch inside the close window
+    /// (`batch_id + CLOSE_WINDOW >= registry.batch_id_counter`) or whose
+    /// matcher Results are not yet consumed.
+    BatchNotClosable = 614,
 }
 
 impl From<MgkError> for u64 {
@@ -148,6 +157,13 @@ mod tests {
         assert_eq!(MgkError::RiskOffFundBelowReserve as u32, 610);
         assert_eq!(MgkError::FundWithdrawalExceedsSurplus as u32, 611);
         assert_eq!(MgkError::RecoveryConditionsNotMet as u32, 612);
+    }
+
+    /// Issue 74: pin the batch hygiene error discriminators.
+    #[test]
+    fn test_batch_hygiene_error_codes_pinned() {
+        assert_eq!(MgkError::BatchEmpty as u32, 613);
+        assert_eq!(MgkError::BatchNotClosable as u32, 614);
     }
 
     /// T9.10.7: Pin the ReduceOnlyViolation discriminator.

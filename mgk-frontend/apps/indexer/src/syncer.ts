@@ -1,30 +1,50 @@
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, type ConfirmedSignatureInfo, type VersionedTransactionResponse } from '@solana/web3.js';
 import { coreInvocations } from './coreInvocations.js';
 import { instructions } from '../../../packages/layout/instructions.js';
 import * as sdk from '@mgk/sdk';
 import type { Store } from './store.js';
 import { decodeBatchEvent, decodeDfbaFills } from './decoder.js';
 import { aggregateCandles } from './aggregator.js';
-import { splitSlotRanges } from './backfill.js';
 import { resultsLayout, decodeAccount } from '../../../packages/layout/index.js';
-import { settlementQuantities } from './settlementReceipt.js';
+import { settledBatchId, settlementQuantities } from './settlementReceipt.js';
 import { createHealthTracker, type HealthTracker } from './healthTracker.js';
 
-export interface SyncChunkParams {
+/** Provider maximum for one getSignaturesForAddress page. */
+const SIGNATURE_PAGE_LIMIT = 1000;
+/** Concurrent getTransaction requests during replay. */
+const TRANSACTION_FETCH_CONCURRENCY = 4;
+/** Longest a cached retention floor is trusted before it is re-read. */
+const FLOOR_TTL_MS = 5 * 60_000;
+/**
+ * A cached floor is trusted only while the cursor is at least this far above it.
+ * Devnet produces ~2.5 slots/s, so steady pruning cannot advance the floor this far
+ * within the TTL; closer than this, the floor is re-read every tick.
+ */
+const FLOOR_MARGIN_SLOTS = 1_000;
+
+export interface SyncHistoryParams {
   connection: Connection;
   store: Store;
   marketSeed?: string | null;
   corePk: PublicKey;
   matcherPk: PublicKey;
-  startSlot: number;
-  endSlot: number;
+  /** Highest committed slot. Without `untilSignature`, signatures at or below it count as replayed. */
+  cursorSlot: number;
+  /** Newest signature already replayed by this process; only newer signatures are scanned. */
+  untilSignature?: string | null;
+  /** Confirmed slot read before the scan; the cursor advances to it once history is caught up. */
+  confirmedSlot: number;
+  /** Signatures replayed per atomic commit, so progress survives a later failure. */
+  segmentSize?: number;
   onFill?: (fill: Record<string, unknown>) => void;
 }
 
-export interface SyncChunkResult {
+export interface SyncHistoryResult {
   success: boolean;
-  slotsProcessed: number;
+  txsProcessed: number;
   fillsInserted: number;
+  /** Newest signature known to be replayed (committed or already below the cursor), if any. */
+  newestSignature: string | null;
   error?: unknown;
 }
 
@@ -43,116 +63,159 @@ export interface DecodedFillItem {
 }
 
 /**
- * Fetch and decode all blocks in [startSlot, endSlot] and commit fills + candles + cursor atomically.
- * On any RPC failure, nothing is committed and the chunk is left uncommitted for retry.
+ * List core signatures not yet replayed, oldest first (slot order, then in-block order).
+ *
+ * Gap soundness: a short page is NOT treated as the end of history. Providers may
+ * return fewer than `limit` signatures before their history is exhausted, so the
+ * walk ends only on positive evidence:
+ * - slot mode (`until` null): a signature at or below `cursorSlot` was seen, or
+ * - any mode: a page came back empty (nothing older is retained).
+ * An empty page alone cannot distinguish "the program has no older signatures" from
+ * "the provider pruned them"; the caller closes that hole by proving, before the
+ * scan, that the provider's retention floor (`getFirstAvailableBlock`) is at or
+ * below `cursorSlot + 1`. Together: every retained signature newer than the cursor
+ * was listed, and retention reaches the cursor, so nothing between was lost. (A
+ * pruned `until` is harmless under that proof: the provider then ignores it and
+ * returns retained history, all of it newer than `until`.)
+ *
+ * Cost: one extra (empty) page per scan that lists new signatures. An idle tick
+ * with `until` set is already a single empty page, so it costs nothing extra.
  */
-export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResult> {
-  const { connection, store, corePk, matcherPk, startSlot, endSlot, onFill } = params;
-  if (startSlot > endSlot) {
-    return { success: true, slotsProcessed: 0, fillsInserted: 0 };
-  }
-
-  const decodedFills: DecodedFillItem[] = [];
-  const blockTimes = new Map<number, number>();
-
-  try {
-    // Solana getBlocks returns only slots that actually produced confirmed blocks
-    // Split into provider-safe sub-ranges if necessary (e.g. 64 slots per getBlocks call)
-    const blockSlots: number[] = [];
-    const ranges = splitSlotRanges(startSlot, endSlot, 64);
-    for (const [rStart, rEnd] of ranges) {
-      const slots = await connection.getBlocks(rStart, rEnd, 'confirmed');
-      blockSlots.push(...slots);
+async function listNewSignatures(
+  connection: Connection, corePk: PublicKey, cursorSlot: number, until: string | null,
+): Promise<{pending: ConfirmedSignatureInfo[]; newestSeen: string | null}> {
+  const newestFirst: ConfirmedSignatureInfo[] = [];
+  let newestSeen: string | null = null;
+  let before: string | undefined;
+  for (;;) {
+    const page = await connection.getSignaturesForAddress(
+      corePk, {before, until: until ?? undefined, limit: SIGNATURE_PAGE_LIMIT}, 'confirmed');
+    if (page.length === 0) break;
+    newestSeen ??= page[0]!.signature;
+    let reachedCursor = false;
+    for (const entry of page) {
+      if (until === null && entry.slot <= cursorSlot) { reachedCursor = true; break; }
+      newestFirst.push(entry);
     }
+    if (reachedCursor) break;
+    const next = page.at(-1)!.signature;
+    if (next === before) throw new Error('Signature history did not progress');
+    before = next;
+  }
+  return {pending: newestFirst.reverse(), newestSeen};
+}
 
-    // Fetch blocks with bounded concurrency; sequential fetching replayed
-    // slower than the chain produces slots, so the cursor fell behind forever.
-    // Blocks are still decoded strictly in slot order below.
-    const fetchBlock = (slot: number) => connection.getBlock(slot, {
-      maxSupportedTransactionVersion: 1,
-      commitment: 'confirmed',
-      ...{encoding: 'json'},
-    });
-    const blocks: Awaited<ReturnType<typeof fetchBlock>>[] = new Array(blockSlots.length);
-    let fetchIndex = 0;
-    const fetchWorker = async () => {
-      while (fetchIndex < blockSlots.length) {
-        const i = fetchIndex++;
-        blocks[i] = await fetchBlock(blockSlots[i]!);
-      }
-    };
-    await Promise.all(Array.from({length: Math.min(8, blockSlots.length)}, fetchWorker));
-
-    for (let bi = 0; bi < blockSlots.length; bi++) {
-      const slot = blockSlots[bi]!;
-      const block = blocks[bi];
-      if (block?.blockTime != null) blockTimes.set(slot, block.blockTime * 1000);
-      if (!block?.transactions) throw new Error(`Block ${slot} unavailable; cursor held for retry`);
-
-      for (const txResp of block.transactions) {
-        if (!txResp.meta) throw new Error('Transaction metadata unavailable');
-        if (txResp.meta.err) continue;
-        // Cheap prefilter: a core invocation requires the core program among
-        // the message keys (static or lookup-loaded). Skipping the rest avoids
-        // full invocation-log parsing for every devnet transaction in the block.
-        const msg = txResp.transaction.message;
-        const involvesCore =
-          msg.staticAccountKeys.some((k) => k.equals(corePk)) ||
-          (txResp.meta.loadedAddresses?.writable ?? []).some((k) => k.equals(corePk)) ||
-          (txResp.meta.loadedAddresses?.readonly ?? []).some((k) => k.equals(corePk));
-        if (!involvesCore) continue;
-        for (const ix of coreInvocations(msg, txResp.meta, corePk, params.marketSeed)) {
-          if (!ix.success || ix.data[0] !== instructions.core.SettleBatch.disc) continue;
-          const staticKeys = Array.from({length: ix.keys.length}, (_, i) => ix.keys.get(i)!);
-
-          const batchIdx = ix.accountKeyIndexes[0];
-          const batchPk = batchIdx === undefined ? undefined : staticKeys[batchIdx];
-          if (!batchPk) throw new Error('Settlement missing batch address');
-          const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
-          if (!batchInfo || !batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
-          const batch = decodeAccount('Batch', batchInfo.data);
-          if (params.marketSeed && !sdk.deriveBatchPda(batch.batchId, corePk, {marketSeed: params.marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
-          if (batch.status !== 3) throw new Error('Settlement batch not settled');
-          const resultsIdx = ix.accountKeyIndexes[3];
-          const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
-          if (!resultsPk) throw new Error('Settlement missing results address');
-          if (params.marketSeed) {
-            const expected = sdk.deriveResultsPda(batch.batchId, matcherPk, {marketSeed: params.marketSeed, coreProgramId: corePk})[0];
-            if (!expected.equals(resultsPk)) throw new Error('Settlement results outside selected market');
-          }
-          const accInfo = await connection.getAccountInfo(resultsPk, 'confirmed');
-          if (!accInfo || !accInfo.owner.equals(matcherPk)) throw new Error('Settlement results unavailable or wrong owner');
-          const results = sdk.state.decodeResults(accInfo.data);
-          if (!results.spent || results.batchId !== batch.batchId) throw new Error('Settlement results not spent or batch mismatch');
-          const quantities = settlementQuantities(ix.logs, corePk.toBase58(), batch.batchId, results.fills.map(f => f.qty));
-          const adjusted = Uint8Array.from(accInfo.data);
-          // Wire offsets come from the frozen shared results contract.
-          const view = new DataView(adjusted.buffer);
-          for (let i = 0; i < quantities.length; i++) view.setBigUint64(resultsLayout.headerSize + i * resultsLayout.fillSize + 40, quantities[i]!, true);
-          const signature = txResp.transaction.signatures[0];
-          if (!signature) throw new Error('Settlement signature unavailable');
-          if (!blockTimes.has(slot)) throw new Error('Settlement block time unavailable');
-          const fills = decodeDfbaFills(adjusted, slot, batch.batchId, 0, signature);
-          decodedFills.push(...fills);
-        }
+/**
+ * Map with bounded concurrency, preserving input order. The first failure stops
+ * every worker from starting new calls; in-flight calls drain before rethrowing,
+ * so no request outlives the failed tick.
+ */
+async function mapBounded<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  let failure: {error: unknown} | null = null;
+  const worker = async () => {
+    while (failure === null && next < items.length) {
+      const i = next++;
+      try {
+        out[i] = await fn(items[i]!);
+      } catch (error) {
+        failure ??= {error};
       }
     }
-  } catch (error) {
-    store.updateSyncError(Date.now());
-    return {
-      success: false,
-      slotsProcessed: 0,
-      fillsInserted: 0,
-      error,
-    };
-  }
+  };
+  await Promise.all(Array.from({length: Math.min(limit, items.length)}, worker));
+  if (failure !== null) throw (failure as {error: unknown}).error;
+  return out;
+}
 
-  // Atomic SQLite transaction: commit fills, candles, and sync cursor together
+/**
+ * Whether a settlement whose Batch account is gone was closed by CloseSettledBatch.
+ * Its own receipt names the batch it settled; the gone Batch account must be that
+ * batch's PDA, and that batch's Results PDA must be one of the instruction's accounts
+ * and gone too. Both PDAs are derived for the selected market, or with legacy seeds
+ * when none is selected. Returns the batch id, or null when the Results account still
+ * exists (not a closed pair).
+ */
+async function closedSettlement(
+  params: SyncHistoryParams, ix: {logs: string[]; accountKeyIndexes: number[]}, staticKeys: PublicKey[], batchPk: PublicKey,
+): Promise<bigint | null> {
+  const { connection, corePk, matcherPk, marketSeed } = params;
+  const batchId = settledBatchId(ix.logs, corePk.toBase58());
+  const context = {marketSeed: marketSeed ?? undefined, coreProgramId: corePk};
+  if (!sdk.deriveBatchPda(batchId, corePk, context)[0].equals(batchPk)) throw new Error('Settlement batch does not match its receipt');
+  const resultsPk = sdk.deriveResultsPda(batchId, matcherPk, context)[0];
+  if (!ix.accountKeyIndexes.some(i => staticKeys[i]?.equals(resultsPk))) throw new Error('Settlement missing results address');
+  if (await connection.getAccountInfo(resultsPk, 'confirmed')) return null;
+  return batchId;
+}
+
+/**
+ * Decode the effective settlement fills of one committed core transaction. The id of
+ * every batch it settled (closed or not) is appended to `settled`.
+ */
+async function decodeTransaction(
+  params: SyncHistoryParams, txResp: VersionedTransactionResponse, slot: number, signature: string, settled: bigint[],
+): Promise<DecodedFillItem[]> {
+  const { connection, corePk, matcherPk } = params;
+  if (!txResp.meta) throw new Error('Transaction metadata unavailable');
+  if (txResp.meta.err) return [];
+  const decoded: DecodedFillItem[] = [];
+  const msg = txResp.transaction.message;
+  for (const ix of coreInvocations(msg, txResp.meta, corePk, params.marketSeed)) {
+    if (!ix.success || ix.data[0] !== instructions.core.SettleBatch.disc) continue;
+    const staticKeys = Array.from({length: ix.keys.length}, (_, i) => ix.keys.get(i)!);
+
+    const batchIdx = ix.accountKeyIndexes[0];
+    const batchPk = batchIdx === undefined ? undefined : staticKeys[batchIdx];
+    if (!batchPk) throw new Error('Settlement missing batch address');
+    const batchInfo = await connection.getAccountInfo(batchPk, 'confirmed');
+    if (!batchInfo) {
+      // CloseSettledBatch closes a settled Batch together with its Results.
+      // Only that pair counts as closed; the fills are no longer readable on
+      // chain (the receipt carries quantities only), so the settle is skipped.
+      const closedId = await closedSettlement(params, ix, staticKeys, batchPk);
+      if (closedId === null) throw new Error('Settlement batch unavailable');
+      settled.push(closedId);
+      continue;
+    }
+    if (!batchInfo.owner.equals(corePk)) throw new Error('Settlement batch unavailable or wrong owner');
+    const batch = decodeAccount('Batch', batchInfo.data);
+    if (params.marketSeed && !sdk.deriveBatchPda(batch.batchId, corePk, {marketSeed: params.marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
+    if (batch.status !== 3) throw new Error('Settlement batch not settled');
+    const resultsIdx = ix.accountKeyIndexes[3];
+    const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
+    if (!resultsPk) throw new Error('Settlement missing results address');
+    if (params.marketSeed) {
+      const expected = sdk.deriveResultsPda(batch.batchId, matcherPk, {marketSeed: params.marketSeed, coreProgramId: corePk})[0];
+      if (!expected.equals(resultsPk)) throw new Error('Settlement results outside selected market');
+    }
+    const accInfo = await connection.getAccountInfo(resultsPk, 'confirmed');
+    if (!accInfo || !accInfo.owner.equals(matcherPk)) throw new Error('Settlement results unavailable or wrong owner');
+    const results = sdk.state.decodeResults(accInfo.data);
+    if (!results.spent || results.batchId !== batch.batchId) throw new Error('Settlement results not spent or batch mismatch');
+    const quantities = settlementQuantities(ix.logs, corePk.toBase58(), batch.batchId, results.fills.map(f => f.qty));
+    const adjusted = Uint8Array.from(accInfo.data);
+    // Wire offsets come from the frozen shared results contract.
+    const view = new DataView(adjusted.buffer);
+    for (let i = 0; i < quantities.length; i++) view.setBigUint64(resultsLayout.headerSize + i * resultsLayout.fillSize + 40, quantities[i]!, true);
+    if (txResp.blockTime == null) throw new Error('Settlement block time unavailable');
+    decoded.push(...decodeDfbaFills(adjusted, slot, batch.batchId, 0, signature));
+    settled.push(batch.batchId);
+  }
+  return decoded;
+}
+
+/** Commit fills, candles and both cursors atomically; broadcast only newly inserted fills. */
+function commitSegment(
+  store: Store, fills: DecodedFillItem[], blockTimes: Map<number, number>, cursorSlot: number,
+  onFill?: (fill: Record<string, unknown>) => void, settled: bigint[] = [],
+): number {
+  const settledThrough = settled.reduce<bigint | undefined>((max, id) => max === undefined || id > max ? id : max, undefined);
   const newlyInsertedFills: DecodedFillItem[] = [];
   const now = Date.now();
-
-  const commitChunk = store.db.transaction(() => {
-    for (const fill of decodedFills) {
+  store.db.transaction(() => {
+    for (const fill of fills) {
       const info = store.insertFill.run([
         fill.slot,
         Number(fill.batchId),
@@ -166,26 +229,20 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
         fill.isMaker ? 1 : 0,
         fill.fillIndex,
       ]);
-
       if (info.changes > 0) {
         newlyInsertedFills.push(fill);
-        aggregateCandles(store, [
-          {
-            instrumentId: fill.instrumentId,
-            timestampMs: blockTimes.get(fill.slot)!,
-            price: fill.price,
-            qty: fill.qty,
-          },
-        ]);
+        aggregateCandles(store, [{
+          instrumentId: fill.instrumentId,
+          timestampMs: blockTimes.get(fill.slot)!,
+          price: fill.price,
+          qty: fill.qty,
+        }]);
       }
     }
+    store.updateSyncSuccess(cursorSlot, now, settledThrough);
+  })();
 
-    store.updateSyncSuccess(endSlot, now);
-  });
-
-  commitChunk();
-
-  // Broadcast only newly inserted fills so retries cannot duplicate broadcasts
+  // Retries cannot duplicate broadcasts: only rows this commit inserted are sent.
   if (onFill) {
     for (const fill of newlyInsertedFills) {
       onFill({
@@ -202,12 +259,68 @@ export async function syncChunk(params: SyncChunkParams): Promise<SyncChunkResul
       });
     }
   }
+  return newlyInsertedFills.length;
+}
 
-  return {
-    success: true,
-    slotsProcessed: endSlot - startSlot + 1,
-    fillsInserted: newlyInsertedFills.length,
-  };
+/**
+ * Replay core-program history by signature: list signatures newer than the
+ * cursor, fetch each committed transaction, decode settlements oldest first and
+ * commit fills + candles + cursor atomically per segment. Any RPC failure,
+ * missing transaction or decode fault holds the cursor at the last committed
+ * segment, so a gap never looks like replayed history.
+ */
+export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistoryResult> {
+  const { connection, store, corePk, confirmedSlot, onFill } = params;
+  const segmentSize = Math.max(1, params.segmentSize ?? SIGNATURE_PAGE_LIMIT);
+  let cursorSlot = params.cursorSlot;
+  let newestSignature = params.untilSignature ?? null;
+  let txsProcessed = 0;
+  let fillsInserted = 0;
+
+  try {
+    const {pending, newestSeen} = await listNewSignatures(connection, corePk, cursorSlot, params.untilSignature ?? null);
+    if (pending.length === 0) {
+      newestSignature = newestSeen ?? newestSignature;
+      cursorSlot = Math.max(cursorSlot, confirmedSlot);
+      commitSegment(store, [], new Map(), cursorSlot);
+      return {success: true, txsProcessed, fillsInserted, newestSignature};
+    }
+
+    for (let start = 0; start < pending.length; start += segmentSize) {
+      const segment = pending.slice(start, start + segmentSize);
+      const committed = segment.filter(entry => entry.err === null);
+      const txs = await mapBounded(committed, TRANSACTION_FETCH_CONCURRENCY, entry => connection.getTransaction(entry.signature, {
+        commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
+      }));
+
+      const fills: DecodedFillItem[] = [];
+      const settled: bigint[] = [];
+      const blockTimes = new Map<number, number>();
+      for (let i = 0; i < committed.length; i++) {
+        const entry = committed[i]!;
+        const tx = txs[i];
+        if (!tx) throw new Error(`Transaction ${entry.signature} unavailable; cursor held for retry`);
+        if (tx.slot !== entry.slot) throw new Error(`Transaction ${entry.signature} slot mismatch`);
+        if (tx.blockTime != null) blockTimes.set(entry.slot, tx.blockTime * 1000);
+        fills.push(...await decodeTransaction(params, tx, entry.slot, entry.signature, settled));
+      }
+
+      // A slot may straddle segments; only commit through the last complete slot.
+      const last = segment.at(-1)!;
+      const following = pending[start + segmentSize];
+      const throughSlot = following === undefined
+        ? Math.max(confirmedSlot, last.slot)
+        : following.slot === last.slot ? last.slot - 1 : last.slot;
+      cursorSlot = Math.max(cursorSlot, throughSlot);
+      fillsInserted += commitSegment(store, fills, blockTimes, cursorSlot, onFill, settled);
+      txsProcessed += committed.length;
+      newestSignature = last.signature;
+    }
+    return {success: true, txsProcessed, fillsInserted, newestSignature};
+  } catch (error) {
+    store.updateSyncError(Date.now());
+    return {success: false, txsProcessed, fillsInserted, newestSignature, error};
+  }
 }
 
 export interface SyncerConfig {
@@ -217,8 +330,9 @@ export interface SyncerConfig {
   coreProgramId: string;
   matcherProgramId: string;
   startSlot?: number;
-  maxChunkSlots?: number;
   pollIntervalMs?: number;
+  /** Fallback batch poll; core log notifications refresh batch state immediately. */
+  batchPollIntervalMs?: number;
   onFill?: (fill: Record<string, unknown>) => void;
   onBatchEvent?: (event: unknown) => void;
 }
@@ -250,8 +364,8 @@ export function createSyncer(config: SyncerConfig): Syncer {
     coreProgramId,
     matcherProgramId,
     startSlot = 0,
-    maxChunkSlots = 256,
-    pollIntervalMs = 2000,
+    pollIntervalMs = 30_000,
+    batchPollIntervalMs = 15_000,
     onFill,
     onBatchEvent,
   } = config;
@@ -277,12 +391,46 @@ export function createSyncer(config: SyncerConfig): Syncer {
   let lastBatchId: bigint | null = null;
   let lastPhase: number | null = null;
 
+  // Newest replayed core signature; steady-state scans fetch only newer ones.
+  let newestSignature: string | null = null;
+  // Provider retention floor. It rises as the provider prunes, so the cached value
+  // is trusted only while fresh and well below the cursor (see retentionCovers).
+  let floor: {slot: number; readAt: number} | null = null;
+
+  /** Whether the provider still retains `slot`; re-reads the floor when the cache cannot prove it. */
+  async function retentionCovers(slot: number): Promise<boolean> {
+    const now = Date.now();
+    const trusted = floor !== null && now - floor.readAt < FLOOR_TTL_MS && slot - floor.slot >= FLOOR_MARGIN_SLOTS;
+    if (!trusted) floor = {slot: await connection.getFirstAvailableBlock(), readAt: now};
+    return floor!.slot <= slot;
+  }
+
   const runtimeSubscriptions = {
     core: false,
     matcher: false,
   };
 
+  let batchPollInFlight = false;
+  let batchPollPending = false;
+
+  /** Single-flight batch refresh; a request during a read schedules one more read. */
   async function pollBatchState(): Promise<void> {
+    if (batchPollInFlight) {
+      batchPollPending = true;
+      return;
+    }
+    batchPollInFlight = true;
+    try {
+      do {
+        batchPollPending = false;
+        await readBatchState();
+      } while (batchPollPending);
+    } finally {
+      batchPollInFlight = false;
+    }
+  }
+
+  async function readBatchState(): Promise<void> {
     try {
       const [registryPda] = sdk.deriveRegistryPda(corePk,{marketSeed:config.marketSeed});
       const accounts = await connection.getMultipleAccountsInfo([registryPda]);
@@ -349,53 +497,44 @@ export function createSyncer(config: SyncerConfig): Syncer {
           rpcReachable = true;
           lastHeartbeat = Date.now();
           healthTracker.recordPollSuccess(currentConfirmedSlot);
-        } catch (error) {
+        } catch {
           rpcReachable = false;
           healthTracker.recordPollFailure();
           store.updateSyncError(Date.now());
           break;
         }
 
-        let syncState = store.getSyncState();
-        let cursor = syncState.processedThroughSlot;
+        const committed = store.getSyncState().processedThroughSlot;
+        const cursor = committed ?? startSlot - 1;
 
-        if (cursor === null) cursor = startSlot - 1;
-        // An archival gap must never masquerade as successfully replayed history.
-        const firstAvailable = await connection.getFirstAvailableBlock();
-        if (firstAvailable > cursor + 1) {
+        // An archival gap must never masquerade as successfully replayed history:
+        // the scan's end-of-history proof needs retention down to the cursor.
+        if (!await retentionCovers(cursor + 1)) {
           store.updateSyncError(Date.now());
           healthTracker.recordPollFailure();
           break;
         }
 
-        // Process chunks until caught up
-        while (cursor < currentConfirmedSlot) {
-          const chunkStart = cursor + 1;
-          const chunkEnd = Math.min(chunkStart + maxChunkSlots - 1, currentConfirmedSlot);
+        const result = await syncHistory({
+          connection,
+          store,
+          marketSeed: config.marketSeed,
+          corePk,
+          matcherPk,
+          cursorSlot: cursor,
+          untilSignature: newestSignature,
+          confirmedSlot: currentConfirmedSlot,
+          onFill,
+        });
+        newestSignature = result.newestSignature;
+        lastHeartbeat = Date.now();
 
-          const result = await syncChunk({
-            connection,
-            store,
-            marketSeed:config.marketSeed,
-            corePk,
-            matcherPk,
-            startSlot: chunkStart,
-            endSlot: chunkEnd,
-            onFill,
-          });
-
-          lastHeartbeat = Date.now();
-
-          if (!result.success) {
-            console.error("History replay paused at slot", chunkStart, result.error);
-            healthTracker.recordPollFailure();
-            // Leave chunk uncommitted for next retry
-            break;
-          }
-
-          healthTracker.recordReconciliation(chunkEnd);
-          cursor = chunkEnd;
+        if (!result.success) {
+          console.error('History replay paused after slot', store.getSyncState().processedThroughSlot ?? cursor, result.error);
+          healthTracker.recordPollFailure();
+          break;
         }
+        healthTracker.recordReconciliation(store.getSyncState().processedThroughSlot ?? cursor);
       } while (pendingScan);
     } catch {
       store.updateSyncError(Date.now());
@@ -414,7 +553,9 @@ export function createSyncer(config: SyncerConfig): Syncer {
         coreListenerId = connection.onLogs(
           corePk,
           () => {
+            // Batch phase changes only through core transactions.
             void triggerSync();
+            void pollBatchState();
           },
           'confirmed',
         );
@@ -436,15 +577,15 @@ export function createSyncer(config: SyncerConfig): Syncer {
         runtimeSubscriptions.matcher = false;
       }
 
-      // Start fallback poll loop (every 2s)
+      // Fallback poll loop; log notifications drive normal syncs.
       pollTimer = setInterval(() => {
         void triggerSync();
       }, pollIntervalMs);
 
-      // Start batch polling loop (every 5s)
+      // Fallback batch poll loop
       batchPollTimer = setInterval(() => {
         void pollBatchState();
-      }, 5000);
+      }, batchPollIntervalMs);
 
       // Initial runs
       void pollBatchState();

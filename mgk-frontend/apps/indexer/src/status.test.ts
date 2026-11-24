@@ -26,7 +26,7 @@ describe('indexer syncing flag', () => {
     const manifest: DeploymentManifest = {marketSeed: null, name: 'status', cluster: 'localnet', ready: true, startSlot: 10_000,
       programs: {perps_core: program, perps_matcher: program, oracle: program},
       accounts: {registry: null, instrument: null, oracle: null, insurance: null, maker: null}};
-    await statusRoutes(app, {connection, store, manifest,
+    await statusRoutes(app, {connection, store, manifest, cacheMs: 0,
       monitoring: {feePayers: {keeper: null, oracle: null, maker: null}, feeFloorLamports: '1', insuranceFloorLamports: '1'}});
     const indexer = async () => (await app.inject({method: 'GET', url: '/api/status'})).json().checks.indexer;
     try {
@@ -35,7 +35,7 @@ describe('indexer syncing flag', () => {
       expect(await indexer()).toMatchObject({syncing: true, lagSlots: 30_000});
       store.setSyncCursor(49_990);
       tip = 50_012;
-      expect(await indexer()).toEqual({severity: 'ok', lagSlots: 22, syncing: false});
+      expect(await indexer()).toEqual({severity: 'ok', lagSlots: 22, syncing: false, settledThroughBatchId: null});
     } finally {await app.close(); store.close();}
   });
 });

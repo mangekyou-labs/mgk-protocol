@@ -30,6 +30,7 @@ export const instructions: {
   TopUp: {disc:26; fields:[string,string][]; enabled:boolean};
   WithdrawInsuranceFund: {disc:27; fields:[string,string][]; enabled:boolean};
   Unpause: {disc:28; fields:[string,string][]; enabled:boolean};
+  CloseSettledBatch: {disc:30; fields:[string,string][]; enabled:boolean};
  };
  matcher: {
   ComputeClearing: {disc:0; fields:[string,string][]; enabled:boolean};
@@ -42,6 +43,7 @@ export const instructions: {
   InitializeBook: {disc:7; fields:[string,string][]; enabled:boolean};
   ConsumeResults: {disc:8; fields:[string,string][]; enabled:boolean};
   CancelSettledOrders: {disc:9; fields:[string,string][]; enabled:boolean};
+  CloseResults: {disc:11; fields:[string,string][]; enabled:boolean};
  };
  oracle: {
   Initialize: {disc:0; fields:[string,string][]; enabled:boolean};

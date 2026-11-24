@@ -19,6 +19,8 @@ export interface OrderTicketDraft {
   reduceOnly: boolean;
   /** Nonce of the last book click copied into `price`; a click applies once. */
   appliedPriceNonce: number | null;
+  /** Nonce of the last Buy/Sell bar pick copied into `side`; a pick applies once. */
+  appliedSideNonce: number | null;
 }
 
 interface OrderTicketStore extends OrderTicketDraft {
@@ -32,6 +34,7 @@ const EMPTY: OrderTicketDraft = {
   size: '',
   reduceOnly: false,
   appliedPriceNonce: null,
+  appliedSideNonce: null,
 };
 
 export const useOrderTicketStore = create<OrderTicketStore>((set) => ({

@@ -5,6 +5,7 @@ import type { NormalizedPythPrice } from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { fetchPythLatest } from '@/lib/feeds/pyth';
+import { FAILURE_THRESHOLD } from '@/lib/polling';
 
 interface PythFeedState {
   data: NormalizedPythPrice | null;
@@ -35,18 +36,21 @@ interface PollParams {
 
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let currentParams: PollParams | null = null;
+let consecutiveFailures = 0;
 
 async function tick(setFeed: PythPriceStore['setFeed'], params: PollParams): Promise<void> {
-  // Mark each feed as loading only on the first tick; on subsequent
-  // ticks, keep the previous data visible (don't flicker) and just
-  // update loading=false on completion.
+  // Mark a feed as loading only until its first result; later ticks keep
+  // the previous price visible instead of flickering back to "loading".
+  const feeds = usePythPriceStore.getState().feeds;
   for (const id of params.feedIds) {
-    setFeed(id, { data: null, loading: true, error: null, lastFetchedAt: null });
+    if (!feeds[id]) setFeed(id, { data: null, loading: true, error: null, lastFetchedAt: null });
   }
   try {
     const prices = await fetchPythLatest(params.feedIds, {
       timeoutMs: params.timeoutMs,
     });
+    if (currentParams !== params) return;
+    consecutiveFailures = 0;
     const now = Date.now();
     const byId = new Map(prices.map((p) => [p.id.replace(/^0x/, '').toLowerCase(), p]));
     for (const id of params.feedIds) {
@@ -63,6 +67,9 @@ async function tick(setFeed: PythPriceStore['setFeed'], params: PollParams): Pro
       }
     }
   } catch (e) {
+    if (currentParams !== params) return;
+    consecutiveFailures++;
+    if (consecutiveFailures < FAILURE_THRESHOLD) return;
     const msg = e instanceof Error ? e.message : String(e);
     const now = Date.now();
     for (const id of params.feedIds) {
@@ -85,6 +92,7 @@ export function startPythPolling(params: PollParams): () => void {
     pollHandle = null;
   }
   currentParams = params;
+  consecutiveFailures = 0;
   const setFeed = usePythPriceStore.getState().setFeed;
   void tick(setFeed, params);
   pollHandle = setInterval(() => {
