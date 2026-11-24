@@ -3,7 +3,13 @@
 use crate::state::{Batch, BatchStatus, Portfolio, Registry, Vault};
 use mgk_common::layout::{load_account, load_account_mut};
 use mgk_common::{validate_owner, validate_writable, MgkError};
-use pinocchio::{account_info::AccountInfo, msg, pubkey::Pubkey, ProgramResult};
+use pinocchio::{
+    account_info::AccountInfo,
+    msg,
+    pubkey::Pubkey,
+    sysvars::{clock::Clock, Sysvar},
+    ProgramResult,
+};
 
 /// Matcher `PlaceResting` discriminator.
 pub const MATCHER_PLACE_RESTING: u8 = 6;
@@ -160,8 +166,9 @@ pub fn process_post_order(
         &cpi_data,
     )?;
 
-    // Count posts for n_min close (reuses total_commitments field).
-    batch.total_commitments = batch.total_commitments.saturating_add(1);
+    // Count posts for n_min close; the first post restarts the deadline.
+    let slot = Clock::get()?.slot;
+    batch.record_post(slot, registry.t_max_slots);
     portfolio.last_batch_id = batch.batch_id;
 
     msg!("PostOrder: placed");
