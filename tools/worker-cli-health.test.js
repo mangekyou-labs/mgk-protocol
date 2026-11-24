@@ -28,7 +28,7 @@ async function runCli(service, { port, mode = "--loop", status = "idle", signal 
     "node:timers/promises": { setTimeout: async () => {} },
     "@solana/web3.js": { Connection: class {}, Keypair: { fromSecretKey: () => ({}) } },
     "../mgk-frontend/packages/layout/manifest": { loadManifest: () => ({ ready: true, cluster: "localnet" }) },
-    [`./${service}-worker`]: { [`create${service[0].toUpperCase()}${service.slice(1)}Worker`]: async () => worker, INTERVAL_MS: 1 },
+    [`./${service}-worker`]: { ...(service === "keeper" ? require("./keeper-worker") : {}), [`create${service[0].toUpperCase()}${service.slice(1)}Worker`]: async () => worker, INTERVAL_MS: 1 },
     "./health-server": { ...health, startHealthServer: () => {
       calls.started++;
       return { close: () => { calls.closed++; } };
