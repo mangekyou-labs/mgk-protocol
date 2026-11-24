@@ -1003,10 +1003,10 @@ fn main() -> Result<(), ProgramError> {
             "process_close_results",
         );
         let _ = source;
-        check(source, "if data.len() != 8 {");
         {
             let data: &[u8] = &[19, 56, 93, 130, 167, 204, 241, 22];
-            read!(source, let batch_id = u64::from_le_bytes(data.try_into().unwrap()););
+            check(source, "let batch_id = u64::from_le_bytes(\n        data.try_into()\n            .map_err(|_| ProgramError::InvalidInstructionData)?,\n    );");
+            let batch_id = u64::from_le_bytes(data.try_into().unwrap());
             fixtures.push(json!({"program":"matcher","name":"CloseResults","enabled":true,"bytes": ([&[11u8][..], data].concat()),"params":{"batchId": batch_id.to_string()}}));
         }
     }
