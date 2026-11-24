@@ -31,6 +31,16 @@ export function runwaySlots(commitDeadlineSlot: bigint, slot: bigint): bigint {
 }
 
 /**
+ * Whether a post can land in this collecting batch. An idle batch (no
+ * commitments) is always postable: the first post restarts its deadline at
+ * `slot + t_max_slots`, so a passed deadline still means a full window.
+ */
+export function hasPostableRunway(batch: sdk.state.BatchState, slot: bigint, minRunway: bigint): boolean {
+  if (batch.status === sdk.state.BatchStatus.Collecting && batch.totalCommitments === 0) return true;
+  return runwaySlots(batch.commitDeadlineSlot, slot) >= minRunway;
+}
+
+/**
  * Resolve the collecting batch once it has at least `minRunwaySlots` left,
  * waiting through clearing and settlement for the next window when needed.
  * `onWait` fires once, the first time the current window is too short.
@@ -59,7 +69,7 @@ export async function awaitOpenWindow(params: {
         if (e instanceof Error && e.message.startsWith('No open collecting batch found')) return null;
         throw e;
       });
-    if (open && runwaySlots(open.batch.commitDeadlineSlot, BigInt(slot)) >= minRunway) return open;
+    if (open && hasPostableRunway(open.batch, BigInt(slot), minRunway)) return open;
     if (Date.now() > deadline) {
       throw new Error('No batch window opened in time. The keeper may be paused; check system status and retry.');
     }

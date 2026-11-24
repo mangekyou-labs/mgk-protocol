@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { isBatchClosedError, runwaySlots } from './batchWindow';
+import * as sdk from '@mgk/sdk';
+
+import { hasPostableRunway, isBatchClosedError, runwaySlots } from './batchWindow';
 
 describe('runwaySlots', () => {
   it('counts slots left before the commit deadline', () => {
@@ -25,5 +27,19 @@ describe('isBatchClosedError', () => {
   it('ignores other program errors', () => {
     expect(isBatchClosedError('custom program error: 0x1f7')).toBe(false);
     expect(isBatchClosedError('custom program error: 5020')).toBe(false);
+  });
+});
+
+describe('hasPostableRunway', () => {
+  const batch = (totalCommitments: number, commitDeadlineSlot: bigint) =>
+    ({ status: sdk.state.BatchStatus.Collecting, totalCommitments, commitDeadlineSlot }) as sdk.state.BatchState;
+
+  it('needs the minimum runway once the batch holds orders', () => {
+    expect(hasPostableRunway(batch(1, 130n), 100n, 15n)).toBe(true);
+    expect(hasPostableRunway(batch(1, 110n), 100n, 15n)).toBe(false);
+  });
+
+  it('treats an idle open batch past its deadline as postable: the first post restarts it', () => {
+    expect(hasPostableRunway(batch(0, 50n), 100n, 15n)).toBe(true);
   });
 });
