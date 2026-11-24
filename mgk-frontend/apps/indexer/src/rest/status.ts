@@ -73,7 +73,9 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
   async function readStatus() {
     const checks: Record<string, Check> = Object.fromEntries(['oracle', 'batch', 'makerDepth', 'fees', 'insurance', 'pause', 'indexer', 'rpc'].map(key => [key, {severity: 'critical', available: false}]));
     let chainTip: number | null = null;
-    const lastIndexedSlot = store.getSyncState().processedThroughSlot;
+    const {processedThroughSlot: lastIndexedSlot, settledThroughBatchId} = store.getSyncState();
+    // Safe-to-close cursor: batches at or below it are indexed and may be closed.
+    const settledThrough = settledThroughBatchId === null ? null : String(settledThroughBatchId);
     try {
       chainTip = await connection.getSlot('confirmed');
       checks.rpc = {severity: 'ok', reachable: true};
@@ -129,7 +131,9 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
               const batch = decodeAccount('Batch', info.data);
               if (batch.batchId !== batchId) throw new Error('Current batch ID mismatch');
               let severity: Severity = 'ok', ageSeconds: number | null = null;
-              if (batch.status === 0 && chainTip! > Number(batch.commitDeadlineSlot)) {
+              // An open batch with no commitments is idle, not stuck: empty batches are not rolled.
+              const idle = batch.status === 0 && batch.totalCommitments === 0;
+              if (batch.status === 0 && !idle && chainTip! > Number(batch.commitDeadlineSlot)) {
                 // Use actual block time at the first produced block at/after deadline.
                 let time: number | null = null;
                 for (const [start, end] of splitSlotRanges(Number(batch.commitDeadlineSlot), chainTip!, 64)) {
@@ -141,7 +145,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
                 if (ageSeconds > 30) severity = 'warn';
               }
               if (batch.status === 4) {ageSeconds = now - await clearedAt(batchPk); if (ageSeconds > 120) severity = 'critical';}
-              return {severity, batchId: String(batchId), phase: batch.status, ageSeconds, address: batchPk.toBase58()};
+              return {severity, batchId: String(batchId), phase: batch.status, idle, ageSeconds, address: batchPk.toBase58()};
             });
           } catch (error) {
             checks.pause = checks.batch = {severity: 'critical', available: false, error: error instanceof Error ? error.message : 'Registry unavailable'};
@@ -149,10 +153,10 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
         })(),
       ]);
       const lagSlots = chainTip - (lastIndexedSlot ?? manifest.startSlot! - 1);
-      checks.indexer = {severity: lastIndexedSlot === null || lagSlots > 150 ? 'warn' : 'ok', lagSlots, syncing: lastIndexedSlot === null || lagSlots > 0};
+      checks.indexer = {severity: lastIndexedSlot === null || lagSlots > 150 ? 'warn' : 'ok', lagSlots, syncing: lastIndexedSlot === null || lagSlots > 0, settledThroughBatchId: settledThrough};
     } catch {
       checks.rpc = {severity: 'critical', reachable: false};
-      checks.indexer = {severity: 'warn', available: false};
+      checks.indexer = {severity: 'warn', available: false, settledThroughBatchId: settledThrough};
     }
     const severity: Severity = Object.values(checks).some(c => c.severity === 'critical') ? 'critical' : Object.values(checks).some(c => c.severity === 'warn') ? 'warn' : 'ok';
     return {severity, chainTip, lastIndexedSlot, checks};
