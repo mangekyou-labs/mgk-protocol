@@ -413,3 +413,22 @@ test("an empty open batch past its deadline waits without closing or alerting", 
   assert.equal(f.sent.length, 0);
   assert.equal(f.alerts.length, 0);
 });
+test("CloseCommitting rejected as BatchEmpty (613) is a wait, not a retry alert", async () => {
+  const f = fixture();
+  f.setSlot(26);
+  const send = f.options.connection.sendRawTransaction;
+  f.options.connection.sendRawTransaction = async (raw, opts) => {
+    if (opts?.skipPreflight === false) {
+      const error = Error(
+        "Simulation failed: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x265",
+      );
+      error.logs = ["Program log: custom program error: 0x265"];
+      throw error;
+    }
+    return send(raw, opts);
+  };
+  const w = await createKeeperWorker(f.options);
+  const result = await w.tick();
+  assert.equal(result.status, "idle");
+  assert.equal(f.alerts.length, 0);
+});

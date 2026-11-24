@@ -33,6 +33,11 @@ const u64 = (n) => {
   b.writeBigUInt64LE(n);
   return b;
 };
+// 613 BatchEmpty: CloseCommitting on a batch whose orders were all cancelled.
+const BATCH_EMPTY = /custom program error: 0x265\b/;
+const isBatchEmpty = (error) =>
+  BATCH_EMPTY.test(String(error?.message ?? "")) ||
+  (Array.isArray(error?.logs) && error.logs.some((l) => BATCH_EMPTY.test(l)));
 const meta = (pubkey, isWritable = true, isSigner = false) => ({
   pubkey,
   isWritable,
@@ -273,7 +278,11 @@ async function createKeeperWorker({
       attempts = 0;
       retryAt = 0;
       return { status, batchId, signature };
-    } catch {
+    } catch (error) {
+      if (state.status === 0 && isBatchEmpty(error)) {
+        retryAt = 0;
+        return { status: "idle", batchId };
+      }
       retryAt = now() + Math.min(30000, 2000 * 2 ** Math.min(attempts++, 4));
       // Reconcile only monotonic chain progress; a failed read retains the retry schedule.
       try {
