@@ -132,6 +132,42 @@ test('each receipt applied exactly once: a cleared batch whose unapplied receipt
   await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
 });
 
+// Snapshots can be further apart than one instruction: a cleared batch may settle and
+// close in between. That is accepted only once the registry has moved the batch out of
+// the close window (batch_id + 3 < batch_id_counter), which CloseSettledBatch requires.
+test('each receipt applied exactly once: a cleared batch that settled and closed between snapshots passes', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1]; delete m.state.results[1];
+  m.state.registry.batchIdCounter = 5n; m.store();
+  await c.after(before, tx);
+});
+
+test('each receipt applied exactly once: a cleared batch inside the close window that vanishes fails', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1]; delete m.state.results[1];
+  m.state.registry.batchIdCounter = 4n; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+test('each receipt applied exactly once: an uncleared batch that vanishes fails even outside the close window', async () => {
+  const m = market(); const c = checker(m);
+  m.state.batches[1].status = 1; delete m.state.results[1]; m.store();
+  const before = await c.before();
+  delete m.state.batches[1];
+  m.state.registry.batchIdCounter = 9n; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+test('each receipt applied exactly once: a cleared batch whose results stay behind fails', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1];
+  m.state.registry.batchIdCounter = 9n; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
 test('audit: an idle open batch that was never rolled over, after old batches were closed, passes', async () => {
   const m = market();
   m.state.batches = { 2: { status: 0 } }; m.state.results = {};
