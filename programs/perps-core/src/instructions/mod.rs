@@ -3,6 +3,7 @@ pub mod cancel_all_resting_orders;
 pub mod cancel_resting_order;
 pub mod clear_batch;
 pub mod close_committing;
+pub mod close_settled_batch;
 pub mod commit_order;
 pub mod create_batch;
 pub mod create_portfolio;
@@ -31,6 +32,7 @@ pub use cancel_all_resting_orders::*;
 pub use cancel_resting_order::*;
 pub use clear_batch::*;
 pub use close_committing::*;
+pub use close_settled_batch::*;
 pub use commit_order::*;
 pub use create_batch::*;
 pub use create_portfolio::*;
@@ -118,4 +120,8 @@ pub enum CoreInstruction {
     /// Governance-only: lift the exhaustion pause once debt is 0 and the
     /// reserve is met; withdrawals resume before trading (disc 28).
     Unpause = 28,
+    /// Permissionless: close a settled batch older than `CLOSE_WINDOW` and
+    /// its consumed matcher Results (CPI `CloseResults`), rent to the signer
+    /// recipient (disc 30). Disc 29 is the market envelope byte.
+    CloseSettledBatch = 30,
 }

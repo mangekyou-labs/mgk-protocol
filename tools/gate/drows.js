@@ -192,6 +192,8 @@ const { confirmSignature } = require('../../mgk-frontend/packages/layout/confirm
 
 const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 const BATCH = Object.freeze({ committing: 0, settled: 3, cleared: 4 });
+// CloseSettledBatch only closes batch b once b + CLOSE_WINDOW < batch_id_counter.
+const CLOSE_WINDOW = 3n;
 const ERR = Object.freeze({ insufficientFunds: 4, batchNotOpen: 502, paused: 602, reduceOnly: 606 });
 // Frugality: rows deposit 0.005 SOL (P0-1 deposits exactly 0.2 SOL as the
 // gate specifies); nothing ever deposits more than 0.2 SOL.
@@ -590,8 +592,11 @@ function createDriver({
     for (;;) {
       const state = await readState([]);
       const { batch } = await readBatch(state.currentBatchId);
+      // An idle batch (no commitments) is no longer rolled; its first
+      // commitment restarts the commit window, so a stale deadline is fine.
+      const idle = batch?.totalCommitments === 0;
       if (batch && batch.status === BATCH.committing && !state.registry.unsettled &&
-          BigInt(state.slot) + 2n < batch.commitDeadlineSlot) {
+          (idle || BigInt(state.slot) + 2n < batch.commitDeadlineSlot)) {
         return { batchId: state.currentBatchId, batch, state };
       }
       if (now() > deadline) throw Error('no open batch within the settle timeout (is the hosted keeper running?)');
@@ -735,7 +740,15 @@ function createDriver({
       missing.forEach(u => tracked.add(u));
       if (batch?.status === BATCH.settled) {
         const next = decodeBatchInfo(nextInfo);
-        return { batchId: id, batch, results: own, pre, post: state, settledAt: now(), raced: next?.status === BATCH.settled };
+        // A missing next batch below the counter was settled and closed too.
+        const nextClosed = !nextInfo && id + 1n < state.currentBatchId;
+        return { batchId: id, batch, results: own, pre, post: state, settledAt: now(), raced: nextClosed || next?.status === BATCH.settled };
+      }
+      // Batch and results both gone for a batch past the close window: it
+      // settled, then CloseSettledBatch closed it before this poll saw it.
+      // Inside the window nothing can close it, so keep waiting (and fail).
+      if (!batchInfo && !resultsInfo && id + CLOSE_WINDOW < state.registry.batchIdCounter) {
+        return { batchId: id, batch: null, results: null, pre, post: state, settledAt: now(), raced: false, closed: true };
       }
       if (!missing.length) pre = state;
       if (now() > deadline) throw Error(`batch ${id} not settled within ${settleTimeoutMs} ms (keeper down?)`);
@@ -792,6 +805,9 @@ function createDriver({
   async function verifyBatch(settled) {
     const failures = [];
     const { pre, post, results, batchId } = settled;
+    // Proven settled and closed, but the receipt is gone: a distinct outcome
+    // that does not fail the row and is not a model verification either.
+    if (settled.closed) return { pass: true, outcome: 'closed', failures: [], fills: [], foreign: [] };
     if (!results) return { pass: false, failures: [`batch ${batchId}: results account unavailable`], fills: [], foreign: [] };
     if (!pre) return { pass: false, failures: [`batch ${batchId}: no pre-settlement snapshot (settled before the first poll)`], fills: [], foreign: [] };
     if (settled.raced) failures.push(`batch ${batchId}: batch ${batchId + 1n} settled before the post read; rerun`);
@@ -1035,6 +1051,10 @@ function snapshot(state, personas) {
 function checkTrade(c, ctx, result) {
   ctx.batchIds.push(String(result.posted.batchId));
   ctx.verdicts.push(result.verdict);
+  if (result.verdict.outcome === 'closed') {
+    c.ok(`${result.label}: batch ${result.posted.batchId} settled`, true, 'settled', 'closed before verification; not model-checked');
+    return result.verdict;
+  }
   c.ok(`${result.label}: batch ${result.posted.batchId} matches the reference model`, result.verdict.pass,
     'exact equity, position, entry, fee, realized and fund deltas', result.verdict.failures.join('; ') || `conversion ${result.verdict.conversion}`);
   return result.verdict;
@@ -1043,7 +1063,7 @@ function checkTrade(c, ctx, result) {
 // Explicit 5 bps taker fee and fund delta for one verified batch.
 function checkFees(c, label, result) {
   const { verdict, settled } = result;
-  if (!verdict.pass) return;
+  if (!verdict.pass || verdict.outcome === 'closed') return;
   const conversion = verdict.conversion;
   const takerFills = verdict.fills.filter(f => f.qty > 0n && !f.isMaker);
   const fee = f => ceilDiv(f.qty * abs(f.price) * 500n, conversion);
@@ -1422,6 +1442,8 @@ async function runRow(driver, id, { out, log = () => {} } = {}) {
     const observed = userOf(end, persona).wallet - userOf(start, persona).wallet;
     c.eq(`${persona.name}: wallet delta reconciles to the row's transactions`, observed, -walletSpend(driver, records, persona));
   }
+  const closed = ctx.batchIds.filter((_, i) => ctx.verdicts[i]?.outcome === 'closed');
+  if (closed.length) notes.push(`closed before verification, not model-checked: batch ${closed.join(', ')}`);
   const foreign = [...new Set(ctx.verdicts.flatMap(v => v.foreign ?? []))];
   c.ok('no fills against non-persona orders', foreign.length === 0, 'none', foreign.join(', ') || 'none');
   const fees = sum(records.map(r => r.fee));

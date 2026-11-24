@@ -591,3 +591,111 @@ test('runSoakMode observes and audits on separate request budgets and records th
   assert.match(result.row.notes, /RPC requests: 2\/350 run, 1\/1000 audit/);
   assert.deepEqual(JSON.parse(readFileSync(join(out, 'P0-35.json'), 'utf8')).requests, result.requests);
 });
+
+// ---------------------------------------------------------------------------
+// Batch lifecycle: idle (never-rolled) batches and settled batches closed with
+// their results (issue #74).
+// ---------------------------------------------------------------------------
+function accountBytes(name, values = {}) {
+  const { layouts } = require('../../mgk-frontend/packages/layout');
+  const data = Buffer.from(layouts[name].fixture);
+  for (const [field, value] of Object.entries(values)) {
+    const [offset, type] = layouts[name].fields[field];
+    if (type === 'u64') data.writeBigUInt64LE(BigInt(value), offset);
+    else if (type === 'u32') data.writeUInt32LE(value, offset);
+    else if (type === 'u8') data.writeUInt8(value, offset);
+    else throw Error(`unsupported ${type}`);
+  }
+  return data;
+}
+
+function emptyBook() {
+  const { layouts } = require('../../mgk-frontend/packages/layout');
+  const data = accountBytes('OrderBook');
+  data.fill(0, layouts.OrderBook.fields.bids[0], layouts.OrderBook.size);
+  return data;
+}
+
+function chainOf(manifest, { slot, batchIdCounter, batches = {}, results = [] }) {
+  const { createMarketContext } = require('../market-context');
+  const { PublicKey } = require('@solana/web3.js');
+  const core = new PublicKey(manifest.programs.perps_core);
+  const matcher = new PublicKey(manifest.programs.perps_matcher);
+  const ctx = createMarketContext(core, null);
+  const u16 = n => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
+  const u64 = n => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
+  const accounts = new Map([
+    [ctx.registry.toBase58(), accountBytes('Registry', { batchIdCounter })],
+    [ctx.pda([Buffer.from('vault')])[0].toBase58(), accountBytes('Vault')],
+    [manifest.accounts.oracle, accountBytes('PriceOracle')],
+    [ctx.pda([Buffer.from('book'), u16(0)], matcher)[0].toBase58(), emptyBook()],
+  ]);
+  for (const [id, values] of Object.entries(batches)) {
+    accounts.set(ctx.pda([Buffer.from('batch'), u64(id)])[0].toBase58(), accountBytes('Batch', { batchId: id, ...values }));
+  }
+  for (const id of results) accounts.set(ctx.pda([Buffer.from('results'), u64(id)], matcher)[0].toBase58(), Buffer.alloc(8));
+  const info = key => {
+    const data = accounts.get(key.toBase58());
+    return data ? { data, lamports: 1, owner: core } : null;
+  };
+  return {
+    getMultipleAccountsInfo: async keys => keys.map(info),
+    getMultipleAccountsInfoAndContext: async keys => ({ context: { slot }, value: keys.map(info) }),
+  };
+}
+
+function lifecycleDriver(chain, manifest) {
+  let clock = 0;
+  return drows.createDriver({
+    connection: chain, manifest, personas: { qa: personaOf('qa') },
+    now: () => clock, sleep: async ms => { clock += ms; }, pollMs: 10, settleTimeoutMs: 50,
+  });
+}
+
+test('waitOpenBatch accepts an idle open batch whose commit deadline already passed', async () => {
+  const manifest = manifestFor();
+  const chain = chainOf(manifest, { slot: 1000, batchIdCounter: 8, batches: { 7: { status: 0, totalCommitments: 0, commitDeadlineSlot: 500 } } });
+  const open = await lifecycleDriver(chain, manifest).waitOpenBatch();
+  assert.equal(open.batchId, 7n);
+});
+
+test('waitOpenBatch still waits out a batch with commitments past its deadline', async () => {
+  const manifest = manifestFor();
+  const chain = chainOf(manifest, { slot: 1000, batchIdCounter: 8, batches: { 7: { status: 0, totalCommitments: 2, commitDeadlineSlot: 500 } } });
+  await assert.rejects(lifecycleDriver(chain, manifest).waitOpenBatch(), /no open batch/);
+});
+
+test('a batch closed with its results past the close window is a non-failing closed outcome', async () => {
+  const manifest = manifestFor();
+  // Batch 7 is closable once 7 + 3 < batch_id_counter.
+  const chain = chainOf(manifest, { slot: 1000, batchIdCounter: 11 });
+  const driver = lifecycleDriver(chain, manifest);
+  const settled = await driver.waitSettled(7n);
+  assert.equal(settled.closed, true);
+  assert.equal(settled.results, null);
+  const verdict = await driver.verifyBatch(settled);
+  assert.equal(verdict.outcome, 'closed');
+  assert.equal(verdict.pass, true);
+  assert.deepEqual(verdict.failures, []);
+  const c = drows.checker();
+  drows.checkFees(c, 'closed', { verdict, settled });
+  assert.deepEqual(c.steps, []);
+});
+
+test('a vanished batch still inside the close window is not taken as closed', async () => {
+  const manifest = manifestFor();
+  const chain = chainOf(manifest, { slot: 1000, batchIdCounter: 10 });
+  await assert.rejects(lifecycleDriver(chain, manifest).waitSettled(7n), /not settled within/);
+});
+
+test('a vanished batch whose results remain is not taken as closed', async () => {
+  const manifest = manifestFor();
+  const chain = chainOf(manifest, { slot: 1000, batchIdCounter: 20, results: [7] });
+  await assert.rejects(lifecycleDriver(chain, manifest).waitSettled(7n), /not settled within/);
+});
+
+test('waitSettled keeps waiting for the current batch even when it is not readable yet', async () => {
+  const manifest = manifestFor();
+  const chain = chainOf(manifest, { slot: 1000, batchIdCounter: 8 });
+  await assert.rejects(lifecycleDriver(chain, manifest).waitSettled(7n), /not settled within/);
+});

@@ -17,7 +17,10 @@ import {
   encodeSetInstrumentFees,
   encodeSetInstrumentOracle,
   encodeWithdraw,
+  encodeCloseSettledBatch,
+  buildCloseSettledBatch,
 } from './core.js';
+import { PublicKey } from '@solana/web3.js';
 import { InstructionReader, Side } from '../instruction.js';
 import { OrderType } from '../state/types.js';
 
@@ -352,4 +355,31 @@ it('Initialize preserves registry fields and bumps at the Rust parser offsets',(
  expect(view.getUint16(33,true)).toBe(3);expect(view.getUint16(35,true)).toBe(1234);
  expect(view.getBigUint64(45,true)).toBe(9n);expect(view.getUint16(81,true)).toBe(2);
  expect([...bytes.slice(107,139)]).toEqual(Array(32).fill(9));expect([...bytes.slice(139)]).toEqual([101,102,103]);
+});
+
+describe('CloseSettledBatch (issue 74)', () => {
+  it('is core disc 30 and matcher CloseResults is disc 11', () => {
+    expect(CORE_INSTRUCTION.CloseSettledBatch).toBe(30);
+    expect(MATCHER_INSTRUCTION.CloseResults).toBe(11);
+  });
+
+  it('emits disc 30 + batch id u64 LE', () => {
+    expect([...encodeCloseSettledBatch(258n)]).toEqual([30, 2, 1, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('builds the permissionless close with the recipient as signer', () => {
+    const k = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
+    const ix = buildCloseSettledBatch(k(9), 5n, {
+      batch: k(1), results: k(2), registry: k(3), recipient: k(4), matcher: k(5),
+    });
+    expect(ix.programId.equals(k(9))).toBe(true);
+    expect(ix.keys.map((m) => [m.pubkey.toBase58(), m.isWritable, m.isSigner])).toEqual([
+      [k(1).toBase58(), true, false],
+      [k(2).toBase58(), true, false],
+      [k(3).toBase58(), false, false],
+      [k(4).toBase58(), true, true],
+      [k(5).toBase58(), false, false],
+    ]);
+    expect([...ix.data]).toEqual([30, 5, 0, 0, 0, 0, 0, 0, 0]);
+  });
 });

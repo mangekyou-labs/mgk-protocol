@@ -23,7 +23,7 @@ BatchResults is packed: account header 8, envelope 9, DFBA header 34, then fill 
 
 ## Instruction formats and consumers
 
-`mgk-frontend/packages/layout/instructions.js` is the shared format table and encoder for all core (0–28), matcher (0–9), and oracle (0–4) instructions, including disabled legacy dispatches. Fields are packed little-endian; account alignment must never be applied to instruction bodies. SettleBatch optionally appends the next-batch bump. Initialize includes registry parameters, registry/instrument bumps, and an optional vault bump (omission preserves the program default of 255); AddInstrument is 60 bytes including discriminator. SDK, indexer and tools use this table; SDK typed wrappers preserve their public interfaces.
+`mgk-frontend/packages/layout/instructions.js` is the shared format table and encoder for all core (0–28, 30), matcher (0–9, 11), and oracle (0–4) instructions, including disabled legacy dispatches. Fields are packed little-endian; account alignment must never be applied to instruction bodies. SettleBatch optionally appends the next-batch bump. Initialize includes registry parameters, registry/instrument bumps, and an optional vault bump (omission preserves the program default of 255); AddInstrument is 60 bytes including discriminator. SDK, indexer and tools use this table; SDK typed wrappers preserve their public interfaces.
 
 All off-chain account readers use `@mgk/layout`; SDK wrappers add PublicKey and domain types. `scripts/check-layouts.sh` regenerates fixtures in a temporary directory and compares them byte-for-byte. CI also runs portable, SDK, indexer, dashboard and operational tests. A fixture mismatch requires investigation and user approval for an actual layout change.
 
@@ -38,3 +38,11 @@ Transaction success requires an error-free confirmed or finalized signature stat
 The #53 decision preserves all current behavior: exposure admission checks use current open interest at post/modify; risk-off requires reduce-only even for closes; no separate loser-shortfall counter exists; SetPauseFlags cannot clear trading/withdrawal pauses and slashed legacy deposits do not credit the fund. See [ADR 0003](adr/0003-insurance-fund-is-the-cash-backed-counterparty-to-realized-pnl.md). No on-chain behavior or account layout changes are part of this freeze.
 
 Instruction vectors in `mgk-frontend/packages/layout/instruction-fixtures.json` are emitted by the Rust `export_instruction_fixtures` example. It checks the actual dispatch arms, length guards, parsing expressions, and optional defaults against program source, then executes those checked expressions on asymmetric bytes. Shared encoder tests round-trip every frozen dispatch against the resulting bytes and Rust-decoded parameters. `scripts/check-layouts.sh` regenerates and compares these vectors before running the encoder tests. Legacy matcher user bytes remain compatibility padding; signer authentication supplies identity.
+
+## Approved instruction additions (#74)
+
+#74 adds two instructions and changes no account layout, size, discriminator or version. Core disc 30 `CloseSettledBatch` carries `[30, batch_id u64 LE]` inside the market envelope. It is permissionless and closes a Settled batch and its spent Results once `batch_id + 3 < registry.batch_id_counter`. Matcher disc 11 `CloseResults` carries `[11, batch_id u64 LE]`. Only core reaches it, through a registry-signed CPI, and it returns the Results rent to the caller's recipient. Matcher disc 10 stays unassigned.
+
+Two behavior changes ship with these instructions. `CloseCommitting` now rejects a batch with no commitments using error 613 `BatchEmpty`. The first post into an idle batch sets `commit_deadline = slot + t_max_slots`. Error 614 `BatchNotClosable` covers a close attempted inside the window or before the Results are spent.
+
+The indexer does not reconstruct fills for a batch whose Results were closed before it read them. The settle receipt carries quantities only, so it records the settlement and skips the fills.

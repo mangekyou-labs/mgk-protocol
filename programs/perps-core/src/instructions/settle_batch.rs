@@ -107,7 +107,7 @@ pub fn process_settle_batch(
         .try_borrow_data()
         .map_err(|_| MgkError::InvalidAccount)?;
     let batch_id = batch.batch_id;
-    let results = mgk_common::matcher::unspent_results(&results_raw, batch_id)?;
+    let results = mgk_common::matcher::results_with_spent(&results_raw, batch_id, false)?;
     // Settlement moves no lamports: fills, fees and payouts shuffle ledger
     // balance and the fund. The vault backing must come out unchanged.
     let flow = crate::collateral_flow::begin_vault_flow(vault_account, unsafe {

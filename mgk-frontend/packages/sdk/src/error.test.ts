@@ -42,6 +42,18 @@ describe('PercolatorError enum mirror', () => {
     expect(PercolatorError.InvalidCommitment).toBe(503);
   });
 
+  it('issue 74 — perps-core 613 (BatchEmpty) is exported', () => {
+    expect(PercolatorError.BatchEmpty).toBe(613);
+    expect(humanizeError(613)).toMatch(/no orders|empty/i);
+  });
+
+  it('issue 74 — CloseSettledBatch 605 (BatchNotSettled) and 614 (BatchNotClosable) are exported', () => {
+    expect(PercolatorError.BatchNotSettled).toBe(605);
+    expect(PercolatorError.BatchNotClosable).toBe(614);
+    expect(humanizeError(605)).toMatch(/not settled/i);
+    expect(humanizeError(614)).toMatch(/close window/i);
+  });
+
   it('G12 — perps-core 602 (OperationPaused) is exported', () => {
     expect(PercolatorError.OperationPaused).toBe(602);
   });

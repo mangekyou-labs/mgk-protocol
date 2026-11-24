@@ -20,6 +20,15 @@ and its genesis hash; localnet requires a loopback RPC. Other clusters are refus
 `feeFloorLamports` controls the fee alert threshold (currently 10,000,000 lamports).
 A non-null `feePayers.keeper` must match the configured wallet.
 
+Rent reclamation is configured with three optional variables. Invalid values
+cause startup failure.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `KEEPER_INDEXER_URL` | unset | Indexer origin. The keeper reads `checks.indexer.settledThroughBatchId` from `/api/status`, cached for 30 s with a 5 s timeout. If the variable is unset, the cursor is null or the indexer is unavailable, nothing is closed. Devnet requires HTTPS; localnet requires loopback. |
+| `KEEPER_CLOSE_ENABLED` | `true` | `false`/`0` disables closing; `true`/`1` enables it. |
+| `KEEPER_CLOSE_MAX_PER_TICK` | `4` | Most `CloseSettledBatch` instructions per tick (1 to 6). All of them go in one transaction, and six still fits the 1232-byte packet limit. |
+
 `tools/keeper-crank.js` and `tools/keeper-worker-cli.js` use the identical worker.
 `--once` performs one cycle and returns failure on retry, backoff, low SOL or halt;
 continuous polling is the default. Only `--loop` and `--once` are accepted.
@@ -50,6 +59,22 @@ broadcast, so there is no separate simulate call. A confirmed blockhash is reuse
 for up to 20 s and dropped after any failed send. Confirmation polls status every
 second and checks blockhash expiry every 10 s.
 
+An open batch with zero commitments is idle. The keeper reports `idle` and waits.
+It does not close or roll the batch over, and it raises no alert, even after the
+deadline: the first post restarts `commit_deadline`. A `CloseCommitting` that is
+rejected with 613 `BatchEmpty` is treated the same way.
+
+After the lifecycle step, each tick except halted and `low_fee_sol` runs a capped
+close pass. It closes Settled batches with
+`batch_id <= min(current_batch_id - 3, settledThroughBatchId)` using core
+`CloseSettledBatch` (disc 30), and the rent goes to the keeper signer. The
+keeper's in-memory cursor starts at 0 after a restart. One `getMultipleAccounts`
+read scans up to 100 batch PDAs and skips ids that are already closed. The scan
+stops at the first batch that is not Settled. A failed close raises `close_retry`
+(warn) and backs off for 2 to 30 s. It never changes the lifecycle result, so
+clear and settle continue. Closed ids appear as decimal strings under the
+status record's `close` field.
+
 Preparation, preflight, sending and confirmation failures retry the same phase
 with delays of 2, 4, 8, 16 and then 30 seconds. Each poll still rereads registry
 and batch; genuine on-chain phase or batch progress resets the delay. Concurrent
@@ -69,6 +94,9 @@ external notification delivery integration.
 - `settlement_retry` / `crank_retry` include the batch ID and retry time. Inspect
   oracle freshness, current phase accounts and RPC availability; fix the cause
   while the worker continues retrying.
+- `close_retry` is a warning that includes the batch id range. Rent
+  reclamation retries later and does not affect the batch lifecycle. Check
+  RPC availability and whether those batches are still closable.
 - `missing_batch` is critical and latches a halt, exiting the CLI with code 1.
   The worker rereads the registry first to rule out concurrent advancement.
   Verify deployment and exact current batch on chain, repair through the approved

@@ -5,6 +5,7 @@ const { Keypair } = require('@solana/web3.js');
 const { InvariantChecker, audit, readOnly, pda, u64 } = require('./invariants');
 const { market, encodeAccount, CORE } = require('./invariant-fixtures');
 
+const auditOf = m => audit((method, params) => m.chain.rpc(method, params), m.programs);
 const tx = { label: 'fixture transaction', signature: 'FixtureSig111' };
 const checker = m => new InvariantChecker({ rpc: (method, params) => m.chain.rpc(method, params), ...m.programs });
 const rejectsWith = (promise, invariant) => assert.rejects(promise, error => {
@@ -109,6 +110,74 @@ test('each receipt applied exactly once: spent results may never become unspent'
   await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
 });
 
+// CloseSettledBatch (issue #74) closes a settled Batch and its spent Results together.
+test('each receipt applied exactly once: closing a settled batch with its spent results passes', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[0]; delete m.state.results[0]; m.store();
+  await c.after(before, tx);
+});
+
+test('each receipt applied exactly once: closing spent results while the batch stays fails', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.results[0]; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+test('each receipt applied exactly once: a cleared batch whose unapplied receipt vanishes fails', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1]; delete m.state.results[1]; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+// Snapshots can be further apart than one instruction: a cleared batch may settle and
+// close in between. That is accepted only once the registry has moved the batch out of
+// the close window (batch_id + 3 < batch_id_counter), which CloseSettledBatch requires.
+test('each receipt applied exactly once: a cleared batch that settled and closed between snapshots passes', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1]; delete m.state.results[1];
+  m.state.registry.batchIdCounter = 5n; m.store();
+  await c.after(before, tx);
+});
+
+test('each receipt applied exactly once: a cleared batch inside the close window that vanishes fails', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1]; delete m.state.results[1];
+  m.state.registry.batchIdCounter = 4n; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+test('each receipt applied exactly once: an uncleared batch that vanishes fails even outside the close window', async () => {
+  const m = market(); const c = checker(m);
+  m.state.batches[1].status = 1; delete m.state.results[1]; m.store();
+  const before = await c.before();
+  delete m.state.batches[1];
+  m.state.registry.batchIdCounter = 9n; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+test('each receipt applied exactly once: a cleared batch whose results stay behind fails', async () => {
+  const m = market(); const c = checker(m);
+  const before = await c.before();
+  delete m.state.batches[1];
+  m.state.registry.batchIdCounter = 9n; m.store();
+  await rejectsWith(c.after(before, tx), 'each receipt applied exactly once');
+});
+
+test('audit: an idle open batch that was never rolled over, after old batches were closed, passes', async () => {
+  const m = market();
+  m.state.batches = { 2: { status: 0 } }; m.state.results = {};
+  m.state.portfolios[m.addresses.maker].orders[0].remainingQty = 0n;
+  m.state.portfolios[m.addresses.taker].orders[0].remainingQty = 0n;
+  m.store();
+  const report = await auditOf(m);
+  assert.deepEqual(report.violations, []);
+});
+
 // Settles batch 1 in the fixture: the maker's reduce-only sell of 3 lots against a long of 5.
 async function settle(makerQty, takerQty) {
   const m = market(); const c = checker(m);
@@ -205,7 +274,6 @@ test('vault balance: an exactly backed deposit passes the per-transaction delta 
   await c.after(before, { ...tx, programIds: [m.programs.core] });
 });
 
-const auditOf = m => audit((method, params) => m.chain.rpc(method, params), m.programs);
 const statusOf = (report, name) => report.invariants.find(i => i.name === name).status;
 
 test('audit: fills are not evaluable when no cleared batch awaits settlement', async () => {

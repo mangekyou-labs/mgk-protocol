@@ -110,7 +110,7 @@ const initializedBy = (item, owner) => Boolean(item && item.owner === owner && i
 // Read every canonical protocol account. Accounts at non-canonical addresses are
 // not protocol state and are ignored. Zeroed storage is only tolerated for the
 // vault until the protocol is initialized (see vaultBalance).
-async function readProtocolState(rpc, programs) {
+async function readProtocolState(rpc, programs, knownBatchIds = []) {
   rpc = readOnly(rpc);
   const core = String(programs.core), matcher = String(programs.matcher);
   const context = createMarketContext(core, programs.marketSeed);
@@ -118,7 +118,7 @@ async function readProtocolState(rpc, programs) {
   const child = (tag, suffix = [], owner = core) =>
     context.pda([Buffer.from(tag), ...suffix], new PublicKey(owner))[0].toBase58();
   const snapshot = { programs: { core, matcher }, vault: null, vaultProblem: null, initialized: false,
-    portfolios: new Map(), batches: new Map(), results: new Map() };
+    portfolios: new Map(), batches: new Map(), results: new Map(), batchIdCounter: null };
   const vaultAddress = child('vault');
   const [vault, registry] = await readAccounts(rpc, [vaultAddress, registryAddress]);
   if (initializedBy(vault, core)) {
@@ -141,11 +141,14 @@ async function readProtocolState(rpc, programs) {
     if (child('batch', [u64(state.batchId)]) !== item.address) continue;
     snapshot.batches.set(state.batchId, { ...item, state });
   }
-  const ids = [...snapshot.batches.keys()];
+  // Results are also probed for batches an earlier snapshot knew, so Results left
+  // behind by a vanished Batch stay visible to receiptsNotReapplied.
+  const ids = [...new Set([...snapshot.batches.keys(), ...knownBatchIds])];
   const results = await readAccounts(rpc, ids.map(id => child('results', [u64(id)], matcher)));
   results.forEach((item, index) => {
     if (initializedBy(item, matcher)) snapshot.results.set(ids[index], { ...item, state: decode('BatchResults', item) });
   });
+  if (initializedBy(registry, core)) snapshot.batchIdCounter = decode('Registry', registry).batchIdCounter;
   // Once the registry exists (or any protocol account does) the vault must exist too.
   snapshot.initialized = initializedBy(registry, core) || snapshot.portfolios.size > 0 || snapshot.batches.size > 0;
   snapshot.portfolioOf = user => snapshot.portfolios.get(child('portfolio', [user]));
@@ -328,15 +331,35 @@ function vaultDelta(before, after, transaction, fail) {
   }
 }
 
+// CloseSettledBatch (core 30) closes a settled Batch and its spent Results in one
+// instruction, so a pair that vanishes together is a close, not a lost receipt.
+// Snapshots may span more than that instruction, so a batch seen Cleared with its
+// results may also settle and close in between. That is accepted only when the
+// registry has moved it out of the close window, as CloseSettledBatch requires.
+// Anything else that vanishes could hide an unapplied or re-applicable receipt.
+const CLOSE_WINDOW = 3n;
+const closable = (after, id) => after.batchIdCounter !== null && id + CLOSE_WINDOW < after.batchIdCounter;
+const closedPair = (before, after, id) => {
+  if (after.batches.has(id) || after.results.has(id) || !before.results.has(id)) return false;
+  const status = before.batches.get(id)?.state.status;
+  if (status === BATCH_STATUS.settled) return before.results.get(id).state.spent === true;
+  return status === BATCH_STATUS.cleared && closable(after, id);
+};
+
 function receiptsNotReapplied(before, after, fail) {
   for (const [id, batch] of before.batches) {
     const later = after.batches.get(id);
-    if (batch.state.status === BATCH_STATUS.settled && later && later.state.status !== BATCH_STATUS.settled) {
+    if (!later) {
+      if (!closedPair(before, after, id)) fail(INVARIANTS.receipts, `batch ${id} with status ${batch.state.status} closed without being settled together with its spent results`);
+      continue;
+    }
+    if (batch.state.status === BATCH_STATUS.settled && later.state.status !== BATCH_STATUS.settled) {
       fail(INVARIANTS.receipts, `settled batch ${id} returned to status ${later.state.status}`);
     }
   }
   for (const [id, results] of before.results) {
     const later = after.results.get(id);
+    if (!later && closedPair(before, after, id)) continue;
     if (results.state.spent && (!later || !later.state.spent)) fail(INVARIANTS.receipts, `spent results for batch ${id} became unspent`);
   }
 }
@@ -408,13 +431,13 @@ function checkTransition(before, after, transaction) {
 // Runs every invariant around one transaction: snapshot before, snapshot after.
 class InvariantChecker {
   constructor({ rpc, core, matcher, marketSeed }) {
-    this.read = () => readProtocolState(rpc, { core, matcher, marketSeed });
+    this.read = known => readProtocolState(rpc, { core, matcher, marketSeed }, known);
   }
 
   async before() { return this.read(); }
 
   async after(before, transaction) {
-    const after = await this.read();
+    const after = await this.read(before ? [...before.batches.keys()] : []);
     const violations = [...checkSnapshot(after), ...(before ? checkTransition(before, after, transaction) : [])];
     if (violations.length) throw new InvariantViolation(violations, transaction);
     return after;

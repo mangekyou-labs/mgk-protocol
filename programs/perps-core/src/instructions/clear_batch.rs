@@ -165,7 +165,7 @@ pub fn process_clear_batch(
         .map_err(|_| MgkError::InvalidAccount)?;
     // The matcher stamps the BATCH_RESULTS header on every write; reject
     // anything else before reading the payload.
-    let results_data = mgk_common::matcher::unspent_results(&results_raw, batch.batch_id)?;
+    let results_data = mgk_common::matcher::results_with_spent(&results_raw, batch.batch_id, false)?;
     if results_data.len() < DFBA_RESULTS_HEADER {
         return Err(ProgramError::AccountDataTooSmall);
     }

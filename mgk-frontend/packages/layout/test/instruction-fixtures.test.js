@@ -17,3 +17,11 @@ test('shared encoders reproduce every program-linked Rust instruction vector', (
     Object.keys(rows).map(name => `${program}::${name}`));
   assert.deepEqual([...covered].sort(), expected.sort(), 'all frozen dispatches need Rust vectors');
 });
+
+test('issue 74: core CloseSettledBatch (30) and matcher CloseResults (11) carry the batch id as u64 LE', () => {
+  assert.deepEqual([...encodeInstruction('core', 'CloseSettledBatch', {batchId: 0x0102030405060708n})],
+    [30, 8, 7, 6, 5, 4, 3, 2, 1]);
+  assert.deepEqual([...encodeInstruction('matcher', 'CloseResults', {batchId: 7n})],
+    [11, 7, 0, 0, 0, 0, 0, 0, 0]);
+  assert.throws(() => encodeInstruction('core', 'CloseSettledBatch', {}), /Missing instruction field batchId/);
+});

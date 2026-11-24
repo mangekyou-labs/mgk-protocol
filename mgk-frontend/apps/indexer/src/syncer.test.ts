@@ -4,6 +4,7 @@ import { createStore } from './store.js';
 import { createSyncer } from './syncer.js';
 import { layouts } from '../../../packages/layout/index.js';
 import { instructions } from '../../../packages/layout/instructions.js';
+import * as sdk from '@mgk/sdk';
 
 const corePk = new PublicKey('9gr1GDrBF8MQMGSsbHYnUMTkvpzNLANiP5ZHhDKKAaDT');
 const matcherPk = new PublicKey('68MQqdugxZQA2F8GahhWZEusPnHbrfAXjqq2V9VCz8tK');
@@ -28,8 +29,13 @@ function plainTx(signature: string, slot: number, err: unknown = null): LedgerTx
 }
 
 /** A settlement of `batchId` whose one effective fill has quantity `qty`. */
-function settleTx(signature: string, slot: number, batchId: bigint, qty: bigint, accounts: Map<string, unknown>): LedgerTx {
-  const batch = Keypair.generate().publicKey, results = Keypair.generate().publicKey;
+function settleTx(
+  signature: string, slot: number, batchId: bigint, qty: bigint, accounts: Map<string, unknown>,
+  opts: {pdaId?: bigint; order?: 'standard' | 'shuffled'} = {},
+): LedgerTx {
+  // Legacy (no market seed) PDAs, so a closed settlement can be checked against its receipt.
+  const pdaId = opts.pdaId ?? batchId;
+  const batch = sdk.deriveBatchPda(pdaId, corePk)[0], results = sdk.deriveResultsPda(pdaId, matcherPk, {coreProgramId: corePk})[0];
   const batchData = Buffer.alloc(layouts.Batch.size); batchData[0] = layouts.Batch.discriminator!; batchData[1] = 1;
   batchData.writeBigUInt64LE(batchId, 8); batchData[16] = 3;
   const resultsData = Buffer.alloc(51 + 58); resultsData[0] = 8; resultsData[1] = 1;
@@ -43,7 +49,10 @@ function settleTx(signature: string, slot: number, batchId: bigint, qty: bigint,
       `Program ${corePk} invoke [1]`,
       `Program data: ${Buffer.from('mgk-settlement-v1').toString('base64')} ${receipt.toString('base64')}`,
       `Program ${corePk} success`]},
-    transaction: {signatures: [signature], message: message([batch, corePk, matcherPk, results], instructions.core.SettleBatch.disc, [0, 1, 2, 3])}}};
+    transaction: {signatures: [signature], message: opts.order === 'shuffled'
+      // Results stored first in the message and referenced from a non-standard account slot.
+      ? message([results, corePk, matcherPk, batch], instructions.core.SettleBatch.disc, [3, 1, 2, 2, 0])
+      : message([batch, corePk, matcherPk, results], instructions.core.SettleBatch.disc, [0, 1, 2, 3])}}};
 }
 
 /**
@@ -228,6 +237,121 @@ describe('syncer - signature-driven history replay', () => {
     await syncer.triggerSync();
     expect(rpc.calls.getTransaction).toBe(500);
     expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+});
+
+/** Drop the Batch and Results accounts of a settlement, as CloseSettledBatch does. */
+function closeAccountsOf(tx: LedgerTx, accounts: Map<string, unknown>, which: 'both' | 'batch' | 'results' = 'both') {
+  const msg = (tx.response as {transaction: {message: MessageV0}}).transaction.message;
+  const keys = msg.staticAccountKeys, ix = msg.compiledInstructions[0]!.accountKeyIndexes;
+  if (which !== 'results') accounts.delete(keys[ix[0]!]!.toBase58());
+  for (const i of ix) {
+    const pk = keys[i]!.toBase58();
+    if (which !== 'batch' && (accounts.get(pk) as {owner?: PublicKey} | undefined)?.owner?.equals(matcherPk)) accounts.delete(pk);
+  }
+}
+
+describe('syncer - settlements whose accounts were closed (CloseSettledBatch)', () => {
+  it('replays past a settlement whose Batch and Results were both closed without stalling', async () => {
+    const accounts = new Map<string, unknown>();
+    const closed = settleTx('closed', 150, 1n, 5n, accounts);
+    const ledger = [closed, settleTx('live', 151, 2n, 7n, accounts)];
+    closeAccountsOf(closed, accounts);
+    const rpc = fakeRpc(ledger, {slot: 200, accounts});
+    const fills: Record<string, unknown>[] = [];
+    const {syncer, store} = syncerFor(rpc, createStore(':memory:'), {onFill: f => fills.push(f)});
+    await syncer.triggerSync();
+    expect(fills.map(f => f.batch_id)).toEqual([2]);
+    expect(store.getSyncState().processedThroughSlot).toBe(200);
+    store.close();
+  });
+
+  it('still holds the cursor when only one of the pair is missing', async () => {
+    for (const which of ['batch', 'results'] as const) {
+      const accounts = new Map<string, unknown>();
+      const tx = settleTx('half', 150, 1n, 5n, accounts);
+      closeAccountsOf(tx, accounts, which);
+      const rpc = fakeRpc([tx], {slot: 200, accounts});
+      const {syncer, store} = syncerFor(rpc);
+      await syncer.triggerSync();
+      expect(store.getSyncState().processedThroughSlot).toBeNull();
+      store.close();
+    }
+  });
+
+  it('holds the cursor when the receipt names a batch whose PDA is not the closed account (legacy market)', async () => {
+    const accounts = new Map<string, unknown>();
+    // Accounts are batch 9's PDAs, but the receipt says batch 1 was settled.
+    const tx = settleTx('mismatch', 150, 1n, 5n, accounts, {pdaId: 9n});
+    closeAccountsOf(tx, accounts);
+    const rpc = fakeRpc([tx], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+    expect(store.getSyncState().settledThroughBatchId).toBeNull();
+    store.close();
+  });
+
+  it('finds the closed Results account by its derived address, not by account position', async () => {
+    const accounts = new Map<string, unknown>();
+    const tx = settleTx('shuffled', 150, 3n, 5n, accounts, {order: 'shuffled'});
+    closeAccountsOf(tx, accounts);
+    // Account slot 3 now holds the (live) matcher program, not the Results PDA.
+    accounts.set(matcherPk.toBase58(), {owner: PublicKey.default, data: Buffer.alloc(0)});
+    const rpc = fakeRpc([tx], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(200);
+    expect(store.getSyncState().settledThroughBatchId).toBe(3n);
+    store.close();
+  });
+
+  it('still holds the cursor when a closed settlement carries no receipt for its batch', async () => {
+    const accounts = new Map<string, unknown>();
+    const tx = settleTx('noreceipt', 150, 1n, 5n, accounts);
+    closeAccountsOf(tx, accounts);
+    (tx.response as {meta: {logMessages: string[]}}).meta.logMessages = [`Program ${corePk} invoke [1]`, `Program ${corePk} success`];
+    const rpc = fakeRpc([tx], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+    store.close();
+  });
+});
+
+describe('syncer - safe-to-close cursor', () => {
+  it('tracks the highest settled batch it has committed, closed or live', async () => {
+    const accounts = new Map<string, unknown>();
+    const closed = settleTx('closed', 150, 4n, 5n, accounts);
+    closeAccountsOf(closed, accounts);
+    const rpc = fakeRpc([closed, settleTx('live', 151, 5n, 7n, accounts)], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    expect(store.getSyncState().settledThroughBatchId).toBeNull();
+    await syncer.triggerSync();
+    expect(store.getSyncState().settledThroughBatchId).toBe(5n);
+    store.close();
+  });
+
+  it('counts a settlement whose accounts were closed', async () => {
+    const accounts = new Map<string, unknown>();
+    const closed = settleTx('closed', 150, 4n, 5n, accounts);
+    closeAccountsOf(closed, accounts);
+    const rpc = fakeRpc([closed], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().settledThroughBatchId).toBe(4n);
+    store.close();
+  });
+
+  it('does not advance past a settlement it could not commit', async () => {
+    const accounts = new Map<string, unknown>();
+    const tx = settleTx('half', 150, 4n, 5n, accounts);
+    closeAccountsOf(tx, accounts, 'batch');
+    const rpc = fakeRpc([tx], {slot: 200, accounts});
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().settledThroughBatchId).toBeNull();
     store.close();
   });
 });

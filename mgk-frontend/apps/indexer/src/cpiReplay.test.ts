@@ -213,13 +213,19 @@ describe('CPI settlement history through syncHistory', () => {
 
 
 describe('nested ClearBatch history through HTTP status', () => {
-  async function status(fault = '', polls = 1, cache: {cacheMs?: number; clock?: () => number; advanceMs?: number} = {}) {
+  async function status(fault = '', polls = 1, cache: {cacheMs?: number; clock?: () => number; advanceMs?: number; openBatch?: {commitments: number}; seed?: (store: ReturnType<typeof createStore>) => void} = {}) {
     const store = createStore(':memory:'), app = Fastify();
+    cache.seed?.(store);
     const registry = Keypair.generate().publicKey;
     const batchPk = sdk.deriveBatchPda(0n, core)[0];
     const regData = Buffer.alloc(layouts.Registry.size); regData[0] = layouts.Registry.discriminator!; regData[1] = 1;
     regData.writeBigUInt64LE(1n, layouts.Registry.fields.batchIdCounter![0]);
     const batchData = accounts(0n).batchData; batchData[16] = 4;
+    if (cache.openBatch) {
+      batchData[layouts.Batch.fields.status![0]] = 0;
+      batchData.writeBigUInt64LE(50n, layouts.Batch.fields.commitDeadlineSlot![0]);
+      batchData.writeUInt32LE(cache.openBatch.commitments, layouts.Batch.fields.totalCommitments![0]);
+    }
     const tx = nestedTransaction();
     tx.meta.loadedAddresses.writable[0] = batchPk;
     tx.meta.innerInstructions[0]!.instructions[0]!.data = bs58.encode([instructions.core.ClearBatch.disc]);
@@ -230,6 +236,7 @@ describe('nested ClearBatch history through HTTP status', () => {
     const now = Math.floor(Date.now()/1000);
     let historyReads = 0, slotReads = 0, clockMs = 0;
     const connection = {getSlot: async () => { slotReads++; return 100; },
+      getBlocks: async (start: number) => [start], getBlockTime: async () => now - 60,
       getAccountInfo: async (pk: PublicKey) => pk.equals(registry) ? {owner: core, data: regData} : pk.equals(batchPk) ? {owner: core, data: batchData} : null,
       getSignaturesForAddress: async (_pk: PublicKey, options: {before?: string}) => options.before ? [] : [{signature: 'nested-clear', slot: 100, err: null}],
       getTransaction: async () => {
@@ -286,6 +293,16 @@ describe('nested ClearBatch history through HTTP status', () => {
     expect(observed.checks.batch.severity).toBe('critical');
     expect(observed.checks.batch.ageSeconds).toBeGreaterThanOrEqual(121);
     expect(observed.historyReads).toBe(2);
+  });
+  it('exposes the safe-to-close cursor with the indexer check', async () => {
+    expect((await status()).checks.indexer.settledThroughBatchId).toBeNull();
+    const observed = await status('', 1, {seed: store => store.updateSyncSuccess(100, 1, 7n)});
+    expect(observed.checks.indexer.settledThroughBatchId).toBe('7');
+  });
+  it('does not warn on an idle open batch past its commit deadline', async () => {
+    expect((await status('', 1, {openBatch: {commitments: 1}})).checks.batch.severity).toBe('warn');
+    const idle = await status('', 1, {openBatch: {commitments: 0}});
+    expect(idle.checks.batch).toMatchObject({severity: 'ok', phase: 0, idle: true});
   });
   it.each(['caught failure', 'ancestor rollback', 'missing logs'])('fails closed for %s', async fault => {
     const observed = await status(fault);
