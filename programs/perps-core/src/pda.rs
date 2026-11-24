@@ -318,6 +318,11 @@ fn validate_instruction_roles(
             registry(0)?;
             vault(1)?;
         }
+        30 => {
+            batch(0)?;
+            results(accounts, 1, false)?;
+            registry(2)?;
+        }
         // Retired and unknown instructions remain rejected by dispatch.
         _ => {}
     }

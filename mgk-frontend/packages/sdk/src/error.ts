@@ -50,9 +50,13 @@ export const PercolatorError = {
   // Perps-core (600-699)
   RevealDeadlineExpired: 600,
   OperationPaused: 602,
+  /** Issue 74: CloseSettledBatch on a batch that is not Settled. */
+  BatchNotSettled: 605,
   ReduceOnlyViolation: 606,
   /** Issue 74: CloseCommitting refuses a batch with no commitments (keeper waits). */
   BatchEmpty: 613,
+  /** Issue 74: CloseSettledBatch inside the close window, or Results not yet consumed. */
+  BatchNotClosable: 614,
 
   // Legacy range (100-199) — pre-strip router code that is still emitted
   // by the perps-core program for portfolio-level margin checks.
@@ -111,6 +115,10 @@ const HUMAN_MESSAGES: Record<PercolatorError, string> = {
     'Reduce-only order violates position constraints. Check your position size and order direction.',
   [PercolatorError.BatchEmpty]:
     'The batch has no orders yet; it stays open until the first order arrives.',
+  [PercolatorError.BatchNotSettled]:
+    'The batch has not settled yet, so it cannot be closed.',
+  [PercolatorError.BatchNotClosable]:
+    'The batch cannot be closed yet: it is still inside the close window or its results are not consumed.',
 
   // Anti-toxicity (G12)
   [PercolatorError.InvalidCommitment]:
