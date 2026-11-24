@@ -11,6 +11,19 @@ import type { MonitoringConfig } from '../config.js';
 
 type Severity = 'ok' | 'warn' | 'critical';
 type Check = { severity: Severity; [key: string]: unknown };
+
+/**
+ * Lag (confirmed tip minus processed-through slot) at or below which the
+ * indexer counts as caught up. The tip keeps moving and the syncer polls every
+ * 2 s, so a caught-up indexer still shows a lag of tens of slots. It is never 0.
+ */
+export const INDEXER_CAUGHT_UP_LAG_SLOTS = 150;
+
+export function indexerCheck(chainTip: number, lastIndexedSlot: number | null, startSlot: number): Check {
+  const lagSlots = chainTip - (lastIndexedSlot ?? startSlot - 1);
+  const syncing = lastIndexedSlot === null || lagSlots > INDEXER_CAUGHT_UP_LAG_SLOTS;
+  return {severity: syncing ? 'warn' : 'ok', lagSlots, syncing};
+}
 export async function statusRoutes(app: FastifyInstance, cfg: {
   connection: Connection; store: Store; manifest: DeploymentManifest; monitoring: MonitoringConfig;
 }): Promise<void> {
@@ -144,8 +157,7 @@ export async function statusRoutes(app: FastifyInstance, cfg: {
           }
         })(),
       ]);
-      const lagSlots = chainTip - (lastIndexedSlot ?? manifest.startSlot! - 1);
-      checks.indexer = {severity: lastIndexedSlot === null || lagSlots > 150 ? 'warn' : 'ok', lagSlots, syncing: lastIndexedSlot === null || lagSlots > 0};
+      checks.indexer = indexerCheck(chainTip, lastIndexedSlot, manifest.startSlot!);
     } catch {
       checks.rpc = {severity: 'critical', reachable: false};
       checks.indexer = {severity: 'warn', available: false};
