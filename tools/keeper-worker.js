@@ -200,6 +200,10 @@ async function createKeeperWorker({
     if (now() < retryAt) return { status: "backoff", batchId, retryAt };
     try {
       const results = pda([Buffer.from("results"), u64(batchId)], matcher)[0];
+      // An open batch with no orders is idle: CloseCommitting rejects it
+      // (613 BatchEmpty) and the first order restarts its deadline.
+      if (state.status === 0 && state.totalCommitments === 0)
+        return { status: "idle", batchId };
       if (state.status === 0 && BigInt(snapshot.slot) < state.commitDeadlineSlot) {
         const slotsLeft = state.commitDeadlineSlot - BigInt(snapshot.slot);
         const waitMs = Math.min(MAX_WAIT_MS, Number(slotsLeft) * SLOT_MS);

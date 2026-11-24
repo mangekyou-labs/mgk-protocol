@@ -33,6 +33,7 @@ function fixture(id = 0n, marketSeed = null) {
       if (type === "u64") data.writeBigUInt64LE(BigInt(value), offset);
       else if (type === "pubkey") value.toBuffer().copy(data, offset);
       else if (type === "u16") data.writeUInt16LE(value, offset);
+      else if (type === "u32") data.writeUInt32LE(value, offset);
       else data[offset] = value;
     }
     accounts.set(String(key), { owner: core, data });
@@ -43,7 +44,7 @@ function fixture(id = 0n, marketSeed = null) {
     instrumentId: 0,
     oracleAddr: oracleAccount,
   });
-  const b = put(batch, "Batch", { batchId: id, status: 0 });
+  const b = put(batch, "Batch", { batchId: id, status: 0, totalCommitments: 1 });
   const [deadline] = layouts.Batch.fields.commitDeadlineSlot;
   b.writeBigUInt64LE(25n, deadline);
   const manifest = {
@@ -401,4 +402,14 @@ test("an unconfirmed crank is rebroadcast with the same signed bytes until it la
   assert.equal((await w.tick()).status, "closed");
   assert.equal(f.sent.length, 3);
   assert.ok(f.sent.every((ix) => ix.data.equals(f.sent[0].data)));
+});
+test("an empty open batch past its deadline waits without closing or alerting", async () => {
+  const f = fixture();
+  f.b.writeUInt32LE(0, layouts.Batch.fields.totalCommitments[0]);
+  f.setSlot(26);
+  const w = await createKeeperWorker(f.options);
+  assert.equal((await w.tick()).status, "idle");
+  assert.equal((await w.tick()).status, "idle");
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.alerts.length, 0);
 });
