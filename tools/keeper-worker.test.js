@@ -100,10 +100,17 @@ function fixture(id = 0n, marketSeed = null) {
       assert.ok(raw.length <= 1232, "signed packet fits Solana limit");
       const tx = Transaction.from(raw);
       assert.ok(tx.verifySignatures());
-      const ix = tx.instructions.at(-1);
-      sent.push(ix);
+      const ixs = tx.instructions.filter((ix) => ix.programId.equals(core));
+      sent.push(...ixs);
       if (fail) throw Error("RPC credentials must stay private");
+      for (const ix of ixs) {
       const data=marketSeed ? ix.data.subarray(33) : ix.data;
+      if (data[0] === 30) {
+        const closed = data.readBigUInt64LE(1);
+        assert.ok(ix.keys[3].pubkey.equals(payer.publicKey) && ix.keys[3].isSigner);
+        accounts.delete(String(pda(["batch", u64(closed)])));
+        accounts.delete(String(pda(["results", u64(closed)], matcher)));
+      }
       if (data[0] === 6) b[layouts.Batch.fields.status[0]] = 2;
       if (data[0] === 7) {
         b[layouts.Batch.fields.status[0]] = 4;
@@ -126,6 +133,7 @@ function fixture(id = 0n, marketSeed = null) {
           batchId: id + 1n,
           status: 0,
         });
+      }
       }
       return "signature";
     },
@@ -152,6 +160,17 @@ function fixture(id = 0n, marketSeed = null) {
     setBalance: (v) => (balance = v),
     setFail: (v) => (fail = v),
     setTime: (v) => (time = v),
+    // Settled history below the current batch, each with spent results.
+    settle: (ids) => {
+      for (const n of ids) {
+        put(pda(["batch", u64(n)]), "Batch", { batchId: n, status: 3 });
+        const r = Buffer.alloc(51);
+        r[0] = 8;
+        r.writeBigUInt64LE(BigInt(n), 8);
+        r[16] = 1;
+        accounts.set(String(pda(["results", u64(n)], matcher)), { owner: matcher, data: r });
+      }
+    },
   };
 }
 test("current collecting batch waits for deadline, then clears and restart settles", async () => {
@@ -431,4 +450,80 @@ test("CloseCommitting rejected as BatchEmpty (613) is a wait, not a retry alert"
   const result = await w.tick();
   assert.equal(result.status, "idle");
   assert.equal(f.alerts.length, 0);
+});
+const closedIds = (f) =>
+  f.sent.filter((ix) => ix.data[0] === 30).map((ix) => ix.data.readBigUInt64LE(1));
+test("each tick closes settled batches up to min(current-3, indexer cursor), capped", async () => {
+  const f = fixture(9n);
+  f.settle([0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n]);
+  const w = await createKeeperWorker({
+    ...f.options,
+    settledThrough: async () => 8n,
+    closeMaxPerTick: 4,
+  });
+  const first = await w.tick();
+  assert.equal(first.status, "collecting");
+  assert.deepEqual(first.close.closed, ["0", "1", "2", "3"]);
+  await w.tick();
+  // Current batch is 9, so 6 is the newest closable id even though the indexer is at 8.
+  assert.deepEqual(closedIds(f), [0n, 1n, 2n, 3n, 4n, 5n, 6n]);
+  assert.equal((await w.tick()).close, undefined);
+  assert.equal(closedIds(f).length, 7);
+  assert.ok(f.accounts.has(String(f.pda(["batch", u64(7n)]))));
+  assert.equal(f.alerts.length, 0);
+});
+test("no indexer cursor, a failing cursor, or the disable flag closes nothing", async () => {
+  for (const extra of [
+    {},
+    { settledThrough: async () => null },
+    { settledThrough: async () => { throw Error("indexer down"); } },
+    { settledThrough: async () => 8n, closeEnabled: false },
+  ]) {
+    const f = fixture(9n);
+    f.settle([0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n]);
+    const w = await createKeeperWorker({ ...f.options, ...extra });
+    const result = await w.tick();
+    assert.equal(result.status, "collecting");
+    assert.equal(result.close, undefined);
+    assert.equal(f.sent.length, 0);
+    assert.equal(f.alerts.length, 0);
+  }
+});
+test("a failing close alerts and backs off without blocking clear and settle", async () => {
+  const f = fixture(9n);
+  f.settle([0n, 1n, 2n]);
+  f.setSlot(26);
+  const send = f.options.connection.sendRawTransaction;
+  f.options.connection.sendRawTransaction = async (raw, opts) => {
+    const tx = Transaction.from(raw);
+    if (tx.instructions.some((ix) => ix.data[0] === 30)) throw Error("614");
+    return send(raw, opts);
+  };
+  const w = await createKeeperWorker({ ...f.options, settledThrough: async () => 2n });
+  const first = await w.tick();
+  assert.equal(first.status, "closed");
+  assert.equal(first.close.status, "retry");
+  assert.equal(f.alerts.length, 1);
+  assert.equal(f.alerts[0].code, "close_retry");
+  assert.equal(f.alerts[0].severity, "warn");
+  // Close backoff holds, lifecycle carries on.
+  assert.equal((await w.tick()).status, "cleared");
+  assert.equal((await w.tick()).status, "settled");
+  assert.equal(f.alerts.length, 1);
+  assert.equal(closedIds(f).length, 0);
+});
+test("a full close batch in a scoped market fits one signed packet", async () => {
+  const seed = Keypair.generate().publicKey.toBase58(), f = fixture(9n, seed);
+  f.settle([0n, 1n, 2n, 3n, 4n, 5n, 6n]);
+  const w = await createKeeperWorker({
+    ...f.options,
+    settledThrough: async () => 8n,
+    closeMaxPerTick: 6,
+  });
+  assert.deepEqual((await w.tick()).close.closed, ["0", "1", "2", "3", "4", "5"]);
+  assert.ok(f.sent.every((ix) => ix.data[0] === 29 && ix.data[33] === 30));
+  await assert.rejects(
+    createKeeperWorker({ ...f.options, closeMaxPerTick: 7 }),
+    /close cap/,
+  );
 });

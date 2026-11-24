@@ -28,6 +28,13 @@ const INTERVAL_MS = 2000;
 // While a batch collects, sleep until its deadline instead of polling.
 const SLOT_MS = 400;
 const MAX_WAIT_MS = 30_000;
+// CloseSettledBatch: batches within CLOSE_WINDOW of the counter stay open.
+const CLOSE_WINDOW = 3n;
+const CLOSE_DEFAULT_PER_TICK = 4;
+// Six closes keep the signed transaction under the 1232-byte packet limit.
+const CLOSE_MAX_PER_TICK = 6;
+// getMultipleAccounts accepts at most 100 keys.
+const CLOSE_SCAN = 100;
 const u64 = (n) => {
   const b = Buffer.alloc(8);
   b.writeBigUInt64LE(n);
@@ -52,7 +59,17 @@ async function createKeeperWorker({
   feeFloorLamports = 10000000n,
   resendIntervalMs = 2000,
   confirmPollMs = CONFIRM_OPTIONS.pollIntervalMs,
+  // Indexer settled-through cursor (bigint or null). Absent means close nothing.
+  settledThrough = null,
+  closeEnabled = true,
+  closeMaxPerTick = CLOSE_DEFAULT_PER_TICK,
 }) {
+  if (
+    !Number.isInteger(closeMaxPerTick) ||
+    closeMaxPerTick < 1 ||
+    closeMaxPerTick > CLOSE_MAX_PER_TICK
+  )
+    throw Error("Invalid close cap");
   if (typeof feeFloorLamports !== "bigint" || feeFloorLamports < 0n)
     throw Error("Invalid fee floor");
   const manifest = loadManifest(rawManifest);
@@ -104,15 +121,21 @@ async function createKeeperWorker({
   const id = await bindings(),
     book = pda([Buffer.from("book"), id], matcher)[0];
   const blockhashes = createBlockhashCache(connection, now);
-  async function send(name, params, keys) {
+  const send = (name, params, keys) => sendAll([{ name, params, keys }]);
+  async function sendAll(calls) {
     const latest = await blockhashes.get();
     const tx = new Transaction({ feePayer: payer.publicKey, ...latest }).add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1400000 }),
-      new TransactionInstruction({
-        programId: core,
-        keys,
-        data: Buffer.from(encodeInstruction("core", name, params, manifest.marketSeed)),
-      }),
+      ...calls.map(
+        ({ name, params, keys }) =>
+          new TransactionInstruction({
+            programId: core,
+            keys,
+            data: Buffer.from(
+              encodeInstruction("core", name, params, manifest.marketSeed),
+            ),
+          }),
+      ),
     );
     tx.sign(payer);
     const raw = tx.serialize();
@@ -144,7 +167,7 @@ async function createKeeperWorker({
     retryKey = "",
     attempts = 0,
     retryAt = 0;
-  async function tick() {
+  async function lifecycle() {
     if (halted) return { status: "halted" };
     const guess =
       expectedCounter > 0n
@@ -311,6 +334,101 @@ async function createKeeperWorker({
       return { status: "retry", batchId, retryAt };
     }
   }
+  // Rent reclamation. Lowest id not yet known closed; in memory only, so a
+  // restart rescans from zero (missing batches are skipped cheaply).
+  let closeCursor = 0n,
+    closeAttempts = 0,
+    closeRetryAt = 0;
+  async function closePass(counter) {
+    if (now() < closeRetryAt) return undefined;
+    let through = null;
+    try {
+      through = await settledThrough();
+    } catch {}
+    if (typeof through !== "bigint") return undefined;
+    // On-chain rule: batch_id + CLOSE_WINDOW < batch_id_counter.
+    const windowLimit = counter - 1n - CLOSE_WINDOW;
+    const limit = windowLimit < through ? windowLimit : through;
+    if (limit < closeCursor) return undefined;
+    const end = limit - closeCursor < BigInt(CLOSE_SCAN) ? limit : closeCursor + BigInt(CLOSE_SCAN) - 1n;
+    const ids = [];
+    for (let n = closeCursor; n <= end; n++) ids.push(n);
+    const keys = ids.map((n) => pda([Buffer.from("batch"), u64(n)])[0]);
+    const { accounts } = await readAccounts(connection, keys);
+    const candidates = [];
+    let scanned = closeCursor;
+    for (let i = 0; i < ids.length && candidates.length < closeMaxPerTick; i++) {
+      const a = accounts[i];
+      if (!a) {
+        // Already closed by us or anyone else.
+        scanned = ids[i] + 1n;
+        continue;
+      }
+      if (!a.owner.equals(core)) break;
+      const b = decodeAccount("Batch", a.data);
+      if (b.batchId !== ids[i] || b.status !== 3) break;
+      candidates.push({ id: ids[i], batch: keys[i] });
+      scanned = ids[i] + 1n;
+    }
+    if (!candidates.length) {
+      closeCursor = scanned;
+      return undefined;
+    }
+    try {
+      const signature = await sendAll(
+        candidates.map(({ id, batch }) => ({
+          name: "CloseSettledBatch",
+          params: { batchId: id },
+          keys: [
+            meta(batch),
+            meta(pda([Buffer.from("results"), u64(id)], matcher)[0]),
+            meta(registry, false),
+            meta(payer.publicKey, true, true),
+            meta(matcher, false),
+          ],
+        })),
+      );
+      closeCursor = scanned;
+      closeAttempts = 0;
+      return { closed: candidates.map(({ id }) => String(id)), signature };
+    } catch {
+      closeRetryAt =
+        now() + Math.min(MAX_WAIT_MS, 2000 * 2 ** Math.min(closeAttempts++, 4));
+      alert({
+        service: "keeper",
+        severity: "warn",
+        code: "close_retry",
+        action:
+          "Rent reclamation failed; lifecycle continues and closes retry with backoff",
+        fromBatchId: String(candidates[0].id),
+        toBatchId: String(candidates.at(-1).id),
+        retryAt: closeRetryAt,
+      });
+      return { status: "retry", retryAt: closeRetryAt };
+    }
+  }
+  async function tick() {
+    const result = await lifecycle();
+    if (
+      !closeEnabled ||
+      typeof settledThrough !== "function" ||
+      result.batchId === undefined ||
+      ["halted", "low_fee_sol"].includes(result.status)
+    )
+      return result;
+    let close;
+    try {
+      close = await closePass(result.batchId + 1n);
+    } catch {
+      // A failed scan read never affects the lifecycle result.
+    }
+    return close ? { ...result, close } : result;
+  }
   return { tick };
 }
-module.exports = { createKeeperWorker, INTERVAL_MS };
+module.exports = {
+  createKeeperWorker,
+  INTERVAL_MS,
+  CLOSE_DEFAULT_PER_TICK,
+  CLOSE_MAX_PER_TICK,
+};
