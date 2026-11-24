@@ -130,24 +130,23 @@ async function mapBounded<T, R>(items: T[], limit: number, fn: (item: T) => Prom
 }
 
 /**
- * Whether a settlement whose Batch account is gone was closed by CloseSettledBatch:
- * its Results account is gone too, its own receipt names the batch it settled and,
- * for a selected market, both addresses are that batch's PDAs. Returns that batch id,
- * or null when the Results account still exists (not a closed pair).
+ * Whether a settlement whose Batch account is gone was closed by CloseSettledBatch.
+ * Its own receipt names the batch it settled; the gone Batch account must be that
+ * batch's PDA, and that batch's Results PDA must be one of the instruction's accounts
+ * and gone too. Both PDAs are derived for the selected market, or with legacy seeds
+ * when none is selected. Returns the batch id, or null when the Results account still
+ * exists (not a closed pair).
  */
 async function closedSettlement(
   params: SyncHistoryParams, ix: {logs: string[]; accountKeyIndexes: number[]}, staticKeys: PublicKey[], batchPk: PublicKey,
 ): Promise<bigint | null> {
   const { connection, corePk, matcherPk, marketSeed } = params;
-  const resultsIdx = ix.accountKeyIndexes[3];
-  const resultsPk = resultsIdx === undefined ? undefined : staticKeys[resultsIdx];
-  if (!resultsPk) throw new Error('Settlement missing results address');
-  if (await connection.getAccountInfo(resultsPk, 'confirmed')) return null;
   const batchId = settledBatchId(ix.logs, corePk.toBase58());
-  if (marketSeed) {
-    if (!sdk.deriveBatchPda(batchId, corePk, {marketSeed})[0].equals(batchPk)) throw new Error('Settlement batch outside selected market');
-    if (!sdk.deriveResultsPda(batchId, matcherPk, {marketSeed, coreProgramId: corePk})[0].equals(resultsPk)) throw new Error('Settlement results outside selected market');
-  }
+  const context = {marketSeed: marketSeed ?? undefined, coreProgramId: corePk};
+  if (!sdk.deriveBatchPda(batchId, corePk, context)[0].equals(batchPk)) throw new Error('Settlement batch does not match its receipt');
+  const resultsPk = sdk.deriveResultsPda(batchId, matcherPk, context)[0];
+  if (!ix.accountKeyIndexes.some(i => staticKeys[i]?.equals(resultsPk))) throw new Error('Settlement missing results address');
+  if (await connection.getAccountInfo(resultsPk, 'confirmed')) return null;
   return batchId;
 }
 
