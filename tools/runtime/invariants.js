@@ -328,15 +328,26 @@ function vaultDelta(before, after, transaction, fail) {
   }
 }
 
+// CloseSettledBatch (core 30) closes a settled Batch and its spent Results in one
+// instruction, so a pair that vanishes together is a close, not a lost receipt.
+// Anything else that vanishes could hide an unapplied or re-applicable receipt.
+const closedPair = (before, after, id) => before.batches.get(id)?.state.status === BATCH_STATUS.settled &&
+  before.results.get(id)?.state.spent === true && !after.batches.has(id) && !after.results.has(id);
+
 function receiptsNotReapplied(before, after, fail) {
   for (const [id, batch] of before.batches) {
     const later = after.batches.get(id);
-    if (batch.state.status === BATCH_STATUS.settled && later && later.state.status !== BATCH_STATUS.settled) {
+    if (!later) {
+      if (!closedPair(before, after, id)) fail(INVARIANTS.receipts, `batch ${id} with status ${batch.state.status} closed without being settled together with its spent results`);
+      continue;
+    }
+    if (batch.state.status === BATCH_STATUS.settled && later.state.status !== BATCH_STATUS.settled) {
       fail(INVARIANTS.receipts, `settled batch ${id} returned to status ${later.state.status}`);
     }
   }
   for (const [id, results] of before.results) {
     const later = after.results.get(id);
+    if (!later && closedPair(before, after, id)) continue;
     if (results.state.spent && (!later || !later.state.spent)) fail(INVARIANTS.receipts, `spent results for batch ${id} became unspent`);
   }
 }
