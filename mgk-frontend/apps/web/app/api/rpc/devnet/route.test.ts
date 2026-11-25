@@ -64,9 +64,19 @@ describe('POST /api/rpc/devnet', () => {
   it.each([
     ['unset', undefined],
     ['empty', ' , '],
-  ])('answers a 503 JSON-RPC error when RPC_UPSTREAMS is %s, never the public endpoint', async (_label, value) => {
+  ])('uses public devnet when RPC_UPSTREAMS is %s', async (_label, value) => {
     vi.stubEnv('RPC_UPSTREAMS', value ?? '');
     if (value === undefined) delete process.env.RPC_UPSTREAMS;
+    const fetcher = upstreamReturning(ok(1));
+    const { POST, PUBLIC_DEVNET_RPC } = await loadRoute();
+    const res = await POST(rpcRequest(call('getSlot')));
+    expect(res.status).toBe(200);
+    expect(fetcher.mock.calls.map(([u]) => u)).toEqual([PUBLIC_DEVNET_RPC]);
+  });
+
+  it('answers 503 when no upstream is set and the fallback is off', async () => {
+    vi.stubEnv('RPC_UPSTREAMS', '');
+    vi.stubEnv('RPC_PUBLIC_FALLBACK', 'off');
     const fetcher = upstreamReturning(ok(1));
     const { POST } = await loadRoute();
     const res = await POST(rpcRequest(call('getSlot')));
@@ -75,7 +85,7 @@ describe('POST /api/rpc/devnet', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('uses only the first configured upstream for every request', async () => {
+  it('uses only the first configured upstream while it is healthy', async () => {
     const fetcher = upstreamReturning(ok(1), ok(2), ok(3));
     const { POST } = await loadRoute();
     await POST(rpcRequest(call('getSlot')));
@@ -84,28 +94,54 @@ describe('POST /api/rpc/devnet', () => {
     expect(fetcher.mock.calls.map(([u]) => u)).toEqual([A, A, A]);
   });
 
-  it.each([
+  const failures: Array<[string, () => Response | Error]> = [
+    ['429 (rate limited)', () => new Response(`slow down ${A}`, { status: 429 })],
     ['503', () => new Response(`down ${A}`, { status: 503 })],
     ['401 (revoked key)', () => new Response('unauthorized', { status: 401 })],
     ['403 (key over quota)', () => new Response('forbidden', { status: 403 })],
     ['network error', () => new Error(`connect failed ${A}`)],
-  ])('answers 502 on %s without failing over or leaking the upstream URL', async (_label, failure) => {
+  ];
+
+  it.each(failures)('falls back to public devnet on %s', async (_label, failure) => {
+    const fetcher = upstreamReturning(failure(), ok(7));
+    const { POST, PUBLIC_DEVNET_RPC } = await loadRoute();
+    const res = await POST(rpcRequest(call('getSlot')));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ jsonrpc: '2.0', id: 1, result: 7 });
+    expect(fetcher.mock.calls.map(([u]) => u)).toEqual([A, PUBLIC_DEVNET_RPC]);
+    expect(JSON.parse(fetcher.mock.calls[1]![1].body as string)).toEqual(call('getSlot'));
+  });
+
+  it.each(failures)('answers a sanitized error on %s when fallback is off', async (label, failure) => {
+    vi.stubEnv('RPC_PUBLIC_FALLBACK', 'off');
     const fetcher = upstreamReturning(failure(), ok(7));
     const { POST } = await loadRoute();
     const res = await POST(rpcRequest(call('getSlot')));
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(label.startsWith('429') ? 429 : 502);
     const text = await res.text();
     expect(text).not.toContain('secret');
     expect(text).not.toContain('example');
     expect(fetcher.mock.calls.map(([u]) => u)).toEqual([A]);
   });
 
-  it('answers 429 on an upstream rate limit so the client backs off, without failing over', async () => {
-    const fetcher = upstreamReturning(new Response('x', { status: 429 }), ok(7));
+  it('answers the fallback status, sanitized, when both endpoints fail', async () => {
+    upstreamReturning(new Response(`x ${A}`, { status: 429 }), new Response('down', { status: 503 }));
     const { POST } = await loadRoute();
     const res = await POST(rpcRequest(call('getSlot')));
-    expect(res.status).toBe(429);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(502);
+    expect(await res.text()).not.toContain('secret');
+
+    upstreamReturning(new Error(`boom ${A}`), new Response('slow', { status: 429 }));
+    const res2 = await POST(rpcRequest(call('getSlot')));
+    expect(res2.status).toBe(429);
+  });
+
+  it('honours an RPC_PUBLIC_FALLBACK override', async () => {
+    vi.stubEnv('RPC_PUBLIC_FALLBACK', B);
+    const fetcher = upstreamReturning(new Response('x', { status: 429 }), ok(7));
+    const { POST } = await loadRoute();
+    expect((await POST(rpcRequest(call('getSlot')))).status).toBe(200);
+    expect(fetcher.mock.calls.map(([u]) => u)).toEqual([A, B]);
   });
 
   it('passes a 4xx answer through', async () => {

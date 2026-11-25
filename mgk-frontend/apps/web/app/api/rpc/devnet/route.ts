@@ -30,18 +30,23 @@ const UPSTREAM_TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_BATCH = 20;
 
+export const PUBLIC_DEVNET_RPC = 'https://api.devnet.solana.com';
+
 /**
- * The one dedicated devnet provider: the first entry of RPC_UPSTREAMS. Every
- * service reads the same provider so they never disagree about chain state;
- * there is no rotation, no cross-provider failover and no silent public
- * fallback (the public endpoint is a manual operator fallback only).
+ * Endpoints in the order they are tried: the dedicated provider (first entry
+ * of RPC_UPSTREAMS), then the public devnet fallback. A drained or revoked
+ * key must not take the public site offline, so a failed request is retried
+ * once on public devnet. RPC_PUBLIC_FALLBACK overrides the fallback URL;
+ * "off" disables it (fail closed).
  */
-function upstream(): string | null {
-  const first = (process.env.RPC_UPSTREAMS ?? '')
+function targets(): string[] {
+  const primary = (process.env.RPC_UPSTREAMS ?? '')
     .split(',')
     .map((u) => u.trim())
     .find(Boolean);
-  return first ?? null;
+  const raw = process.env.RPC_PUBLIC_FALLBACK?.trim();
+  const fallback = !raw ? PUBLIC_DEVNET_RPC : raw.toLowerCase() === 'off' ? null : raw;
+  return [...new Set([primary, fallback].filter((u): u is string => Boolean(u)))];
 }
 
 function rpcError(status: number, message: string): Response {
@@ -69,28 +74,39 @@ export async function POST(req: Request): Promise<Response> {
   );
   if (!allowed) return rpcError(403, 'Method not allowed');
 
-  // Fail closed: without the dedicated provider the UI must show RPC unavailable.
-  const url = upstream();
-  if (url === null) return rpcError(503, 'RPC unavailable');
+  const urls = targets();
+  if (urls.length === 0) return rpcError(503, 'RPC unavailable');
 
   // Never echo upstream errors: their URLs carry API keys. A uniform 429 lets
   // web3.js apply its own backoff. Other answers (including 400 and JSON-RPC
-  // errors) belong to the caller and pass through.
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body,
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  // errors) belong to the caller and pass through. Retrying sendTransaction
+  // is safe: a resubmitted signed transaction lands at most once.
+  let failure: Response = rpcError(502, 'Upstream unavailable');
+  for (const url of urls) {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      });
+    } catch {
+      failure = rpcError(502, 'Upstream unavailable');
+      continue;
+    }
+    if (res.status === 429) {
+      failure = rpcError(429, 'Rate limited');
+      continue;
+    }
+    if (res.status === 401 || res.status === 403 || res.status >= 500) {
+      failure = rpcError(502, 'Upstream unavailable');
+      continue;
+    }
+    return new Response(await res.text(), {
+      status: res.status,
+      headers: { 'content-type': 'application/json', 'Cache-Control': 'no-store' },
     });
-  } catch {
-    return rpcError(502, 'Upstream unavailable');
   }
-  if (res.status === 429) return rpcError(429, 'Rate limited');
-  if (res.status === 401 || res.status === 403 || res.status >= 500) return rpcError(502, 'Upstream unavailable');
-  return new Response(await res.text(), {
-    status: res.status,
-    headers: { 'content-type': 'application/json', 'Cache-Control': 'no-store' },
-  });
+  return failure;
 }

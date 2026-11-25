@@ -11,11 +11,14 @@ import { createSyncer } from './syncer.js';
 import { loadDeployment, loadMonitoring } from './config.js';
 import { statusRoutes } from './rest/status.js';
 import { createWsServer, broadcastFill, broadcastBatch } from './ws.js';
+import { createFallbackFetch, resolveFallbackUrl } from './rpcFallback.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const RPC_URL = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
+// Public devnet by default; RPC_PUBLIC_FALLBACK=off disables it.
+const RPC_FALLBACK_URL = resolveFallbackUrl(process.env.RPC_PUBLIC_FALLBACK);
 const DB_PATH = process.env.DB_PATH ?? 'mgk-indexer.db';
 // Status response cache; runtime tests set 0 to read the chain on every request.
 const STATUS_CACHE_MS = process.env.STATUS_CACHE_MS === undefined ? undefined : Number(process.env.STATUS_CACHE_MS);
@@ -34,7 +37,23 @@ async function main(): Promise<void> {
   const monitoring = loadMonitoring();
   const CORE_PROGRAM_ID = manifest.programs.perps_core;
   const MATCHER_PROGRAM_ID = manifest.programs.perps_matcher;
-  const connection = new Connection(RPC_URL, {commitment: 'confirmed', disableRetryOnRateLimit: true, fetch: (url, options) => fetch(url, {...options, signal: AbortSignal.timeout(10000)})});
+  let lastFallbackLog = 0;
+  const rpcFetch = createFallbackFetch({
+    primaryUrl: RPC_URL,
+    fallbackUrl: RPC_FALLBACK_URL,
+    timeoutMs: 10_000,
+    onFallback: (reason) => {
+      const now = Date.now();
+      if (now - lastFallbackLog < 60_000) return;
+      lastFallbackLog = now;
+      app.log.warn({ reason }, 'dedicated RPC failed; using public devnet fallback');
+    },
+  });
+  const connection = new Connection(RPC_URL, {
+    commitment: 'confirmed',
+    disableRetryOnRateLimit: true,
+    fetch: (url, options) => rpcFetch(String(url), options as RequestInit),
+  });
 
   let wss: WebSocketServer | undefined;
 
