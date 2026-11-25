@@ -28,7 +28,9 @@ const ok = (result: unknown) => Response.json({ jsonrpc: '2.0', id: 1, result })
 
 async function loadRoute() {
   vi.resetModules();
-  return import('./route');
+  const route = await import('./route');
+  const { PUBLIC_DEVNET_RPC } = await import('./upstreams');
+  return { ...route, PUBLIC_DEVNET_RPC };
 }
 
 beforeEach(() => {
