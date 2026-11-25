@@ -880,9 +880,10 @@ function createDriver({
     return { pass: false, failures, fills, foreign, settle, attempts };
   }
 
-  async function trade(label, entries) {
+  // `watch`: personas with resting orders that may fill but post nothing here.
+  async function trade(label, entries, watch = []) {
     const posted = await postOrders(label, entries);
-    const settled = await waitSettled(posted.batchId, entries.map(e => e.persona.publicKey));
+    const settled = await waitSettled(posted.batchId, [...entries, ...watch.map(persona => ({ persona }))].map(e => e.persona.publicKey));
     const verdict = await verifyBatch(settled);
     return { label, posted, settled, verdict };
   }
@@ -1082,10 +1083,12 @@ function checkFees(c, label, result) {
 }
 
 // Closes X's position against persona maker M at mid in one batch.
-async function closePair(driver, ctx, c, M, X, plan) {
+// Prices from a fresh plan: the row's opening plan goes stale as the oracle drifts.
+async function closePair(driver, ctx, c, M, X) {
   const state = await driver.readState([X.publicKey]);
   const qty = pfOf(state, X).qty;
   if (qty === 0n) return null;
+  const plan = driver.pricePlan(state);
   const side = qty > 0n ? SELL : BUY;
   const result = await driver.trade(`close ${X.name}`, [
     { persona: M, side: side === SELL ? BUY : SELL, price: plan.mid, qty: abs(qty), isMaker: true },
@@ -1248,14 +1251,14 @@ const ROWS = {
       c.eq('batch 1: filled + remaining = submitted', 1n + (resting1?.remainingQty ?? 0n), 3);
       const second = await driver.trade('P0-9 next-batch fill', [
         { persona: T, side: BUY, price: plan.mid, qty: 2n, isMaker: false },
-      ]);
+      ], [M]);
       checkTrade(c, ctx, second);
       const fills2 = fillsOf(second.verdict, M).filter(f => f.orderId === askId);
       c.eq('batch 2: same order fills the remaining 2', sum(fills2.map(f => f.qty)), 2);
       c.eq('batch 2: one fill row for the order (no duplicate)', fills2.length, 1);
       c.ok('order fully consumed', !pfOf(second.settled.post, M).openOrders.some(o => o.orderId === askId), 'no remaining reservation', 'checked');
       c.eq('taker long 3 = 1 + 2 (no duplicate fill)', pfOf(second.settled.post, T).qty, 3);
-      await closePair(driver, ctx, c, M, T, plan);
+      await closePair(driver, ctx, c, M, T);
     },
   },
   'P0-10': {
@@ -1278,24 +1281,28 @@ const ROWS = {
       c.eq('cancel partial: reservation released pro rata (2 of 3)', pfOf(c2.before, M).reservedCollateral - pfOf(c2.after, M).reservedCollateral, proRata(o.initialReserve, 3n, 2n));
       c.eq('cancel partial: settled fill untouched', pfOf(c2.after, M).qty, pfOf(part.settled.post, M).qty);
       c.eq('cancel partial: maker long 1', pfOf(c2.after, M).qty, 1);
-      await closePair(driver, ctx, c, M, T, plan);
+      await closePair(driver, ctx, c, M, T);
     },
   },
   'P0-12': {
     personas: ['maker', 'taker'],
     async run(driver, P, c, ctx) {
       const { maker: M, taker: T } = P;
-      const plan = await rowPlan(driver);
+      // Re-plan before every batch: the oracle drifts during the row and the
+      // hosted maker re-quotes around it.
       for (const persona of [M, T]) await driver.deposit(persona, ROW_DEPOSIT);
-      const { mid, step } = plan;
+      let mid, step;
+      const replan = async () => ({ mid, step } = await rowPlan(driver));
       const tFill = result => fillsOf(result.verdict, T)[0]?.price;
       const entryOf = result => pfOf(result.settled.post, T).position;
+      await replan();
       const open = await driver.trade('P0-12 open', [
         { persona: M, side: SELL, price: mid, qty: 1n, isMaker: true },
         { persona: T, side: BUY, price: mid, qty: 1n, isMaker: false },
       ]);
       checkTrade(c, ctx, open);
       const px1 = tFill(open);
+      await replan();
       const add = await driver.trade('P0-12 add', [
         { persona: M, side: SELL, price: mid + step, qty: 1n, isMaker: true },
         { persona: T, side: BUY, price: mid + step, qty: 1n, isMaker: false },
@@ -1306,6 +1313,7 @@ const ROWS = {
       // Weighted entry (px1 + px2) / 2, allowing the 1e-12 entry quantum.
       const err = abs(e2.num * 2n - (px1 + px2) * e2.den);
       c.ok('add: weighted entry = (px1 + px2) / 2', err * 1_000_000_000_000n <= 2n * e2.den, `${px1 + px2}/2`, `${e2.num}/${e2.den}`);
+      await replan();
       const partial = await driver.trade('P0-12 partial close', [
         { persona: M, side: BUY, price: mid + 2n * step, qty: 1n, isMaker: true },
         { persona: T, side: SELL, price: mid + 2n * step, qty: 1n, isMaker: false, reduceOnly: true },
@@ -1314,6 +1322,7 @@ const ROWS = {
       const e3 = entryFraction(entryOf(partial));
       c.eq('partial close: entry unchanged', e3.num * e2.den, e2.num * e3.den);
       c.eq('partial close: long 1', pfOf(partial.settled.post, T).qty, 1);
+      await replan();
       const flip = await driver.trade('P0-12 flip', [
         { persona: M, side: BUY, price: mid - step, qty: 2n, isMaker: true },
         { persona: T, side: SELL, price: mid - step, qty: 2n, isMaker: false },
@@ -1322,6 +1331,7 @@ const ROWS = {
       const e4 = entryFraction(entryOf(flip));
       c.eq('flip: short 1', pfOf(flip.settled.post, T).qty, -1);
       c.eq('flip: new entry = flip fill price', e4.num, tFill(flip) * e4.den);
+      await replan();
       const close = await driver.trade('P0-12 full close', [
         { persona: M, side: SELL, price: mid, qty: 1n, isMaker: true },
         { persona: T, side: BUY, price: mid, qty: 1n, isMaker: false, reduceOnly: true },
