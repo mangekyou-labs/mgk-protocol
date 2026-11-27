@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Keypair, MessageV0, PublicKey } from '@solana/web3.js';
 import { createStore } from './store.js';
-import { createSyncer } from './syncer.js';
+import { createSyncer, describeSyncError } from './syncer.js';
 import { layouts } from '../../../packages/layout/index.js';
 import { instructions } from '../../../packages/layout/instructions.js';
 import * as sdk from '@mgk/sdk';
@@ -103,8 +103,11 @@ function fakeRpc(ledger: LedgerTx[], options: {slot: number; firstAvailable?: nu
   return {connection: connection as never, calls, total, reset, state};
 }
 
-function syncerFor(rpc: ReturnType<typeof fakeRpc>, store = createStore(':memory:'), extra: {startSlot?: number; onFill?: (f: Record<string, unknown>) => void} = {}) {
-  const syncer = createSyncer({connection: rpc.connection, store, coreProgramId: corePk.toBase58(), matcherProgramId: matcherPk.toBase58(), startSlot: extra.startSlot ?? 100, onFill: extra.onFill});
+function syncerFor(rpc: ReturnType<typeof fakeRpc>, store = createStore(':memory:'), extra: {
+  startSlot?: number; onFill?: (f: Record<string, unknown>) => void; now?: () => number; segmentSize?: number; pollIntervalMs?: number;
+} = {}) {
+  const syncer = createSyncer({connection: rpc.connection, store, coreProgramId: corePk.toBase58(), matcherProgramId: matcherPk.toBase58(),
+    startSlot: extra.startSlot ?? 100, onFill: extra.onFill, now: extra.now, segmentSize: extra.segmentSize, pollIntervalMs: extra.pollIntervalMs});
   return {syncer, store};
 }
 
@@ -237,6 +240,125 @@ describe('syncer - signature-driven history replay', () => {
     await syncer.triggerSync();
     expect(rpc.calls.getTransaction).toBe(500);
     expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+});
+
+/** Let fire-and-forget callbacks (onLogs handlers) settle. */
+async function flush() {
+  for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
+}
+
+describe('syncer - resumable replay', () => {
+  it('resumes a listing that failed mid-walk from the last listed page', async () => {
+    const rpc = fakeRpc(ledgerOf(3000), {slot: 5000});
+    let n = 0;
+    rpc.state.failSignatures = () => { if (++n === 2) throw new Error('429 Too Many Requests'); };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+
+    rpc.reset();
+    await syncer.triggerSync();
+    // The first page (sig-2999..sig-2000) is not listed again.
+    expect(rpc.state.signatureQueries[0]?.before).toBe('sig-2000');
+    expect(rpc.calls.getTransaction).toBe(3000);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+
+  it('retries a failed segment without re-listing signatures and marks committed segments reconciled', async () => {
+    const rpc = fakeRpc(ledgerOf(2500), {slot: 5000});
+    rpc.state.failTransaction = sig => { if (sig === 'sig-2200') throw new Error('429 Too Many Requests'); };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(1099);
+    expect(syncer.getHealthTracker().getLastReconciledSlot()).toBe(1099);
+
+    rpc.state.failTransaction = null;
+    rpc.reset();
+    await syncer.triggerSync();
+    expect(rpc.calls.getSignaturesForAddress).toBeUndefined();
+    expect(rpc.calls.getTransaction).toBe(500);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+
+  it('discards a held backlog when the committed cursor moved underneath it', async () => {
+    const rpc = fakeRpc(ledgerOf(2500), {slot: 5000});
+    rpc.state.failTransaction = sig => { if (sig === 'sig-2200') throw new Error('429 Too Many Requests'); };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    store.setSyncCursor(1200);
+
+    rpc.state.failTransaction = null;
+    rpc.reset();
+    await syncer.triggerSync();
+    expect(rpc.calls.getSignaturesForAddress).toBeGreaterThan(0);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+
+  it('backs off scheduled syncs after a failure while a direct trigger still runs', async () => {
+    let t = 1_000_000;
+    const rpc = fakeRpc(ledgerOf(4), {slot: 500});
+    rpc.state.failSignatures = () => { throw new Error('429 Too Many Requests'); };
+    const {syncer, store} = syncerFor(rpc, undefined, {now: () => t, pollIntervalMs: 3_600_000});
+    await syncer.start();
+    const onCoreLogs = (rpc.connection as unknown as {onLogs: {mock: {calls: [unknown, () => void][]}}}).onLogs.mock.calls[0]![1];
+    expect(rpc.calls.getSlot).toBe(1);
+
+    t += 4_999;
+    onCoreLogs(); await flush();
+    expect(rpc.calls.getSlot).toBe(1);
+
+    t += 1;
+    onCoreLogs(); await flush();
+    expect(rpc.calls.getSlot).toBe(2);
+
+    // Second failure doubles the delay; a direct trigger bypasses it.
+    t += 9_999;
+    onCoreLogs(); await flush();
+    expect(rpc.calls.getSlot).toBe(2);
+    await syncer.triggerSync();
+    expect(rpc.calls.getSlot).toBe(3);
+
+    // Success clears the backoff.
+    rpc.state.failSignatures = null;
+    t += 20_000;
+    onCoreLogs(); await flush();
+    expect(rpc.calls.getSlot).toBe(4);
+    expect(store.getSyncState().processedThroughSlot).toBe(500);
+    onCoreLogs(); await flush();
+    expect(rpc.calls.getSlot).toBe(5);
+    await syncer.stop();
+    store.close();
+  });
+
+  it('records a sanitized failure reason and clears it on success', async () => {
+    const rpc = fakeRpc(ledgerOf(4), {slot: 500});
+    rpc.state.failSignatures = () => { throw new Error('429 Too Many Requests from https://rpc.example/v1?api-key=SECRET'); };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    const reason = syncer.getRuntimeHealth().lastSyncError;
+    expect(reason).toContain('429 Too Many Requests');
+    expect(reason).not.toContain('rpc.example');
+    expect(reason).not.toContain('SECRET');
+    expect(store.getSyncState().lastSyncError).toBe(reason);
+
+    rpc.state.failSignatures = null;
+    await syncer.triggerSync();
+    expect(syncer.getRuntimeHealth().lastSyncError).toBeNull();
+    store.close();
+  });
+
+  it('stays warming when the slot read succeeds but nothing was committed', async () => {
+    const rpc = fakeRpc(ledgerOf(4), {slot: 500});
+    rpc.state.failSignatures = () => { throw new Error('429 Too Many Requests'); };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(syncer.getHealthTracker().getLastReconciledSlot()).toBeNull();
+    expect(syncer.getHealthTracker().snapshot(500).status).toBe('warming');
     store.close();
   });
 });
@@ -383,7 +505,9 @@ describe('syncer - gaps never look like replayed history', () => {
       await syncer.triggerSync();
       expect(store.getSyncState().processedThroughSlot).toBe(5000);
       expect(store.getSyncState().lastSyncErrorAt).not.toBeNull();
-      expect(syncer.getHealthTracker().snapshot(7000).status).toBe('degraded');
+      // Nothing committed for 10 minutes: a reachable RPC no longer counts as reconciled.
+      expect(syncer.getHealthTracker().getLastReconciledSlot()).toBe(5000);
+      expect(syncer.getHealthTracker().snapshot(7000).status).toBe('critical');
       store.close();
     } finally {
       vi.useRealTimers();
@@ -503,5 +627,24 @@ describe('syncer - lifecycle', () => {
     expect(scans).toBe(2);
     expect(store.getSyncState().processedThroughSlot).toBe(200);
     store.close();
+  });
+});
+
+describe('describeSyncError', () => {
+  it.each([
+    'failed to fetch https://rpc.example/?api-key=SECRETX1',
+    'fetch failed eth-mainnet.g.alchemy.com/v2/SECRETX1 timed out',
+    '429 from mainnet.helius-rpc.com?api-key=SECRETX1',
+    'bad response {"api-key":"SECRETX1"}',
+    'missing api-key SECRETX1 header',
+    'Authorization: Bearer SECRETX1',
+    'token=SECRETX1 apiKey: SECRETX1',
+  ])('drops credentials from %s', message => {
+    expect(describeSyncError(new Error(message))).not.toContain('SECRETX1');
+  });
+
+  it('keeps the readable part of the reason and truncates long text', () => {
+    expect(describeSyncError(new Error('429 Too Many Requests'))).toBe('429 Too Many Requests');
+    expect(describeSyncError('x'.repeat(500))).toHaveLength(200);
   });
 });

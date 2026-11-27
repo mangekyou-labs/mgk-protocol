@@ -36,7 +36,39 @@ export interface SyncHistoryParams {
   confirmedSlot: number;
   /** Signatures replayed per atomic commit, so progress survives a later failure. */
   segmentSize?: number;
+  /**
+   * Work held from an earlier failed run. When given, listing resumes after its
+   * last listed page and replay continues from its first uncommitted signature;
+   * `cursorSlot`, `untilSignature` and `confirmedSlot` are taken from it.
+   */
+  backlog?: ReplayBacklog | null;
   onFill?: (fill: Record<string, unknown>) => void;
+}
+
+/**
+ * Replay work that survives a failed run, so a retry neither re-lists pages nor
+ * re-fetches committed segments. Held in memory only: a restart lists again from
+ * the persisted cursor.
+ */
+export interface ReplayBacklog {
+  /** `untilSignature` the listing started with. */
+  until: string | null;
+  /** Committed cursor; the backlog is valid only while the store still holds it. */
+  cursorSlot: number;
+  /** Confirmed slot read before the listing began. Kept, so the final commit cannot pass unlisted signatures. */
+  confirmedSlot: number;
+  /** Signatures listed so far, newest first. */
+  listed: ConfirmedSignatureInfo[];
+  /** Pagination point for the next listing page. */
+  before?: string;
+  newestSeen: string | null;
+  listingDone: boolean;
+  /** Uncommitted signatures, oldest first; filled when listing is done. */
+  pending: ConfirmedSignatureInfo[];
+}
+
+export function newBacklog(cursorSlot: number, until: string | null, confirmedSlot: number): ReplayBacklog {
+  return {until, cursorSlot, confirmedSlot, listed: [], newestSeen: null, listingDone: false, pending: []};
 }
 
 export interface SyncHistoryResult {
@@ -45,6 +77,10 @@ export interface SyncHistoryResult {
   fillsInserted: number;
   /** Newest signature known to be replayed (committed or already below the cursor), if any. */
   newestSignature: string | null;
+  /** Highest slot committed by this run, or null if it committed nothing. */
+  committedSlot: number | null;
+  /** Work left after a failure, to pass back on retry; null once caught up. */
+  backlog: ReplayBacklog | null;
   error?: unknown;
 }
 
@@ -81,28 +117,28 @@ export interface DecodedFillItem {
  * Cost: one extra (empty) page per scan that lists new signatures. An idle tick
  * with `until` set is already a single empty page, so it costs nothing extra.
  */
-async function listNewSignatures(
-  connection: Connection, corePk: PublicKey, cursorSlot: number, until: string | null,
-): Promise<{pending: ConfirmedSignatureInfo[]; newestSeen: string | null}> {
-  const newestFirst: ConfirmedSignatureInfo[] = [];
-  let newestSeen: string | null = null;
-  let before: string | undefined;
-  for (;;) {
+async function listNewSignatures(connection: Connection, corePk: PublicKey, backlog: ReplayBacklog): Promise<void> {
+  const {until, cursorSlot} = backlog;
+  // Each page is recorded before the next request, so a failure resumes after it.
+  while (!backlog.listingDone) {
     const page = await connection.getSignaturesForAddress(
-      corePk, {before, until: until ?? undefined, limit: SIGNATURE_PAGE_LIMIT}, 'confirmed');
+      corePk, {before: backlog.before, until: until ?? undefined, limit: SIGNATURE_PAGE_LIMIT}, 'confirmed');
     if (page.length === 0) break;
-    newestSeen ??= page[0]!.signature;
+    backlog.newestSeen ??= page[0]!.signature;
     let reachedCursor = false;
     for (const entry of page) {
       if (until === null && entry.slot <= cursorSlot) { reachedCursor = true; break; }
-      newestFirst.push(entry);
+      backlog.listed.push(entry);
     }
     if (reachedCursor) break;
     const next = page.at(-1)!.signature;
-    if (next === before) throw new Error('Signature history did not progress');
-    before = next;
+    if (next === backlog.before) throw new Error('Signature history did not progress');
+    backlog.before = next;
   }
-  return {pending: newestFirst.reverse(), newestSeen};
+  if (!backlog.listingDone) {
+    backlog.listingDone = true;
+    backlog.pending = backlog.listed.slice().reverse();
+  }
 }
 
 /**
@@ -270,24 +306,28 @@ function commitSegment(
  * segment, so a gap never looks like replayed history.
  */
 export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistoryResult> {
-  const { connection, store, corePk, confirmedSlot, onFill } = params;
+  const { connection, store, corePk, onFill } = params;
   const segmentSize = Math.max(1, params.segmentSize ?? SIGNATURE_PAGE_LIMIT);
-  let cursorSlot = params.cursorSlot;
-  let newestSignature = params.untilSignature ?? null;
+  const backlog = params.backlog ?? newBacklog(params.cursorSlot, params.untilSignature ?? null, params.confirmedSlot);
+  const {confirmedSlot} = backlog;
+  let cursorSlot = backlog.cursorSlot;
+  let newestSignature = params.untilSignature ?? backlog.until;
+  let committedSlot: number | null = null;
   let txsProcessed = 0;
   let fillsInserted = 0;
 
   try {
-    const {pending, newestSeen} = await listNewSignatures(connection, corePk, cursorSlot, params.untilSignature ?? null);
+    await listNewSignatures(connection, corePk, backlog);
+    const {pending} = backlog;
     if (pending.length === 0) {
-      newestSignature = newestSeen ?? newestSignature;
+      newestSignature = backlog.newestSeen ?? newestSignature;
       cursorSlot = Math.max(cursorSlot, confirmedSlot);
       commitSegment(store, [], new Map(), cursorSlot);
-      return {success: true, txsProcessed, fillsInserted, newestSignature};
+      return {success: true, txsProcessed, fillsInserted, newestSignature, committedSlot: cursorSlot, backlog: null};
     }
 
-    for (let start = 0; start < pending.length; start += segmentSize) {
-      const segment = pending.slice(start, start + segmentSize);
+    while (pending.length > 0) {
+      const segment = pending.slice(0, segmentSize);
       const committed = segment.filter(entry => entry.err === null);
       const txs = await mapBounded(committed, TRANSACTION_FETCH_CONCURRENCY, entry => connection.getTransaction(entry.signature, {
         commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
@@ -307,7 +347,7 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
 
       // A slot may straddle segments; only commit through the last complete slot.
       const last = segment.at(-1)!;
-      const following = pending[start + segmentSize];
+      const following = pending[segment.length];
       const throughSlot = following === undefined
         ? Math.max(confirmedSlot, last.slot)
         : following.slot === last.slot ? last.slot - 1 : last.slot;
@@ -315,12 +355,37 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
       fillsInserted += commitSegment(store, fills, blockTimes, cursorSlot, onFill, settled);
       txsProcessed += committed.length;
       newestSignature = last.signature;
+      committedSlot = cursorSlot;
+      pending.splice(0, segment.length);
+      backlog.cursorSlot = cursorSlot;
     }
-    return {success: true, txsProcessed, fillsInserted, newestSignature};
+    return {success: true, txsProcessed, fillsInserted, newestSignature, committedSlot, backlog: null};
   } catch (error) {
-    store.updateSyncError(Date.now());
-    return {success: false, txsProcessed, fillsInserted, newestSignature, error};
+    store.updateSyncError(Date.now(), describeSyncError(error));
+    return {success: false, txsProcessed, fillsInserted, newestSignature, committedSlot, backlog, error};
   }
+}
+
+const SYNC_ERROR_MAX_CHARS = 200;
+
+/**
+ * Short, secret-free failure reason for healthz. RPC errors can echo the endpoint
+ * URL, and provider keys ride in its query string, so URLs and key-like
+ * parameters are dropped before the text is stored or served.
+ */
+export function describeSyncError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const clean = raw
+    // With a scheme, or a bare host followed by a path or query (keys ride in either).
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<url>')
+    .replace(/\b(?:[\w-]+\.)+[a-z]{2,}(?::\d+)?[/?#]\S*/gi, '<url>')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer <redacted>')
+    // `name=value`, `name: value`, JSON `"name":"value"`, and `api-key value`.
+    .replace(/["']?[\w-]*(?:key|token|secret)[\w-]*["']?\s*[=:]\s*["']?[^\s"',;}&]+["']?/gi, '<redacted>')
+    .replace(/\bapi[-_]?key\s+\S+/gi, '<redacted>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length > SYNC_ERROR_MAX_CHARS ? `${clean.slice(0, SYNC_ERROR_MAX_CHARS - 1)}…` : clean;
 }
 
 export interface SyncerConfig {
@@ -335,7 +400,15 @@ export interface SyncerConfig {
   batchPollIntervalMs?: number;
   onFill?: (fill: Record<string, unknown>) => void;
   onBatchEvent?: (event: unknown) => void;
+  /** Signatures replayed per atomic commit (default one listing page). */
+  segmentSize?: number;
+  /** Clock for retry backoff (default Date.now). */
+  now?: () => number;
 }
+
+/** First retry delay after a failed sync; doubles per consecutive failure. */
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 5 * 60_000;
 
 export interface SyncerRuntimeHealth {
   rpcSlot: number | null;
@@ -343,6 +416,7 @@ export interface SyncerRuntimeHealth {
   processedThroughSlot: number | null;
   lastSuccessfulSyncAt: number | null;
   lastSyncErrorAt: number | null;
+  lastSyncError: string | null;
   lastHeartbeat: number | null;
   subscriptions: { core: boolean; matcher: boolean };
   lastBatch: { batchId: number; phase: number; ts: number } | null;
@@ -368,6 +442,8 @@ export function createSyncer(config: SyncerConfig): Syncer {
     batchPollIntervalMs = 15_000,
     onFill,
     onBatchEvent,
+    segmentSize,
+    now = Date.now,
   } = config;
 
   const corePk = new PublicKey(coreProgramId);
@@ -396,12 +472,30 @@ export function createSyncer(config: SyncerConfig): Syncer {
   // Provider retention floor. It rises as the provider prunes, so the cached value
   // is trusted only while fresh and well below the cursor (see retentionCovers).
   let floor: {slot: number; readAt: number} | null = null;
+  // Replay work held across a failed tick (see ReplayBacklog).
+  let backlog: ReplayBacklog | null = null;
+  // Consecutive failed syncs and when scheduled syncs may run again.
+  let failures = 0;
+  let retryAt = 0;
+
+  function recordFailure(message: string): void {
+    store.updateSyncError(Date.now(), message);
+    healthTracker.recordPollFailure();
+    failures++;
+    retryAt = now() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (failures - 1));
+  }
+
+  /** Log- and timer-driven sync; skipped while backing off after a failure. */
+  function scheduledSync(): void {
+    if (now() < retryAt) return;
+    void triggerSync();
+  }
 
   /** Whether the provider still retains `slot`; re-reads the floor when the cache cannot prove it. */
   async function retentionCovers(slot: number): Promise<boolean> {
-    const now = Date.now();
-    const trusted = floor !== null && now - floor.readAt < FLOOR_TTL_MS && slot - floor.slot >= FLOOR_MARGIN_SLOTS;
-    if (!trusted) floor = {slot: await connection.getFirstAvailableBlock(), readAt: now};
+    const readAt = Date.now();
+    const trusted = floor !== null && readAt - floor.readAt < FLOOR_TTL_MS && slot - floor.slot >= FLOOR_MARGIN_SLOTS;
+    if (!trusted) floor = {slot: await connection.getFirstAvailableBlock(), readAt};
     return floor!.slot <= slot;
   }
 
@@ -496,22 +590,28 @@ export function createSyncer(config: SyncerConfig): Syncer {
           rpcSlot = currentConfirmedSlot;
           rpcReachable = true;
           lastHeartbeat = Date.now();
-          healthTracker.recordPollSuccess(currentConfirmedSlot);
-        } catch {
+          // Reachability only: reconciliation is recorded once a sync commits.
+          healthTracker.recordPollSuccess();
+        } catch (error) {
           rpcReachable = false;
-          healthTracker.recordPollFailure();
-          store.updateSyncError(Date.now());
+          recordFailure(describeSyncError(error));
           break;
         }
 
         const committed = store.getSyncState().processedThroughSlot;
         const cursor = committed ?? startSlot - 1;
+        // A persisted cursor is history committed by an earlier run: seed the
+        // tracker with it so a restart reports lag instead of warming.
+        if (committed !== null && healthTracker.getLastReconciledSlot() === null) {
+          healthTracker.recordReconciliation(committed);
+        }
+        // A held backlog is valid only while nothing else moved the cursor.
+        if (backlog !== null && backlog.cursorSlot !== cursor) backlog = null;
 
         // An archival gap must never masquerade as successfully replayed history:
         // the scan's end-of-history proof needs retention down to the cursor.
         if (!await retentionCovers(cursor + 1)) {
-          store.updateSyncError(Date.now());
-          healthTracker.recordPollFailure();
+          recordFailure(`Provider retention no longer covers slot ${cursor + 1}`);
           break;
         }
 
@@ -524,21 +624,26 @@ export function createSyncer(config: SyncerConfig): Syncer {
           cursorSlot: cursor,
           untilSignature: newestSignature,
           confirmedSlot: currentConfirmedSlot,
+          segmentSize,
+          backlog,
           onFill,
         });
         newestSignature = result.newestSignature;
+        backlog = result.backlog;
         lastHeartbeat = Date.now();
+        if (result.committedSlot !== null) healthTracker.recordReconciliation(result.committedSlot);
 
         if (!result.success) {
-          console.error('History replay paused after slot', store.getSyncState().processedThroughSlot ?? cursor, result.error);
-          healthTracker.recordPollFailure();
+          const reason = describeSyncError(result.error);
+          console.error('History replay paused after slot', store.getSyncState().processedThroughSlot ?? cursor, reason);
+          recordFailure(reason);
           break;
         }
-        healthTracker.recordReconciliation(store.getSyncState().processedThroughSlot ?? cursor);
+        failures = 0;
+        retryAt = 0;
       } while (pendingScan);
-    } catch {
-      store.updateSyncError(Date.now());
-      healthTracker.recordPollFailure();
+    } catch (error) {
+      recordFailure(describeSyncError(error));
     } finally {
       inFlight = false;
     }
@@ -554,7 +659,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
           corePk,
           () => {
             // Batch phase changes only through core transactions.
-            void triggerSync();
+            scheduledSync();
             void pollBatchState();
           },
           'confirmed',
@@ -568,7 +673,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
         matcherListenerId = connection.onLogs(
           matcherPk,
           () => {
-            void triggerSync();
+            scheduledSync();
           },
           'confirmed',
         );
@@ -578,9 +683,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
       }
 
       // Fallback poll loop; log notifications drive normal syncs.
-      pollTimer = setInterval(() => {
-        void triggerSync();
-      }, pollIntervalMs);
+      pollTimer = setInterval(scheduledSync, pollIntervalMs);
 
       // Fallback batch poll loop
       batchPollTimer = setInterval(() => {
@@ -633,6 +736,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
         processedThroughSlot: syncState.processedThroughSlot,
         lastSuccessfulSyncAt: syncState.lastSuccessfulSyncAt,
         lastSyncErrorAt: syncState.lastSyncErrorAt,
+        lastSyncError: syncState.lastSyncError,
         lastHeartbeat,
         subscriptions: { ...runtimeSubscriptions },
         lastBatch,

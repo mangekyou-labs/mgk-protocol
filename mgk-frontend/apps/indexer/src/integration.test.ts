@@ -99,6 +99,7 @@ describe('indexer integration', () => {
     expect(body).toHaveProperty('slotLag');
     expect(body).toHaveProperty('lastSuccessfulSyncAt');
     expect(body).toHaveProperty('lastSyncErrorAt');
+    expect(body).toHaveProperty('lastSyncError');
     expect(body).toHaveProperty('subscriptions');
   });
 
@@ -119,6 +120,7 @@ describe('indexer integration', () => {
         processedThroughSlot: 150,
         lastSuccessfulSyncAt: Date.now(),
         lastSyncErrorAt: null,
+        lastSyncError: null,
         lastHeartbeat: Date.now(),
         subscriptions: { core: true, matcher: false },
         lastBatch: { batchId: 2, phase: 3, ts: 1_700_000_180 },

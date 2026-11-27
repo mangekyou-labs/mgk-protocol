@@ -18,6 +18,8 @@ export interface IndexerHealthResponse {
   slotLag: number | null;
   lastSuccessfulSyncAt: number | null;
   lastSyncErrorAt: number | null;
+  /** Sanitized reason for the last failed sync (no URLs or keys); null once a sync commits. */
+  lastSyncError: string | null;
   subscriptions: { core: boolean; matcher: boolean };
   lastBatch: { batchId: number; phase: number; ts: number } | null;
   /** --- NEW fields for T9.10.4 --- */
@@ -40,6 +42,7 @@ export interface HealthCheckParams {
   processedThroughSlot: number | null;
   lastSuccessfulSyncAt: number | null;
   lastSyncErrorAt: number | null;
+  lastSyncError?: string | null;
   subscriptions: { core: boolean; matcher: boolean };
   lastHeartbeat: number | null;
   lastBatch?: { batchId: number; phase: number; ts: number } | null;
@@ -148,6 +151,7 @@ export function formatHealthResponse(params: HealthCheckParams): IndexerHealthRe
     slotLag,
     lastSuccessfulSyncAt: params.lastSuccessfulSyncAt,
     lastSyncErrorAt: params.lastSyncErrorAt,
+    lastSyncError: params.lastSyncError ?? null,
     subscriptions: {
       core: params.subscriptions.core,
       matcher: params.subscriptions.matcher,
@@ -192,6 +196,7 @@ export async function healthRoutes(
       processedThroughSlot: null,
       lastSuccessfulSyncAt: null,
       lastSyncErrorAt: null,
+      lastSyncError: null,
       lastHeartbeat: Date.now(),
       subscriptions: { core: false, matcher: false },
       lastBatch: null,
@@ -202,6 +207,7 @@ export async function healthRoutes(
       processedThroughSlot: runtime.processedThroughSlot,
       lastSuccessfulSyncAt: runtime.lastSuccessfulSyncAt,
       lastSyncErrorAt: runtime.lastSyncErrorAt,
+      lastSyncError: runtime.lastSyncError,
     };
 
     const tracker = options?.tracker;
@@ -214,6 +220,7 @@ export async function healthRoutes(
       processedThroughSlot: syncState.processedThroughSlot,
       lastSuccessfulSyncAt: syncState.lastSuccessfulSyncAt,
       lastSyncErrorAt: syncState.lastSyncErrorAt,
+      lastSyncError: syncState.lastSyncError,
       subscriptions: runtime.subscriptions,
       lastHeartbeat: runtime.lastHeartbeat,
       lastBatch: runtime.lastBatch,
