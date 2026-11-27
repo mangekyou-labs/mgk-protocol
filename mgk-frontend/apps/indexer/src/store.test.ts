@@ -63,6 +63,7 @@ describe('store - multiple fills per transaction', () => {
       processedThroughSlot: null,
       lastSuccessfulSyncAt: null,
       lastSyncErrorAt: null,
+      lastSyncError: null,
       settledThroughBatchId: null,
     });
 
@@ -74,8 +75,9 @@ describe('store - multiple fills per transaction', () => {
     expect(afterFirst.lastSyncErrorAt).toBeNull();
 
     // Record error
-    store.updateSyncError(1700000005000);
+    store.updateSyncError(1700000005000, 'RPC timed out');
     const afterError = store.getSyncState();
+    expect(afterError.lastSyncError).toBe('RPC timed out');
     expect(afterError.processedThroughSlot).toBe(100);
     expect(afterError.lastSuccessfulSyncAt).toBe(1700000000000);
     expect(afterError.lastSyncErrorAt).toBe(1700000005000);
@@ -83,6 +85,8 @@ describe('store - multiple fills per transaction', () => {
     // Update with lower slot does not regress cursor
     store.updateSyncSuccess(90, 1700000010000);
     expect(store.getSyncState().processedThroughSlot).toBe(100);
+    // A committed sync clears the reason.
+    expect(store.getSyncState().lastSyncError).toBeNull();
 
     // Update with higher slot advances cursor
     store.updateSyncSuccess(256, 1700000020000);

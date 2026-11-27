@@ -5,6 +5,8 @@ export interface SyncState {
   processedThroughSlot: number | null;
   lastSuccessfulSyncAt: number | null;
   lastSyncErrorAt: number | null;
+  /** Sanitized reason for the last failed sync; cleared by the next committed sync. */
+  lastSyncError: string | null;
   /**
    * Highest batch id whose settlement the indexer has committed (null until one is
    * seen). Safe-to-close cursor: a batch at or below it can be closed without the
@@ -25,7 +27,7 @@ export interface Store {
   getPortfolio: ReturnType<DB['prepare']>;
   getSyncState: () => SyncState;
   updateSyncSuccess: (slot: number, timestampMs: number, settledBatchId?: bigint) => void;
-  updateSyncError: (timestampMs: number) => void;
+  updateSyncError: (timestampMs: number, message?: string | null) => void;
   setSyncCursor: (slot: number) => void;
   isWritable: () => boolean;
   close: () => void;
@@ -116,7 +118,8 @@ CREATE TABLE IF NOT EXISTS sync_state (
   processed_through_slot INTEGER,
   last_successful_sync_at INTEGER,
   last_sync_error_at INTEGER,
-  settled_through_batch_id INTEGER
+  settled_through_batch_id INTEGER,
+  last_sync_error TEXT
 );
 
 PRAGMA journal_mode = WAL;
@@ -162,6 +165,10 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
   const syncColumns = db.prepare('PRAGMA table_info(sync_state)').all() as {name: string}[];
   if (!syncColumns.some(column => column.name === 'settled_through_batch_id')) {
     db.exec('ALTER TABLE sync_state ADD COLUMN settled_through_batch_id INTEGER');
+  }
+  // Stores created before the failure reason was persisted.
+  if (!syncColumns.some(column => column.name === 'last_sync_error')) {
+    db.exec('ALTER TABLE sync_state ADD COLUMN last_sync_error TEXT');
   }
 
   // Keep the configured SOL market queryable before the first fill. The
@@ -238,7 +245,7 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
   `);
 
   const selectSyncState = db.prepare(`
-    SELECT processed_through_slot, last_successful_sync_at, last_sync_error_at, settled_through_batch_id
+    SELECT processed_through_slot, last_successful_sync_at, last_sync_error_at, settled_through_batch_id, last_sync_error
     FROM sync_state WHERE id = 1
   `);
 
@@ -250,6 +257,7 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
           ELSE processed_through_slot
         END,
         last_successful_sync_at = ?,
+        last_sync_error = NULL,
         settled_through_batch_id = CASE
           WHEN ? IS NULL THEN settled_through_batch_id
           WHEN settled_through_batch_id IS NULL OR ? > settled_through_batch_id THEN ?
@@ -260,7 +268,7 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
 
   const updateErrorStmt = db.prepare(`
     UPDATE sync_state
-    SET last_sync_error_at = ?
+    SET last_sync_error_at = ?, last_sync_error = ?
     WHERE id = 1
   `);
 
@@ -286,11 +294,13 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
         last_successful_sync_at: number | null;
         last_sync_error_at: number | null;
         settled_through_batch_id: number | null;
+        last_sync_error: string | null;
       } | undefined;
       return {
         processedThroughSlot: row?.processed_through_slot ?? null,
         lastSuccessfulSyncAt: row?.last_successful_sync_at ?? null,
         lastSyncErrorAt: row?.last_sync_error_at ?? null,
+        lastSyncError: row?.last_sync_error ?? null,
         settledThroughBatchId: row?.settled_through_batch_id == null ? null : BigInt(row.settled_through_batch_id),
       };
     },
@@ -298,8 +308,8 @@ export function createStore(dbPath = ':memory:', deploymentIdentity?: string): S
       const settled = settledBatchId ?? null;
       updateSuccessStmt.run(slot, slot, slot, timestampMs, settled, settled, settled);
     },
-    updateSyncError: (timestampMs: number) => {
-      updateErrorStmt.run(timestampMs);
+    updateSyncError: (timestampMs: number, message?: string | null) => {
+      updateErrorStmt.run(timestampMs, message ?? null);
     },
     setSyncCursor: (slot: number) => {
       setCursorStmt.run(slot);

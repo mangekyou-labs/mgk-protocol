@@ -13,6 +13,7 @@ import {
   userFillsRoutes,
 } from './rest/routes.js';
 import { healthRoutes } from './rest/health.js';
+import { describeSyncError } from './syncer.js';
 
 const TX_SIG = Buffer.from('test-tx-signature-001', 'utf-8');
 const MAKER = new Uint8Array(32).fill(0xaa);
@@ -99,6 +100,7 @@ describe('indexer integration', () => {
     expect(body).toHaveProperty('slotLag');
     expect(body).toHaveProperty('lastSuccessfulSyncAt');
     expect(body).toHaveProperty('lastSyncErrorAt');
+    expect(body).toHaveProperty('lastSyncError');
     expect(body).toHaveProperty('subscriptions');
   });
 
@@ -119,6 +121,7 @@ describe('indexer integration', () => {
         processedThroughSlot: 150,
         lastSuccessfulSyncAt: Date.now(),
         lastSyncErrorAt: null,
+        lastSyncError: null,
         lastHeartbeat: Date.now(),
         subscriptions: { core: true, matcher: false },
         lastBatch: { batchId: 2, phase: 3, ts: 1_700_000_180 },
@@ -145,6 +148,28 @@ describe('indexer integration', () => {
     expect(serialized).not.toContain('http');
     expect(serialized).not.toContain('keypair');
     expect(serialized).not.toContain('secret');
+    await liveApp.close();
+    healthStore.close();
+  });
+
+  it('GET /api/healthz serves the sanitized sync error and clears it after a committed sync', async () => {
+    const healthStore = createStore(':memory:');
+    const liveApp = Fastify({ logger: false });
+    await liveApp.register(healthRoutes, { store: healthStore });
+    await liveApp.ready();
+    const healthz = async () => JSON.parse((await liveApp.inject({ method: 'GET', url: '/api/healthz' })).body);
+
+    healthStore.updateSyncError(1_700_000_005_000, describeSyncError(
+      new Error('fetch failed for https://rpc.example/?api-key=SECRETX1 (Bearer SECRETX1)'),
+    ));
+    const failed = await healthz();
+    expect(failed.lastSyncErrorAt).toBe(1_700_000_005_000);
+    expect(failed.lastSyncError).toContain('fetch failed');
+    expect(JSON.stringify(failed)).not.toContain('SECRETX1');
+
+    healthStore.updateSyncSuccess(100, 1_700_000_010_000);
+    expect((await healthz()).lastSyncError).toBeNull();
+
     await liveApp.close();
     healthStore.close();
   });
