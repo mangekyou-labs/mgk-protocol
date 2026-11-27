@@ -65,10 +65,17 @@ export interface ReplayBacklog {
   listingDone: boolean;
   /** Uncommitted signatures, oldest first; filled when listing is done. */
   pending: ConfirmedSignatureInfo[];
+  /**
+   * Transactions fetched for the uncommitted segment, by signature. A retry after a
+   * failure (usually a 429) fetches only what is missing instead of the whole segment.
+   */
+  fetched: Map<string, FetchedTransaction>;
 }
 
+type FetchedTransaction = NonNullable<Awaited<ReturnType<Connection['getTransaction']>>>;
+
 export function newBacklog(cursorSlot: number, until: string | null, confirmedSlot: number): ReplayBacklog {
-  return {until, cursorSlot, confirmedSlot, listed: [], newestSeen: null, listingDone: false, pending: []};
+  return {until, cursorSlot, confirmedSlot, listed: [], newestSeen: null, listingDone: false, pending: [], fetched: new Map()};
 }
 
 export interface SyncHistoryResult {
@@ -329,9 +336,16 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
     while (pending.length > 0) {
       const segment = pending.slice(0, segmentSize);
       const committed = segment.filter(entry => entry.err === null);
-      const txs = await mapBounded(committed, TRANSACTION_FETCH_CONCURRENCY, entry => connection.getTransaction(entry.signature, {
-        commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
-      }));
+      const {fetched} = backlog;
+      const txs = await mapBounded(committed, TRANSACTION_FETCH_CONCURRENCY, async entry => {
+        const cached = fetched.get(entry.signature);
+        if (cached) return cached;
+        const tx = await connection.getTransaction(entry.signature, {
+          commitment: 'confirmed', maxSupportedTransactionVersion: 1, ...{encoding: 'json'},
+        });
+        if (tx) fetched.set(entry.signature, tx);
+        return tx;
+      });
 
       const fills: DecodedFillItem[] = [];
       const settled: bigint[] = [];
@@ -357,6 +371,7 @@ export async function syncHistory(params: SyncHistoryParams): Promise<SyncHistor
       newestSignature = last.signature;
       committedSlot = cursorSlot;
       pending.splice(0, segment.length);
+      for (const entry of committed) fetched.delete(entry.signature);
       backlog.cursorSlot = cursorSlot;
     }
     return {success: true, txsProcessed, fillsInserted, newestSignature, committedSlot, backlog: null};
