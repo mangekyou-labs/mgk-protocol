@@ -278,9 +278,26 @@ describe('syncer - resumable replay', () => {
     rpc.state.failTransaction = null;
     rpc.reset();
     await syncer.triggerSync();
-    expect(rpc.calls.getSignaturesForAddress).toBeUndefined();
+    // The held segments are not re-listed; the only listing is the tip rescan after resuming.
+    expect(rpc.calls.getSignaturesForAddress).toBe(1);
+    expect(rpc.state.signatureQueries[0]?.until).toBe('sig-2499');
     expect(rpc.calls.getTransaction).toBe(500);
     expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+
+  it('reaches the current tip in the same trigger after resuming a pre-outage backlog', async () => {
+    const rpc = fakeRpc(ledgerOf(3000), {slot: 5000});
+    let n = 0;
+    rpc.state.failSignatures = () => { if (++n === 2) throw new Error('429 Too Many Requests'); };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+
+    rpc.state.ledger = [...rpc.state.ledger, ...ledgerOf(4, 5100, 'late')];
+    rpc.state.slot = 5200;
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBe(5200);
     store.close();
   });
 
@@ -327,10 +344,11 @@ describe('syncer - resumable replay', () => {
     rpc.state.failSignatures = null;
     t += 20_000;
     onCoreLogs(); await flush();
-    expect(rpc.calls.getSlot).toBe(4);
+    // The resumed sync plus its tip rescan.
+    expect(rpc.calls.getSlot).toBe(5);
     expect(store.getSyncState().processedThroughSlot).toBe(500);
     onCoreLogs(); await flush();
-    expect(rpc.calls.getSlot).toBe(5);
+    expect(rpc.calls.getSlot).toBe(6);
     await syncer.stop();
     store.close();
   });

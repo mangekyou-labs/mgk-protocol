@@ -615,6 +615,7 @@ export function createSyncer(config: SyncerConfig): Syncer {
           break;
         }
 
+        const resumed = backlog !== null;
         const result = await syncHistory({
           connection,
           store,
@@ -641,6 +642,9 @@ export function createSyncer(config: SyncerConfig): Syncer {
         }
         failures = 0;
         retryAt = 0;
+        // A resumed backlog commits only up to the confirmed slot it read before the
+        // failure; rescan now so the cursor reaches the current tip.
+        if (resumed) pendingScan = true;
       } while (pendingScan);
     } catch (error) {
       recordFailure(describeSyncError(error));
