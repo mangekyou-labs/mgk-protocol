@@ -238,7 +238,8 @@ describe('syncer - signature-driven history replay', () => {
     rpc.state.failTransaction = null;
     rpc.reset();
     await syncer.triggerSync();
-    expect(rpc.calls.getTransaction).toBe(500);
+    // Only the part of the failed segment not fetched before the 429 is fetched again.
+    expect(rpc.calls.getTransaction).toBeLessThan(500);
     expect(store.getSyncState().processedThroughSlot).toBe(5000);
     store.close();
   });
@@ -281,7 +282,27 @@ describe('syncer - resumable replay', () => {
     // The held segments are not re-listed; the only listing is the tip rescan after resuming.
     expect(rpc.calls.getSignaturesForAddress).toBe(1);
     expect(rpc.state.signatureQueries[0]?.until).toBe('sig-2499');
-    expect(rpc.calls.getTransaction).toBe(500);
+    // Only the part of the failed segment not fetched before the 429 is fetched again.
+    expect(rpc.calls.getTransaction).toBeLessThan(500);
+    expect(store.getSyncState().processedThroughSlot).toBe(5000);
+    store.close();
+  });
+
+  it('retries a failed segment without re-fetching the transactions it already fetched', async () => {
+    const rpc = fakeRpc(ledgerOf(1000), {slot: 5000});
+    const served = new Set<string>();
+    rpc.state.failTransaction = sig => { if (sig === 'sig-900') throw new Error('429 Too Many Requests'); served.add(sig); return undefined; };
+    const {syncer, store} = syncerFor(rpc);
+    await syncer.triggerSync();
+    expect(store.getSyncState().processedThroughSlot).toBeNull();
+    expect(served.size).toBeGreaterThanOrEqual(900);
+
+    const refetched: string[] = [];
+    rpc.state.failTransaction = sig => { if (served.has(sig)) refetched.push(sig); return undefined; };
+    rpc.reset();
+    await syncer.triggerSync();
+    expect(refetched).toEqual([]);
+    expect(rpc.calls.getTransaction).toBe(1000 - served.size);
     expect(store.getSyncState().processedThroughSlot).toBe(5000);
     store.close();
   });
