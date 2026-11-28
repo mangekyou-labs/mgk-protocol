@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
-import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
+
+/** Status changes on the order of minutes; polling faster only burns indexer bandwidth. */
+const STATUS_POLL_INTERVAL_MS = 15_000;
+
 export interface StatusCheck {
   severity: 'ok' | 'warn' | 'critical';
   available?: boolean;
@@ -95,10 +98,10 @@ export function useProtocolStatus(): ProtocolStatusReading {
       }
     };
     void tick();
-    const handle = setInterval(() => void tick(), TRADE_POLL_INTERVAL_MS);
+    const stop = pollWhileVisible(() => void tick(), STATUS_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(handle);
+      stop();
       controller?.abort();
     };
   }, []);

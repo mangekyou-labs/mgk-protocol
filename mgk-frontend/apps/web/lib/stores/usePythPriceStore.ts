@@ -5,7 +5,7 @@ import type { NormalizedPythPrice } from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { fetchPythLatest } from '@/lib/feeds/pyth';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 
 interface PythFeedState {
   data: NormalizedPythPrice | null;
@@ -34,7 +34,7 @@ interface PollParams {
   timeoutMs?: number;
 }
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: PollParams | null = null;
 let consecutiveFailures = 0;
 
@@ -87,21 +87,21 @@ async function tick(setFeed: PythPriceStore['setFeed'], params: PollParams): Pro
  * pattern from usePortfolioStore / useBatchStore / useBookStore).
  */
 export function startPythPolling(params: PollParams): () => void {
-  if (pollHandle) {
-    clearInterval(pollHandle);
-    pollHandle = null;
+  if (stopPoll) {
+    stopPoll();
+    stopPoll = null;
   }
   currentParams = params;
   consecutiveFailures = 0;
   const setFeed = usePythPriceStore.getState().setFeed;
   void tick(setFeed, params);
-  pollHandle = setInterval(() => {
+  stopPoll = pollWhileVisible(() => {
     if (currentParams) void tick(setFeed, currentParams);
   }, params.intervalMs);
   return () => {
-    if (pollHandle) {
-      clearInterval(pollHandle);
-      pollHandle = null;
+    if (stopPoll) {
+      stopPoll();
+      stopPoll = null;
     }
     currentParams = null;
   };

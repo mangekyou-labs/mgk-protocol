@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 
 export interface MarketState {
   instrument_id: number;
@@ -44,7 +44,7 @@ interface PollParams {
   timeoutMs: number;
 }
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: PollParams | null = null;
 let consecutiveFailures = 0;
 
@@ -106,22 +106,22 @@ export function startMarketStatePolling(
   const params: PollParams = { instrumentId, intervalMs, timeoutMs };
   currentParams = params;
   consecutiveFailures = 0;
-  if (pollHandle != null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
+  if (stopPoll != null) {
+    stopPoll();
+    stopPoll = null;
   }
   return tick().then(() => {
     if (currentParams !== params) return;
-    pollHandle = setInterval(() => {
+    stopPoll = pollWhileVisible(() => {
       void tick();
     }, intervalMs);
   });
 }
 
 export function stopMarketStatePolling(): void {
-  if (pollHandle != null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
+  if (stopPoll != null) {
+    stopPoll();
+    stopPoll = null;
   }
   currentParams = null;
   useMarketStateStore.setState({ isPolling: false });

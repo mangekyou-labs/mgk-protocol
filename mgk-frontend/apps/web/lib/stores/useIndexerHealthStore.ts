@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { config } from '@/lib/config';
+import { pollWhileVisible } from '@/lib/polling';
 
 export type IndexerHealthStatus =
   | 'warming'
@@ -93,7 +94,7 @@ interface PollParams {
   timeoutMs: number;
 }
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: PollParams | null = null;
 let inflightRequest: Promise<IndexerHealthResponse> | null = null;
 
@@ -189,25 +190,25 @@ async function tick(manual = false): Promise<void> {
   }
 }
 
-export function startHealthPolling(intervalMs = 5000, timeoutMs = 4000): Promise<void> {
+export function startHealthPolling(intervalMs = 15_000, timeoutMs = 4000): Promise<void> {
   const params: PollParams = { intervalMs, timeoutMs };
   currentParams = params;
-  if (pollHandle !== null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
+  if (stopPoll !== null) {
+    stopPoll();
+    stopPoll = null;
   }
   return tick().then(() => {
     if (currentParams !== params) return;
-    pollHandle = setInterval(() => {
+    stopPoll = pollWhileVisible(() => {
       void tick();
     }, intervalMs);
   });
 }
 
 export function stopHealthPolling(): void {
-  if (pollHandle !== null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
+  if (stopPoll !== null) {
+    stopPoll();
+    stopPoll = null;
   }
   currentParams = null;
   useIndexerHealthStore.getState().reset();
@@ -216,7 +217,7 @@ export function stopHealthPolling(): void {
 /**
  * React hook: provides the live indexer health state and starts polling if not already running.
  */
-export function useIndexerHealth(intervalMs = 5000, timeoutMs = 4000): IndexerHealthData {
+export function useIndexerHealth(intervalMs = 15_000, timeoutMs = 4000): IndexerHealthData {
   const state = useIndexerHealthStore();
 
   useEffect(() => {
@@ -238,9 +239,9 @@ export function useIndexerHealth(intervalMs = 5000, timeoutMs = 4000): IndexerHe
 }
 
 export function __resetHealthStore(): void {
-  if (pollHandle !== null) {
-    clearInterval(pollHandle);
-    pollHandle = null;
+  if (stopPoll !== null) {
+    stopPoll();
+    stopPoll = null;
   }
   currentParams = null;
   inflightRequest = null;

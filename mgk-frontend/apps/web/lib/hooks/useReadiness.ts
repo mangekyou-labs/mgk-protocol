@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { DEVNET_GENESIS, genesisHash } from '@/lib/genesis';
-import { FAILURE_THRESHOLD, NETWORK_BUSY, friendlyRpcError } from '@/lib/polling';
+import { FAILURE_THRESHOLD, NETWORK_BUSY, friendlyRpcError, pollWhileVisible } from '@/lib/polling';
 import { assertDeployment } from './useSafeTransaction';
 
 /** Below this a wallet cannot pay the signature fee plus a priority fee. */
@@ -50,8 +50,8 @@ export function useReadiness() {
     const requestEpoch = epoch;
     failures.current = 0;
     const timer = setTimeout(() => { void refresh(); }, 0);
-    const interval = setInterval(() => { void refresh(); }, 10000);
-    return () => { requestEpoch.current++; clearTimeout(timer); clearInterval(interval); };
+    const stop = pollWhileVisible(() => { void refresh(); }, 30_000);
+    return () => { requestEpoch.current++; clearTimeout(timer); stop(); };
   }, [refresh]);
   const current = connected && publicKey && state.session === session;
   const shown = current ? state : { walletLamports: null, loading: !!connected, error: null, signingBlockedReason: connected ? 'Checking devnet deployment…' : 'Connect your wallet before signing.' };

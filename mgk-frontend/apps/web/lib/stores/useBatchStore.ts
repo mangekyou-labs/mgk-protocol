@@ -7,7 +7,7 @@ import * as sdk from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 import { resolveOpenBatch, resolveRegistryAddress } from '@/lib/onchainAccounts';
 
 type BatchState = sdk.state.BatchState;
@@ -41,7 +41,7 @@ interface BatchStore {
 // global, and the two-call RPC shape (Registry → Batch) is unique to
 // the batch flow, so we keep two near-identical stores rather than
 // introducing a shared factory.
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: BatchPollParams | null = null;
 let hookConsumerCount = 0;
 let hookParamsKey: string | null = null;
@@ -57,20 +57,20 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   isPolling: false,
 
   startPolling: async (params) => {
-    if (pollHandle) clearInterval(pollHandle);
+    if (stopPoll) stopPoll();
     currentParams = params;
     consecutiveFailures = 0;
     set({ isPolling: true, loading: get().lastFetchedAt === null });
     await get().refresh();
-    pollHandle = setInterval(() => {
+    stopPoll = pollWhileVisible(() => {
       void get().refresh();
     }, params.intervalMs);
   },
 
   stopPolling: () => {
-    if (pollHandle) {
-      clearInterval(pollHandle);
-      pollHandle = null;
+    if (stopPoll) {
+      stopPoll();
+      stopPoll = null;
     }
     currentParams = null;
     set({ isPolling: false });

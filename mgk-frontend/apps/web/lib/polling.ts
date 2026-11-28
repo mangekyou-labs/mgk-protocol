@@ -23,3 +23,25 @@ export function friendlyRpcError(message: string | null | undefined): string | n
   if (!message) return null;
   return TRANSPORT_ERROR.test(message) ? NETWORK_BUSY : message;
 }
+
+/**
+ * Runs `tick` every `intervalMs` while the page is visible. Hidden tabs skip
+ * their ticks (each poll costs indexer bandwidth and RPC credits), and the
+ * tab catches up with one tick as soon as it is shown again. Returns the
+ * cleanup that stops the interval and the listener.
+ */
+export function pollWhileVisible(tick: () => void, intervalMs: number): () => void {
+  // No `document` outside the browser (node tests, SSR): poll unconditionally.
+  const doc = typeof document === 'undefined' ? null : document;
+  const handle = setInterval(() => {
+    if (!doc?.hidden) tick();
+  }, intervalMs);
+  const onVisibility = () => {
+    if (!doc?.hidden) tick();
+  };
+  doc?.addEventListener('visibilitychange', onVisibility);
+  return () => {
+    clearInterval(handle);
+    doc?.removeEventListener('visibilitychange', onVisibility);
+  };
+}

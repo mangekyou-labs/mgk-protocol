@@ -110,13 +110,13 @@ describe('chain derived system status', () => {
       'RPC: reachable',
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(15_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: reachable',
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6000);
+      await vi.advanceTimersByTimeAsync(30_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',
@@ -142,13 +142,13 @@ describe('chain derived system status', () => {
       'RPC: reachable',
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(7000);
+      await vi.advanceTimersByTimeAsync(35_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: reachable',
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15000);
+      await vi.advanceTimersByTimeAsync(15_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',

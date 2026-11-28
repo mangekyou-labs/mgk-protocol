@@ -6,7 +6,7 @@ import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
 import { decodeOrNull } from '@/lib/decode';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
 
 /**
@@ -37,10 +37,10 @@ export function useBatchStatus(
       }
     };
     void tick();
-    const handle = setInterval(() => void tick(), intervalMs);
+    const stop = pollWhileVisible(() => void tick(), intervalMs);
     return () => {
       cancelled = true;
-      clearInterval(handle);
+      stop();
     };
   }, [connection, batchId, intervalMs]);
 
