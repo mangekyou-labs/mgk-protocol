@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
-import { TRADE_POLL_INTERVAL_MS } from '@/lib/protocol';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
+
+/** Status changes on the order of minutes; polling faster only burns indexer bandwidth. */
+const STATUS_POLL_INTERVAL_MS = 8_000;
+/**
+ * After a failure, retry sooner than the interval so a real outage reaches
+ * FAILURE_THRESHOLD in about 12 s instead of three full intervals.
+ */
+const STATUS_RETRY_MS = 2_000;
+
 export interface StatusCheck {
   severity: 'ok' | 'warn' | 'critical';
   available?: boolean;
@@ -39,6 +47,7 @@ export function useProtocolStatus(): ProtocolStatusReading {
     let controller: AbortController | null = null;
     let active = false;
     let failures = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
       if (active) return;
       active = true;
@@ -49,7 +58,11 @@ export function useProtocolStatus(): ProtocolStatusReading {
         if (settled || cancelled) return;
         settled = true;
         failures++;
-        if (failures < FAILURE_THRESHOLD) return;
+        if (failures < FAILURE_THRESHOLD) {
+          clearTimeout(retry);
+          retry = setTimeout(() => void tick(), STATUS_RETRY_MS);
+          return;
+        }
         setReading({
           data: null,
           loading: false,
@@ -95,10 +108,11 @@ export function useProtocolStatus(): ProtocolStatusReading {
       }
     };
     void tick();
-    const handle = setInterval(() => void tick(), TRADE_POLL_INTERVAL_MS);
+    const stop = pollWhileVisible(() => void tick(), STATUS_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(handle);
+      stop();
+      clearTimeout(retry);
       controller?.abort();
     };
   }, []);

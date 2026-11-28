@@ -6,7 +6,7 @@ import * as sdk from '@mgk/sdk';
 
 import { config } from '@/lib/config';
 import { decodeOrNull } from '@/lib/decode';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 import {
   lastClearOf,
   marketExposure,
@@ -145,10 +145,10 @@ export function useMarketBar(
       }
     };
     void tick();
-    const handle = setInterval(() => void tick(), intervalMs);
+    const stop = pollWhileVisible(() => void tick(), intervalMs);
     return () => {
       cancelled = true;
-      clearInterval(handle);
+      stop();
     };
   }, [connection, currentBatchId, intervalMs]);
 

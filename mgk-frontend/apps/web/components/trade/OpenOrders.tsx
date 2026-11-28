@@ -7,7 +7,7 @@ import * as sdk from '@mgk/sdk';
 
 import { useSafeTransaction } from '@/lib/hooks/useSafeTransaction';
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD, friendlyRpcError } from '@/lib/polling';
+import { FAILURE_THRESHOLD, friendlyRpcError, pollWhileVisible } from '@/lib/polling';
 import { NumberDisplay } from '@/components/common/NumberDisplay';
 import { Pill } from '@/components/common/Pill';
 
@@ -30,6 +30,7 @@ export interface OpenOrdersProps {
 }
 
 const CU_LIMIT = 200_000;
+const OPEN_ORDERS_POLL_MS = 5000;
 
 /** CancelResting takes [portfolio, user, book, matcher, registry]. */
 function buildCancelIx(
@@ -106,10 +107,10 @@ export function OpenOrders({ instrumentId, className, onCountChange }: OpenOrder
 
   useEffect(() => {
     const t = setTimeout(() => { void fetchOrders(); }, 0);
-    const interval = setInterval(() => { void fetchOrders(); }, 5000);
+    const stop = pollWhileVisible(() => { void fetchOrders(); }, OPEN_ORDERS_POLL_MS);
     return () => {
       clearTimeout(t);
-      clearInterval(interval);
+      stop();
     };
   }, [fetchOrders]);
 

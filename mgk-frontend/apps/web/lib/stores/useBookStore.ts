@@ -7,7 +7,7 @@ import * as sdk from '@mgk/sdk';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 import { decodeOrNull } from '@/lib/decode';
 
 type BookHeader = sdk.state.BookHeader;
@@ -38,7 +38,7 @@ interface BookStore {
   refresh: () => Promise<void>;
 }
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: BookPollParams | null = null;
 let consecutiveFailures = 0;
 
@@ -52,20 +52,20 @@ export const useBookStore = create<BookStore>((set, get) => ({
   isPolling: false,
 
   startPolling: async (params) => {
-    if (pollHandle) clearInterval(pollHandle);
+    if (stopPoll) stopPoll();
     currentParams = params;
     consecutiveFailures = 0;
     set({ isPolling: true, instrumentId: params.instrumentId, loading: get().lastFetchedAt === null });
     await get().refresh();
-    pollHandle = setInterval(() => {
+    stopPoll = pollWhileVisible(() => {
       void get().refresh();
     }, params.intervalMs);
   },
 
   stopPolling: () => {
-    if (pollHandle) {
-      clearInterval(pollHandle);
-      pollHandle = null;
+    if (stopPoll) {
+      stopPoll();
+      stopPoll = null;
     }
     currentParams = null;
     set({ isPolling: false });

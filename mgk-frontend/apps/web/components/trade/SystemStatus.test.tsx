@@ -109,14 +109,15 @@ describe('chain derived system status', () => {
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: reachable',
     );
+    // First failure at the 8 s tick; two 2 s retries reach the threshold.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: reachable',
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6000);
+      await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',
@@ -141,14 +142,15 @@ describe('chain derived system status', () => {
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: reachable',
     );
+    // Each hung request times out after 4 s: failures at 12 s, 18 s and 24 s.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(7000);
+      await vi.advanceTimersByTimeAsync(20_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: reachable',
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15000);
+      await vi.advanceTimersByTimeAsync(4_000);
     });
     expect(screen.getByTestId('status-rpc')).toHaveTextContent(
       'RPC: unavailable',

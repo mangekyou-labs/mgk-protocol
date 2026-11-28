@@ -5,7 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 
 export interface UserFill {
   /** Solana slot this fill was included in. */
@@ -65,7 +65,7 @@ interface Poller {
   pubkey: string;
   instrumentId: number;
   timeoutMs: number;
-  handle: ReturnType<typeof setInterval> | null;
+  stop: (() => void) | null;
   /** Mounted useMyFills consumers sharing this poller. */
   subscribers: number;
   /** Consecutive failed fetches since the last success. */
@@ -121,7 +121,7 @@ async function tick(key: string, poller: Poller): Promise<void> {
 
 function stopPoller(key: string): void {
   const poller = pollers.get(key);
-  if (poller?.handle != null) clearInterval(poller.handle);
+  poller?.stop?.();
   pollers.delete(key);
   useMyFillsStore.setState((s) => {
     const rest = { ...s.byKey };
@@ -142,19 +142,19 @@ export function startMyFillsPolling(
 ): Promise<void> {
   const key = myFillsKey(pubkey, instrumentId, intervalMs);
   const previous = pollers.get(key);
-  if (previous?.handle != null) clearInterval(previous.handle);
+  previous?.stop?.();
   const poller: Poller = {
     pubkey,
     instrumentId,
     timeoutMs,
-    handle: null,
+    stop: null,
     subscribers: previous?.subscribers ?? 0,
     failures: 0,
   };
   pollers.set(key, poller);
   return tick(key, poller).then(() => {
     if (pollers.get(key) !== poller) return;
-    poller.handle = setInterval(() => {
+    poller.stop = pollWhileVisible(() => {
       void tick(key, poller);
     }, intervalMs);
   });

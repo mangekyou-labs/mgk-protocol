@@ -9,7 +9,7 @@ type PortfolioState = sdk.state.PortfolioState;
 import { create } from 'zustand';
 
 import { config } from '@/lib/config';
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 
 export interface PortfolioPollParams {
   user: PublicKey;
@@ -34,7 +34,7 @@ interface PortfolioStore {
 // by Zustand devtools / persisted to localStorage. The store stays
 // serializable; the closure-based handle is the source of truth for
 // "is polling active right now" from a non-React caller.
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: PortfolioPollParams | null = null;
 let requestId = 0;
 let consecutiveFailures = 0;
@@ -48,7 +48,7 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
   isPolling: false,
 
   startPolling: async (params) => {
-    if (pollHandle) clearInterval(pollHandle);
+    if (stopPoll) stopPoll();
     currentParams = params;
     consecutiveFailures = 0;
     set({ isPolling: true, data: null, error: null, loading: true, lastFetchedAt: null });
@@ -58,15 +58,15 @@ export const usePortfolioStore = create<PortfolioStore>((set, get) => ({
     // concurrently with the initial fetch.
     await get().refresh();
     if (currentParams !== params) return;
-    pollHandle = setInterval(() => {
+    stopPoll = pollWhileVisible(() => {
       void get().refresh();
     }, params.intervalMs);
   },
 
   stopPolling: () => {
-    if (pollHandle) {
-      clearInterval(pollHandle);
-      pollHandle = null;
+    if (stopPoll) {
+      stopPoll();
+      stopPoll = null;
     }
     currentParams = null;
     requestId++;

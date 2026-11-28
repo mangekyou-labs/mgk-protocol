@@ -5,7 +5,7 @@ import { useConnection } from '@solana/wallet-adapter-react';
 import type { Connection } from '@solana/web3.js';
 import { create } from 'zustand';
 
-import { FAILURE_THRESHOLD } from '@/lib/polling';
+import { FAILURE_THRESHOLD, pollWhileVisible } from '@/lib/polling';
 
 export interface SlotPollParams {
   connection: Connection;
@@ -27,7 +27,7 @@ interface SlotStore {
 // `setInterval` handle and the active poll params don't get serialized
 // by Zustand devtools / persisted to localStorage. Mirrors the pattern
 // established by usePortfolioStore (T2.2) and useBatchStore (T2.4).
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+let stopPoll: (() => void) | null = null;
 let currentParams: SlotPollParams | null = null;
 let consecutiveFailures = 0;
 
@@ -39,20 +39,20 @@ export const useSlotStore = create<SlotStore>((set, get) => ({
   isPolling: false,
 
   startPolling: async (params) => {
-    if (pollHandle) clearInterval(pollHandle);
+    if (stopPoll) stopPoll();
     currentParams = params;
     consecutiveFailures = 0;
     set({ isPolling: true, loading: get().lastFetchedAt === null });
     await get().refresh();
-    pollHandle = setInterval(() => {
+    stopPoll = pollWhileVisible(() => {
       void get().refresh();
     }, params.intervalMs);
   },
 
   stopPolling: () => {
-    if (pollHandle) {
-      clearInterval(pollHandle);
-      pollHandle = null;
+    if (stopPoll) {
+      stopPoll();
+      stopPoll = null;
     }
     currentParams = null;
     set({ isPolling: false });

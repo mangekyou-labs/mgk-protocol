@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { friendlyRpcError } from './polling';
+import { friendlyRpcError, pollWhileVisible } from './polling';
 
 describe('friendlyRpcError', () => {
   it.each([
@@ -26,5 +26,61 @@ describe('friendlyRpcError', () => {
   it('returns null when there is no error', () => {
     expect(friendlyRpcError(null)).toBeNull();
     expect(friendlyRpcError('')).toBeNull();
+  });
+});
+
+describe('pollWhileVisible', () => {
+  let hidden = false;
+  const setHidden = (value: boolean) => {
+    hidden = value;
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    hidden = false;
+    vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('ticks on the interval while the tab is visible', () => {
+    const tick = vi.fn();
+    const stop = pollWhileVisible(tick, 1000);
+    vi.advanceTimersByTime(3000);
+    expect(tick).toHaveBeenCalledTimes(3);
+    stop();
+  });
+
+  it('skips ticks while the tab is hidden', () => {
+    const tick = vi.fn();
+    const stop = pollWhileVisible(tick, 1000);
+    setHidden(true);
+    vi.advanceTimersByTime(10_000);
+    expect(tick).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('ticks once as soon as the tab becomes visible again', () => {
+    const tick = vi.fn();
+    const stop = pollWhileVisible(tick, 1000);
+    setHidden(true);
+    vi.advanceTimersByTime(10_000);
+    setHidden(false);
+    expect(tick).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('stops ticking and listening after cleanup', () => {
+    const tick = vi.fn();
+    const stop = pollWhileVisible(tick, 1000);
+    stop();
+    vi.advanceTimersByTime(5000);
+    setHidden(true);
+    setHidden(false);
+    expect(tick).not.toHaveBeenCalled();
   });
 });
